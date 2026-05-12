@@ -1,391 +1,76 @@
-<!DOCTYPE html>
-<html lang="en">
-<head><title>OIDC RBAC</title></head>
-<body>
-    <div id="OidcConfigPage" data-role="page" class="page type-interior pluginConfigurationPage">
-        <div data-role="content">
-            <div class="content-primary">
-                <h2 style="margin-bottom:1em;">OIDC RBAC Configuration</h2>
+<div id="OidcConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
+     data-controller="__plugin/oidcrbacjs">
+    <div data-role="content">
+        <div class="content-primary">
+            <h2 style="margin-bottom:1em;">OIDC RBAC Configuration</h2>
 
-                <div id="statusMessage" style="padding:0.5em 1em;border-radius:4px;margin-bottom:1em;display:none;"></div>
+            <div style="display:flex;gap:0;margin-bottom:1.5em;border-bottom:2px solid #444;">
+                <button type="button" class="oidc-tab" data-tab="providers" style="padding:0.6em 1.5em;cursor:pointer;border:none;background:none;color:#00a4dc;font-size:1em;border-bottom:2px solid #00a4dc;margin-bottom:-2px;">Providers</button>
+                <button type="button" class="oidc-tab" data-tab="roles" style="padding:0.6em 1.5em;cursor:pointer;border:none;background:none;color:#aaa;font-size:1em;border-bottom:2px solid transparent;margin-bottom:-2px;">Role Mappings</button>
+                <button type="button" class="oidc-tab" data-tab="general" style="padding:0.6em 1.5em;cursor:pointer;border:none;background:none;color:#aaa;font-size:1em;border-bottom:2px solid transparent;margin-bottom:-2px;">General</button>
+            </div>
 
-                <div style="display:flex;gap:0;margin-bottom:1.5em;border-bottom:2px solid #444;">
-                    <button type="button" class="oidc-tab raised" data-tab="providers" style="border-bottom:2px solid #00a4dc;color:#00a4dc;">Providers</button>
-                    <button type="button" class="oidc-tab raised" data-tab="roles">Role Mappings</button>
-                    <button type="button" class="oidc-tab raised" data-tab="general">General</button>
+            <div id="tab-providers" class="oidc-tab-content">
+                <div style="margin-bottom:1em;">
+                    <button type="button" id="btnAddProvider" is="emby-button" class="raised">
+                        <span>+ Add Provider</span>
+                    </button>
                 </div>
+                <div id="providerList"></div>
+            </div>
 
-                <div id="tab-providers" class="oidc-tab-content">
-                    <div style="margin-bottom:1em;">
-                        <button type="button" id="btnAddProvider" is="emby-button" class="raised">
-                            <span>+ Add Provider</span>
-                        </button>
-                    </div>
-                    <div id="providerList"></div>
+            <div id="tab-roles" class="oidc-tab-content" style="display:none;">
+                <div style="margin-bottom:1em;">
+                    <button type="button" id="btnAddRoleMapping" is="emby-button" class="raised">
+                        <span>+ Add Role Mapping</span>
+                    </button>
                 </div>
+                <div id="roleMappingList"></div>
+            </div>
 
-                <div id="tab-roles" class="oidc-tab-content" style="display:none;">
-                    <div style="margin-bottom:1em;">
-                        <button type="button" id="btnAddRoleMapping" is="emby-button" class="raised">
-                            <span>+ Add Role Mapping</span>
-                        </button>
-                    </div>
-                    <div id="roleMappingList"></div>
-                </div>
-
-                <div id="tab-general" class="oidc-tab-content" style="display:none;">
-                    <div style="border:1px solid #444;border-radius:8px;padding:1em;background:rgba(255,255,255,0.03);">
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8em;">
-                            <div>
-                                <label class="fieldDescription" for="defaultProvider">Default Provider ID</label>
-                                <input id="defaultProvider" type="text" is="emby-input" placeholder="e.g. keycloak" />
-                            </div>
-                            <div>
-                                <label class="fieldDescription" for="defaultRoleName">Default Role (fallback)</label>
-                                <input id="defaultRoleName" type="text" is="emby-input" placeholder="e.g. viewer" />
-                            </div>
-                            <div style="grid-column:1/-1;">
-                                <label>
-                                    <input type="checkbox" id="autoCreateUsers" is="emby-checkbox" />
-                                    <span>Auto-create users on first OIDC login</span>
-                                </label>
-                            </div>
+            <div id="tab-general" class="oidc-tab-content" style="display:none;">
+                <div style="border:1px solid #444;border-radius:8px;padding:1em;background:rgba(255,255,255,0.03);">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8em;">
+                        <div>
+                            <label class="fieldDescription" for="defaultProvider">Default Provider ID</label>
+                            <input id="defaultProvider" type="text" is="emby-input" placeholder="e.g. keycloak" />
+                        </div>
+                        <div>
+                            <label class="fieldDescription" for="defaultRoleName">Default Role (fallback)</label>
+                            <input id="defaultRoleName" type="text" is="emby-input" placeholder="e.g. viewer" />
+                        </div>
+                        <div style="grid-column:1/-1;">
+                            <label>
+                                <input type="checkbox" id="autoCreateUsers" is="emby-checkbox" />
+                                <span>Auto-create users on first OIDC login</span>
+                            </label>
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <div style="margin-top:2em;">
-                    <button type="button" id="btnSave" is="emby-button" class="raised button-submit block">
-                        <span>Save</span>
-                    </button>
-                </div>
+            <div style="margin-top:2em;">
+                <button type="button" id="btnSave" is="emby-button" class="raised button-submit block">
+                    <span>Save</span>
+                </button>
             </div>
         </div>
-
-        <style>
-            .oidc-tab { padding:0.6em 1.5em; cursor:pointer; border:none; background:none; color:#aaa; font-size:1em; border-bottom:2px solid transparent; margin-bottom:-2px; }
-            .oidc-card { border:1px solid #444; border-radius:8px; padding:1em; margin-bottom:1em; background:rgba(255,255,255,0.03); }
-            .oidc-card h4 { margin-top:0; }
-            .oidc-grid { display:grid; grid-template-columns:1fr 1fr; gap:0.8em; }
-            .oidc-field { display:flex; flex-direction:column; gap:0.3em; }
-            .oidc-field label { font-weight:600; font-size:0.9em; }
-            .oidc-field input, .oidc-field select { padding:0.4em; }
-            .oidc-field.full { grid-column:1/-1; }
-            .oidc-checkbox-row { display:flex; flex-wrap:wrap; gap:1em; margin:0.5em 0; }
-            .oidc-checkbox-row label { display:flex; align-items:center; gap:0.3em; font-weight:normal; }
-            .oidc-library-list { display:flex; flex-wrap:wrap; gap:0.5em; margin-top:0.3em; }
-            .oidc-library-chip { background:#00a4dc33; border:1px solid #00a4dc; border-radius:4px; padding:0.2em 0.6em; display:flex; align-items:center; gap:0.3em; }
-            .oidc-library-chip .remove { cursor:pointer; font-weight:bold; color:#c62828; }
-        </style>
-
-        <script type="text/javascript">
-            var OidcRbacPluginId = 'd4e5f6a7-b8c9-0d1e-2f3a-4b5c6d7e8f90';
-            var OidcRbacConfig = null;
-            var OidcRbacLibraries = {};
-
-            document.querySelector('#OidcConfigPage').addEventListener('pageshow', function () {
-                var page = this;
-                Dashboard.showLoadingMsg();
-
-                loadLibraries(page).then(function () {
-                    return loadConfig(page);
-                }).then(function () {
-                    Dashboard.hideLoadingMsg();
-                }).catch(function (err) {
-                    Dashboard.hideLoadingMsg();
-                    console.error('OIDC RBAC config load error:', err);
-                });
-
-                // Tabs
-                page.querySelectorAll('.oidc-tab').forEach(function (tab) {
-                    tab.addEventListener('click', function () {
-                        page.querySelectorAll('.oidc-tab').forEach(function (t) {
-                            t.style.borderBottomColor = 'transparent';
-                            t.style.color = '#aaa';
-                        });
-                        page.querySelectorAll('.oidc-tab-content').forEach(function (c) {
-                            c.style.display = 'none';
-                        });
-                        tab.style.borderBottomColor = '#00a4dc';
-                        tab.style.color = '#00a4dc';
-                        page.querySelector('#tab-' + tab.getAttribute('data-tab')).style.display = 'block';
-                    });
-                });
-
-                page.querySelector('#btnAddProvider').addEventListener('click', function () {
-                    if (!OidcRbacConfig) return;
-                    OidcRbacConfig.Providers.push({
-                        ProviderId: '', DisplayName: 'New Provider', Authority: '',
-                        ClientId: '', ClientSecret: '', Scopes: 'openid profile email',
-                        RoleClaim: 'groups', UsernameClaim: 'preferred_username',
-                        DisplayNameClaim: 'name', Enabled: true, ButtonColor: '#4285F4',
-                        ButtonIcon: '', AdditionalParameters: ''
-                    });
-                    renderProviders(page);
-                });
-
-                page.querySelector('#btnAddRoleMapping').addEventListener('click', function () {
-                    if (!OidcRbacConfig) return;
-                    OidcRbacConfig.RoleMappings.push({
-                        RoleName: '', Priority: 0, IsAdmin: false, EnableAllLibraries: false,
-                        LibraryIds: [], LibraryNames: [], EnableLiveTv: false,
-                        EnableLiveTvManagement: false, EnableMediaPlayback: true,
-                        EnableRemoteAccess: true, EnableTranscoding: true,
-                        EnableContentDeletion: false, EnableCollectionManagement: false,
-                        EnableSubtitleManagement: false, MaxParentalRating: null
-                    });
-                    renderRoleMappings(page);
-                });
-
-                page.querySelector('#btnSave').addEventListener('click', function () {
-                    saveConfig(page);
-                });
-
-                // Event delegation for dynamic buttons
-                page.querySelector('#providerList').addEventListener('click', function (e) {
-                    var btn = e.target.closest('[data-action]');
-                    if (!btn) return;
-                    if (btn.getAttribute('data-action') === 'remove-provider') {
-                        OidcRbacConfig.Providers.splice(parseInt(btn.getAttribute('data-idx')), 1);
-                        renderProviders(page);
-                    }
-                });
-
-                page.querySelector('#roleMappingList').addEventListener('click', function (e) {
-                    var target = e.target;
-                    if (target.classList.contains('remove')) {
-                        target.parentElement.remove();
-                        return;
-                    }
-                    var btn = target.closest('[data-action]');
-                    if (!btn) return;
-                    var idx = parseInt(btn.getAttribute('data-idx'));
-                    if (btn.getAttribute('data-action') === 'remove-role') {
-                        OidcRbacConfig.RoleMappings.splice(idx, 1);
-                        renderRoleMappings(page);
-                    } else if (btn.getAttribute('data-action') === 'add-lib') {
-                        var sel = page.querySelector('#role_libadd_' + idx);
-                        if (!sel || !sel.value) return;
-                        var cont = page.querySelector('#role_libs_' + idx);
-                        var chips = cont.querySelectorAll('.oidc-library-chip');
-                        for (var i = 0; i < chips.length; i++) {
-                            if (chips[i].getAttribute('data-lib-id') === sel.value) return;
-                        }
-                        addLibChip(cont, sel.value);
-                        sel.value = '';
-                    }
-                });
-            });
-
-            function loadLibraries(page) {
-                return ApiClient.getJSON(ApiClient.getUrl('sso/OIDC/Config/Libraries')).then(function (data) {
-                    OidcRbacLibraries = data || {};
-                }).catch(function () {
-                    OidcRbacLibraries = {};
-                });
-            }
-
-            function loadConfig(page) {
-                return ApiClient.getPluginConfiguration(OidcRbacPluginId).then(function (cfg) {
-                    OidcRbacConfig = cfg;
-                    OidcRbacConfig.Providers = OidcRbacConfig.Providers || [];
-                    OidcRbacConfig.RoleMappings = OidcRbacConfig.RoleMappings || [];
-                    renderProviders(page);
-                    renderRoleMappings(page);
-                    page.querySelector('#defaultProvider').value = OidcRbacConfig.DefaultProvider || '';
-                    page.querySelector('#defaultRoleName').value = OidcRbacConfig.DefaultRoleName || '';
-                    page.querySelector('#autoCreateUsers').checked = OidcRbacConfig.AutoCreateUsers !== false;
-                });
-            }
-
-            function saveConfig(page) {
-                if (!OidcRbacConfig) return;
-                Dashboard.showLoadingMsg();
-
-                OidcRbacConfig.Providers = collectProviders(page);
-                OidcRbacConfig.RoleMappings = collectRoleMappings(page);
-                OidcRbacConfig.DefaultProvider = page.querySelector('#defaultProvider').value;
-                OidcRbacConfig.DefaultRoleName = page.querySelector('#defaultRoleName').value;
-                OidcRbacConfig.AutoCreateUsers = page.querySelector('#autoCreateUsers').checked;
-
-                ApiClient.updatePluginConfiguration(OidcRbacPluginId, OidcRbacConfig).then(function (result) {
-                    Dashboard.processPluginConfigurationUpdateResult(result);
-                    Dashboard.hideLoadingMsg();
-                }).catch(function (err) {
-                    Dashboard.hideLoadingMsg();
-                    Dashboard.alert('Failed to save: ' + (err.message || err));
-                });
-            }
-
-            function renderProviders(page) {
-                var container = page.querySelector('#providerList');
-                container.innerHTML = '';
-                OidcRbacConfig.Providers.forEach(function (p, idx) {
-                    var card = document.createElement('div');
-                    card.className = 'oidc-card';
-                    card.innerHTML = '<h4>' + esc(p.DisplayName || 'New Provider') +
-                        (p.Enabled ? ' <span style="color:#4caf50">&#9679;</span>' : ' <span style="color:#888">&#9679;</span>') +
-                        '</h4>' +
-                        '<div class="oidc-grid">' +
-                        fld('Provider ID', 'text', 'prov_id_' + idx, p.ProviderId, 'Unique identifier (e.g. keycloak)') +
-                        fld('Display Name', 'text', 'prov_name_' + idx, p.DisplayName, 'Shown on login button') +
-                        fld('Authority URL', 'text', 'prov_authority_' + idx, p.Authority, 'https://idp.example.com/realms/myrealm', true) +
-                        fld('Client ID', 'text', 'prov_clientid_' + idx, p.ClientId, '') +
-                        fld('Client Secret', 'password', 'prov_secret_' + idx, p.ClientSecret, '') +
-                        fld('Scopes', 'text', 'prov_scopes_' + idx, p.Scopes || 'openid profile email', '') +
-                        fld('Role Claim Path', 'text', 'prov_roleclaim_' + idx, p.RoleClaim || 'groups', 'e.g. groups or realm_access.roles') +
-                        fld('Username Claim', 'text', 'prov_userclaim_' + idx, p.UsernameClaim || 'preferred_username', '') +
-                        fld('Display Name Claim', 'text', 'prov_displayclaim_' + idx, p.DisplayNameClaim || 'name', '') +
-                        fld('Button Color', 'color', 'prov_color_' + idx, p.ButtonColor || '#4285F4', '') +
-                        fld('Additional Params', 'text', 'prov_params_' + idx, p.AdditionalParameters || '', 'key=val&key2=val2', true) +
-                        '<div class="oidc-field"><label><input type="checkbox" id="prov_enabled_' + idx + '"' +
-                        (p.Enabled !== false ? ' checked' : '') + '/> Enabled</label></div>' +
-                        '</div>' +
-                        '<div style="margin-top:0.5em;">' +
-                        '<button type="button" class="raised" data-action="remove-provider" data-idx="' + idx + '" style="background:#c62828;color:#fff;padding:0.4em 1em;border:none;border-radius:4px;cursor:pointer;">Remove</button>' +
-                        '</div>';
-                    container.appendChild(card);
-                });
-            }
-
-            function renderRoleMappings(page) {
-                var container = page.querySelector('#roleMappingList');
-                container.innerHTML = '';
-                OidcRbacConfig.RoleMappings.forEach(function (m, idx) {
-                    var card = document.createElement('div');
-                    card.className = 'oidc-card';
-                    var libOpts = Object.keys(OidcRbacLibraries).map(function (id) {
-                        return '<option value="' + esc(id) + '">' + esc(OidcRbacLibraries[id]) + '</option>';
-                    }).join('');
-                    var selectedLibs = (m.LibraryIds || []).concat(
-                        (m.LibraryNames || []).map(function (name) {
-                            var f = Object.keys(OidcRbacLibraries).find(function (id) {
-                                return OidcRbacLibraries[id].toLowerCase() === name.toLowerCase();
-                            });
-                            return f || name;
-                        })
-                    );
-                    card.innerHTML = '<h4>Role: ' + esc(m.RoleName || 'New Role') + '</h4>' +
-                        '<div class="oidc-grid">' +
-                        fld('Role Name', 'text', 'role_name_' + idx, m.RoleName, 'Must match IdP role claim value') +
-                        fld('Priority', 'number', 'role_priority_' + idx, m.Priority || 0, 'Higher = takes precedence') +
-                        '</div>' +
-                        '<div class="oidc-checkbox-row">' +
-                        chk('role_admin_' + idx, 'Administrator', m.IsAdmin) +
-                        chk('role_alllibs_' + idx, 'All Libraries', m.EnableAllLibraries) +
-                        chk('role_livetv_' + idx, 'Live TV', m.EnableLiveTv) +
-                        chk('role_livetvmgmt_' + idx, 'Live TV Mgmt', m.EnableLiveTvManagement) +
-                        chk('role_playback_' + idx, 'Playback', m.EnableMediaPlayback !== false) +
-                        chk('role_remote_' + idx, 'Remote Access', m.EnableRemoteAccess !== false) +
-                        chk('role_transcode_' + idx, 'Transcoding', m.EnableTranscoding !== false) +
-                        chk('role_delete_' + idx, 'Delete Content', m.EnableContentDeletion) +
-                        chk('role_collections_' + idx, 'Collections', m.EnableCollectionManagement) +
-                        chk('role_subtitles_' + idx, 'Subtitles', m.EnableSubtitleManagement) +
-                        '</div>' +
-                        '<div class="oidc-field" style="margin-top:0.5em;">' +
-                        '<label>Libraries (when "All Libraries" is unchecked)</label>' +
-                        '<select id="role_libadd_' + idx + '"><option value="">-- Select library --</option>' + libOpts + '</select>' +
-                        '<button type="button" class="raised" style="margin-top:0.3em;width:fit-content;background:#555;color:#fff;padding:0.4em 1em;border:none;border-radius:4px;cursor:pointer;" data-action="add-lib" data-idx="' + idx + '">Add Library</button>' +
-                        '<div id="role_libs_' + idx + '" class="oidc-library-list"></div>' +
-                        '</div>' +
-                        '<div class="oidc-field" style="margin-top:0.5em;">' +
-                        '<label>Max Parental Rating (empty = unrestricted)</label>' +
-                        '<input type="number" id="role_maxrating_' + idx + '" value="' + (m.MaxParentalRating != null ? m.MaxParentalRating : '') + '" />' +
-                        '</div>' +
-                        '<div style="margin-top:0.5em;">' +
-                        '<button type="button" class="raised" data-action="remove-role" data-idx="' + idx + '" style="background:#c62828;color:#fff;padding:0.4em 1em;border:none;border-radius:4px;cursor:pointer;">Remove</button>' +
-                        '</div>';
-                    container.appendChild(card);
-                    var libCont = page.querySelector('#role_libs_' + idx);
-                    selectedLibs.forEach(function (libId) { addLibChip(libCont, libId); });
-                });
-            }
-
-            function collectProviders(page) {
-                var result = [];
-                page.querySelectorAll('#providerList .oidc-card').forEach(function (card, idx) {
-                    result.push({
-                        ProviderId: gval(page, 'prov_id_' + idx),
-                        DisplayName: gval(page, 'prov_name_' + idx),
-                        Authority: gval(page, 'prov_authority_' + idx),
-                        ClientId: gval(page, 'prov_clientid_' + idx),
-                        ClientSecret: gval(page, 'prov_secret_' + idx),
-                        Scopes: gval(page, 'prov_scopes_' + idx),
-                        RoleClaim: gval(page, 'prov_roleclaim_' + idx),
-                        UsernameClaim: gval(page, 'prov_userclaim_' + idx),
-                        DisplayNameClaim: gval(page, 'prov_displayclaim_' + idx),
-                        ButtonColor: gval(page, 'prov_color_' + idx),
-                        AdditionalParameters: gval(page, 'prov_params_' + idx),
-                        Enabled: gchk(page, 'prov_enabled_' + idx),
-                        ButtonIcon: ''
-                    });
-                });
-                return result;
-            }
-
-            function collectRoleMappings(page) {
-                var result = [];
-                page.querySelectorAll('#roleMappingList .oidc-card').forEach(function (card, idx) {
-                    var chips = page.querySelectorAll('#role_libs_' + idx + ' .oidc-library-chip');
-                    var libIds = [];
-                    chips.forEach(function (c) { libIds.push(c.getAttribute('data-lib-id')); });
-                    var mr = gval(page, 'role_maxrating_' + idx);
-                    result.push({
-                        RoleName: gval(page, 'role_name_' + idx),
-                        Priority: parseInt(gval(page, 'role_priority_' + idx)) || 0,
-                        IsAdmin: gchk(page, 'role_admin_' + idx),
-                        EnableAllLibraries: gchk(page, 'role_alllibs_' + idx),
-                        LibraryIds: libIds, LibraryNames: [],
-                        EnableLiveTv: gchk(page, 'role_livetv_' + idx),
-                        EnableLiveTvManagement: gchk(page, 'role_livetvmgmt_' + idx),
-                        EnableMediaPlayback: gchk(page, 'role_playback_' + idx),
-                        EnableRemoteAccess: gchk(page, 'role_remote_' + idx),
-                        EnableTranscoding: gchk(page, 'role_transcode_' + idx),
-                        EnableContentDeletion: gchk(page, 'role_delete_' + idx),
-                        EnableCollectionManagement: gchk(page, 'role_collections_' + idx),
-                        EnableSubtitleManagement: gchk(page, 'role_subtitles_' + idx),
-                        MaxParentalRating: mr ? parseInt(mr) : null
-                    });
-                });
-                return result;
-            }
-
-            function addLibChip(container, libId) {
-                var chip = document.createElement('span');
-                chip.className = 'oidc-library-chip';
-                chip.setAttribute('data-lib-id', libId);
-                chip.innerHTML = esc(OidcRbacLibraries[libId] || libId) + ' <span class="remove">&times;</span>';
-                container.appendChild(chip);
-            }
-
-            function fld(label, type, id, value, placeholder, full) {
-                return '<div class="oidc-field' + (full ? ' full' : '') + '">' +
-                    '<label for="' + id + '">' + esc(label) + '</label>' +
-                    '<input type="' + type + '" id="' + id + '" value="' + esc(String(value || '')) + '"' +
-                    (placeholder ? ' placeholder="' + esc(placeholder) + '"' : '') + ' />' +
-                    '</div>';
-            }
-
-            function chk(id, label, checked) {
-                return '<label><input type="checkbox" id="' + id + '"' + (checked ? ' checked' : '') + ' /> ' + esc(label) + '</label>';
-            }
-
-            function esc(str) {
-                var d = document.createElement('div');
-                d.textContent = str;
-                return d.innerHTML;
-            }
-
-            function gval(page, id) {
-                var el = page.querySelector('#' + id);
-                return el ? el.value : '';
-            }
-
-            function gchk(page, id) {
-                var el = page.querySelector('#' + id);
-                return el ? el.checked : false;
-            }
-        </script>
     </div>
-</body>
-</html>
+
+    <style>
+        .oidc-card { border:1px solid #444; border-radius:8px; padding:1em; margin-bottom:1em; background:rgba(255,255,255,0.03); }
+        .oidc-card h4 { margin-top:0; }
+        .oidc-grid { display:grid; grid-template-columns:1fr 1fr; gap:0.8em; }
+        .oidc-field { display:flex; flex-direction:column; gap:0.3em; }
+        .oidc-field label { font-weight:600; font-size:0.9em; }
+        .oidc-field input, .oidc-field select { padding:0.4em; }
+        .oidc-field.full { grid-column:1/-1; }
+        .oidc-checkbox-row { display:flex; flex-wrap:wrap; gap:1em; margin:0.5em 0; }
+        .oidc-checkbox-row label { display:flex; align-items:center; gap:0.3em; font-weight:normal; }
+        .oidc-library-list { display:flex; flex-wrap:wrap; gap:0.5em; margin-top:0.3em; }
+        .oidc-library-chip { background:#00a4dc33; border:1px solid #00a4dc; border-radius:4px; padding:0.2em 0.6em; display:flex; align-items:center; gap:0.3em; }
+        .oidc-library-chip .remove { cursor:pointer; font-weight:bold; color:#c62828; }
+        .oidc-btn-remove { background:#c62828;color:#fff;padding:0.4em 1em;border:none;border-radius:4px;cursor:pointer; }
+        .oidc-btn-secondary { background:#555;color:#fff;padding:0.4em 1em;border:none;border-radius:4px;cursor:pointer; }
+    </style>
+</div>

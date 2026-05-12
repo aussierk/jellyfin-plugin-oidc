@@ -27,6 +27,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Configuration\configPage.html" />
+    <EmbeddedResource Include="Configuration\oidcrbac.js" />
   </ItemGroup>
 
   <ItemGroup>

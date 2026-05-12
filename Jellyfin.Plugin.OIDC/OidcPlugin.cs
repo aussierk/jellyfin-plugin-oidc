@@ -26,12 +26,18 @@ public class OidcPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public IEnumerable<PluginPageInfo> GetPages()
     {
+        var ns = GetType().Namespace;
         return new[]
         {
             new PluginPageInfo
             {
                 Name = Name,
-                EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html"
+                EmbeddedResourcePath = $"{ns}.Configuration.configPage.html"
+            },
+            new PluginPageInfo
+            {
+                Name = "oidcrbacjs",
+                EmbeddedResourcePath = $"{ns}.Configuration.oidcrbac.js"
             }
         };
     }
