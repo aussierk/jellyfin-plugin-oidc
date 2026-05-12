@@ -7,7 +7,7 @@
   "category": "Authentication",
   "versions": [
     {
-      "version": "1.0.0.0",
+      "version": "1.0.0.1",
       "changelog": "Initial release: OIDC auth with PKCE, role-based library access, multi-provider, admin UI",
       "targetAbi": "10.11.0.0",
       "sourceUrl": "",
