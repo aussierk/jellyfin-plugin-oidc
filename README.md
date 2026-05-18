@@ -18,13 +18,16 @@ Authenticate users via any OIDC-compatible identity provider (Authentik, Keycloa
 
 ## Installation
 
+### Quick install — add this repository to Jellyfin
+
+```
+https://raw.githubusercontent.com/Ezeqielle/jellyfin-plugin-oidc/main/manifest.json
+```
+
 ### From the Jellyfin Plugin Catalog
 
 1. Go to **Admin Dashboard > Plugins > Repositories**
-2. Add a new repository:
-   ```
-   https://raw.githubusercontent.com/Ezeqielle/jellyfin-plugin-oidc/main/manifest.json
-   ```
+2. Click **Add repository** and paste the URL above (Repository Name: `OIDC RBAC`)
 3. Go to **Catalog > Authentication**
 4. Install **OIDC RBAC**
 5. Restart Jellyfin
@@ -87,6 +90,10 @@ Go to **Admin Dashboard > General > Branding > Login disclaimer** and paste:
 ```
 
 Or call `GET /sso/OIDC/BrandingSnippet` for the snippet.
+
+## Migrating Existing Users
+
+Already have Jellyfin users you want to move to SSO without losing watch history? See [MIGRATION.md](MIGRATION.md) — username-match is automatic, but there are a few caveats around permissions overwrite and password fallback.
 
 ## How It Works
 
