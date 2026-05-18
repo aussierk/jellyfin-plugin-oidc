@@ -86,10 +86,12 @@ Go to **Role Mappings tab** and create mappings:
 Go to **Admin Dashboard > General > Branding > Login disclaimer** and paste:
 
 ```html
-<script src="/sso/OIDC/LoginButtons"></script>
+<a href="/sso/OIDC/Start/authentik"
+   class="raised block emby-button button-submit"
+   style="display:block;margin:1em 0;padding:.9em;text-align:center;text-decoration:none;">
+  Sign in with Authentik
+</a>
 ```
-
-Or call `GET /sso/OIDC/BrandingSnippet` for the snippet.
 
 ## Migrating Existing Users
 
