@@ -1,5 +1,8 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
+using System.Threading.Tasks;
+using IdentityModel.Client;
 using Jellyfin.Plugin.OIDC.Services;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
@@ -13,10 +16,12 @@ namespace Jellyfin.Plugin.OIDC.Api;
 public class ConfigController : ControllerBase
 {
     private readonly RbacService _rbacService;
+    private readonly IHttpClientFactory _httpClientFactory;
 
-    public ConfigController(RbacService rbacService)
+    public ConfigController(RbacService rbacService, IHttpClientFactory httpClientFactory)
     {
         _rbacService = rbacService;
+        _httpClientFactory = httpClientFactory;
     }
 
     [HttpGet("Libraries")]
@@ -38,4 +43,59 @@ public class ConfigController : ControllerBase
                                ?? new List<string>()
         });
     }
+
+    [HttpPost("TestProvider")]
+    public async Task<ActionResult> TestProvider([FromBody] ProviderTestRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Authority))
+        {
+            return Ok(new { Success = false, Error = "Authority URL is required" });
+        }
+
+        var httpClient = _httpClientFactory.CreateClient("OidcPlugin");
+        var disco = await httpClient.GetDiscoveryDocumentAsync(new DiscoveryDocumentRequest
+        {
+            Address = request.Authority,
+            Policy = new DiscoveryPolicy
+            {
+                ValidateIssuerName = true,
+                ValidateEndpoints = false
+            }
+        }).ConfigureAwait(false);
+
+        if (disco.IsError)
+        {
+            return Ok(new
+            {
+                Success = false,
+                Error = disco.Error,
+                ErrorType = disco.ErrorType.ToString()
+            });
+        }
+
+        var requestedScopes = (request.Scopes ?? string.Empty)
+            .Split(' ', System.StringSplitOptions.RemoveEmptyEntries);
+        var supportedScopes = disco.ScopesSupported?.ToList() ?? new List<string>();
+        var unsupportedScopes = supportedScopes.Count == 0
+            ? new List<string>()
+            : requestedScopes.Where(s => !supportedScopes.Contains(s)).ToList();
+
+        return Ok(new
+        {
+            Success = true,
+            Issuer = disco.Issuer,
+            AuthorizationEndpoint = disco.AuthorizeEndpoint,
+            TokenEndpoint = disco.TokenEndpoint,
+            UserInfoEndpoint = disco.UserInfoEndpoint,
+            JwksUri = disco.JwksUri,
+            ScopesSupported = supportedScopes,
+            UnsupportedRequestedScopes = unsupportedScopes
+        });
+    }
+}
+
+public class ProviderTestRequest
+{
+    public string Authority { get; set; } = string.Empty;
+    public string? Scopes { get; set; }
 }

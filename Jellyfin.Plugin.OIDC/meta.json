@@ -7,11 +7,11 @@
   "category": "Authentication",
   "versions": [
     {
-      "version": "1.0.0.1",
-      "changelog": "Initial release: OIDC auth with PKCE, role-based library access, multi-provider, admin UI",
+      "version": "1.0.1",
+      "changelog": "Fix Authentik discovery (relax endpoint validation); add Test Connection button on provider cards",
       "targetAbi": "10.11.0.0",
       "sourceUrl": "",
-      "timestamp": "2026-05-12T00:00:00Z"
+      "timestamp": "2026-05-18T00:00:00Z"
     }
   ],
   "status": "Active"

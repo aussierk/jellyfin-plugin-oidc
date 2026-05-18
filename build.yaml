@@ -1,6 +1,6 @@
 name: "OIDC RBAC"
 guid: "d4e5f6a7-b8c9-0d1e-2f3a-4b5c6d7e8f90"
-version: "1.0.0.1"
+version: "1.0.1"
 targetAbi: "10.11.0.0"
 framework: "net9.0"
 owner: "Ezeqielle"

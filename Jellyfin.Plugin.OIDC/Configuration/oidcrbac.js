@@ -62,8 +62,10 @@ function renderProviders(view) {
             '<div class="oidc-field"><label><input type="checkbox" id="prov_enabled_' + idx + '"' +
             (p.Enabled !== false ? ' checked' : '') + '/> Enabled</label></div>' +
             '</div>' +
-            '<div style="margin-top:0.5em;">' +
+            '<div style="margin-top:0.5em;display:flex;gap:0.5em;align-items:center;">' +
+            '<button type="button" class="oidc-btn-secondary" data-action="test-provider" data-idx="' + idx + '">Test Connection</button>' +
             '<button type="button" class="oidc-btn-remove" data-action="remove-provider" data-idx="' + idx + '">Remove</button>' +
+            '<span class="oidc-test-result" data-idx="' + idx + '" style="font-size:0.9em;"></span>' +
             '</div>';
         container.appendChild(card);
     });
@@ -119,6 +121,55 @@ function renderRoleMappings(view) {
         container.appendChild(card);
         var libCont = view.querySelector('#role_libs_' + idx);
         selectedLibs.forEach(function (libId) { addLibChip(libCont, libId); });
+    });
+}
+
+function testProvider(view, idx) {
+    var authority = gval(view, 'prov_authority_' + idx);
+    var scopes = gval(view, 'prov_scopes_' + idx);
+    var resultEl = view.querySelector('.oidc-test-result[data-idx="' + idx + '"]');
+    if (!authority) {
+        if (resultEl) { resultEl.style.color = '#c62828'; resultEl.textContent = 'Authority URL is required'; }
+        return;
+    }
+    if (resultEl) { resultEl.style.color = '#888'; resultEl.textContent = 'Testing...'; }
+
+    ApiClient.ajax({
+        type: 'POST',
+        url: ApiClient.getUrl('sso/OIDC/Config/TestProvider'),
+        data: JSON.stringify({ Authority: authority, Scopes: scopes }),
+        contentType: 'application/json',
+        dataType: 'json'
+    }).then(function (result) {
+        if (result.Success) {
+            if (resultEl) {
+                resultEl.style.color = '#4caf50';
+                var msg = 'OK — issuer ' + result.Issuer;
+                if (result.UnsupportedRequestedScopes && result.UnsupportedRequestedScopes.length > 0) {
+                    msg += ' (warning: scopes not advertised: ' + result.UnsupportedRequestedScopes.join(', ') + ')';
+                    resultEl.style.color = '#ff9800';
+                }
+                resultEl.textContent = msg;
+            }
+            Dashboard.alert({
+                title: 'Provider OK',
+                message:
+                    'Issuer: ' + result.Issuer + '\n' +
+                    'Authorize: ' + result.AuthorizationEndpoint + '\n' +
+                    'Token: ' + result.TokenEndpoint + '\n' +
+                    (result.UserInfoEndpoint ? 'UserInfo: ' + result.UserInfoEndpoint + '\n' : '') +
+                    (result.UnsupportedRequestedScopes && result.UnsupportedRequestedScopes.length > 0
+                        ? '\nWarning: these requested scopes are not in scopes_supported:\n  ' + result.UnsupportedRequestedScopes.join(', ')
+                        : '')
+            });
+        } else {
+            if (resultEl) { resultEl.style.color = '#c62828'; resultEl.textContent = 'Failed: ' + result.Error; }
+            Dashboard.alert({ title: 'Provider test failed', message: result.Error || 'Unknown error' });
+        }
+    }).catch(function (err) {
+        var msg = (err && (err.statusText || err.message)) || 'Network error';
+        if (resultEl) { resultEl.style.color = '#c62828'; resultEl.textContent = 'Failed: ' + msg; }
+        Dashboard.alert({ title: 'Provider test failed', message: msg });
     });
 }
 
@@ -262,9 +313,12 @@ export default function (view) {
     view.querySelector('#providerList').addEventListener('click', function (e) {
         var btn = e.target.closest('[data-action]');
         if (!btn) return;
+        var idx = parseInt(btn.getAttribute('data-idx'));
         if (btn.getAttribute('data-action') === 'remove-provider') {
-            cfg.Providers.splice(parseInt(btn.getAttribute('data-idx')), 1);
+            cfg.Providers.splice(idx, 1);
             renderProviders(view);
+        } else if (btn.getAttribute('data-action') === 'test-provider') {
+            testProvider(view, idx);
         }
     });
 
