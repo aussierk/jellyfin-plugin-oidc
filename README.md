@@ -114,7 +114,7 @@ Browser                    Jellyfin Plugin              Identity Provider
    |                            |                            |
    |                            |--- sync user + RBAC        |
    |                            |--- issue Jellyfin session  |
-   |<--- authenticated --------|                            |
+   |<--- authenticated ---------|                            |
 ```
 
 1. User clicks the SSO login button on the Jellyfin login page
