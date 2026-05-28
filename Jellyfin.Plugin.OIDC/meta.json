@@ -7,11 +7,11 @@
   "category": "Authentication",
   "versions": [
     {
-      "version": "1.0.1.0",
-      "changelog": "Fix Authentik discovery (relax endpoint validation); add Test Connection button on provider cards",
+      "version": "1.0.2.0",
+      "changelog": "Fix OidcAuthProvider not registered with Jellyfin DI; fix new user creation crashing on ChangePassword; fix MaxParentalRating defaulting to 0; fix credential storage missing ServerId",
       "targetAbi": "10.11.0.0",
       "sourceUrl": "",
-      "timestamp": "2026-05-18T00:00:00Z"
+      "timestamp": "2026-05-28T00:00:00Z"
     }
   ],
   "status": "Active"
