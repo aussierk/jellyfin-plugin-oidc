@@ -23,7 +23,13 @@ public class UserSyncService
         _logger = logger;
     }
 
-    public async Task<Guid> SyncUserAsync(string username, string? displayName, string[] roles)
+    /// <summary>
+    /// Ensures the Jellyfin user exists and is up-to-date with the OIDC identity.
+    /// Creates the user if auto-creation is enabled and the account does not exist.
+    /// Also serves as the migration path for existing local users moving to SSO:
+    /// the AuthenticationProviderId is updated to OidcAuthProvider on first SSO login.
+    /// </summary>
+    public async Task<Guid> SyncUserAsync(string username, string? displayName)
     {
         var user = _userManager.GetUserByName(username);
 
@@ -37,23 +43,37 @@ public class UserSyncService
             }
 
             user = await _userManager.CreateUserAsync(username).ConfigureAwait(false);
-            user.AuthenticationProviderId = typeof(Auth.OidcAuthProvider).FullName!;
-
             _logger.LogInformation("Created new OIDC user: {Username}", username);
         }
 
-        if (!string.IsNullOrWhiteSpace(displayName))
+        var oidcProviderId = typeof(Auth.OidcAuthProvider).FullName!;
+        if (!string.Equals(user.AuthenticationProviderId, oidcProviderId, StringComparison.Ordinal))
         {
-            // Only update if the display name is not already set or is different
-            // The User entity doesn't expose DisplayName directly; it's part of the DTO
-            // We skip display name update here as it requires additional API surface
+            var config = OidcPlugin.Instance?.Configuration;
+            if (config?.MigrateLocalUsers == true)
+            {
+                _logger.LogInformation(
+                    "Migrating user {Username} from {OldProvider} to OidcAuthProvider",
+                    username, user.AuthenticationProviderId ?? "none");
+                user.AuthenticationProviderId = oidcProviderId;
+            }
+            else
+            {
+                _logger.LogDebug(
+                    "User {Username} has provider {Provider}; migration disabled — skipping",
+                    username, user.AuthenticationProviderId ?? "none");
+            }
         }
 
         user.SetPermission(PermissionKind.IsDisabled, false);
-
         await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
-        await _rbacService.ApplyRoleMappingsAsync(user.Id, roles).ConfigureAwait(false);
+
+        _logger.LogDebug("Synced OIDC user: username={Username}, displayName={DisplayName}",
+            username, displayName ?? "(none)");
 
         return user.Id;
     }
+
+    public Task ApplyRolesAsync(Guid userId, string[] roles)
+        => _rbacService.ApplyRoleMappingsAsync(userId, roles);
 }

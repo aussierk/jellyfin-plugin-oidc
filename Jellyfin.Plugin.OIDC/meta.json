@@ -7,8 +7,8 @@
   "category": "Authentication",
   "versions": [
     {
-      "version": "1.0.2.0",
-      "changelog": "Fix OidcAuthProvider not registered with Jellyfin DI; fix new user creation crashing on ChangePassword; fix MaxParentalRating defaulting to 0; fix credential storage missing ServerId",
+      "version": "1.0.3.0",
+      "changelog": "Fix admin/RBAC permissions not persisting: apply role mappings after AuthenticateDirect so Jellyfin cannot overwrite them; add post-update verification with retry",
       "targetAbi": "10.11.0.0",
       "sourceUrl": "",
       "timestamp": "2026-05-28T00:00:00Z"

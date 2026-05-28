@@ -26,7 +26,7 @@ public class LoginButtonController : ControllerBase
         var sb = new StringBuilder();
         sb.AppendLine("(function() {");
         sb.AppendLine("  function addButtons() {");
-        sb.AppendLine("    var form = document.querySelector('.manualLoginForm, #loginPage form, [data-role=\"page\"] form');");
+        sb.AppendLine("    var form = document.querySelector('.manualLoginForm, #loginPage form, .loginPage form, [data-page=\"loginPage\"] form, form[action*=\"login\"], #loginPage .padded-left form');");
         sb.AppendLine("    if (!form || document.getElementById('oidc-sso-buttons')) return;");
         sb.AppendLine("    var container = document.createElement('div');");
         sb.AppendLine("    container.id = 'oidc-sso-buttons';");
@@ -60,7 +60,26 @@ public class LoginButtonController : ControllerBase
     [HttpGet("BrandingSnippet")]
     public ActionResult GetBrandingSnippet()
     {
-        var snippet = "<script src=\"/sso/OIDC/LoginButtons\"></script>";
-        return Ok(new { Html = snippet, Instructions = "Add this to Jellyfin Dashboard > General > Custom CSS/HTML, or paste the <script> tag into the Login Disclaimer field under Branding." });
+        var config = OidcPlugin.Instance?.Configuration;
+        var providers = config?.Providers.Where(p => p.Enabled).ToList()
+                        ?? new System.Collections.Generic.List<Configuration.OidcProviderConfig>();
+
+        if (providers.Count == 0)
+        {
+            return Ok(new { Html = "", Instructions = "No enabled providers configured." });
+        }
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<div style=\"margin:1em 0;text-align:center;\">");
+        foreach (var p in providers)
+        {
+            var name = System.Net.WebUtility.HtmlEncode(p.DisplayName);
+            var color = System.Net.WebUtility.HtmlEncode(p.ButtonColor);
+            sb.Append($"<a href=\"/sso/OIDC/Start/{p.ProviderId}\" style=\"display:block;margin:0.5em auto;padding:0.7em 1.5em;background:{color};color:#fff;text-decoration:none;border-radius:4px;font-size:1em;max-width:300px;\">{name}</a>");
+        }
+        sb.Append("<div style=\"margin:1em 0;color:#888;\">— or sign in with password —</div>");
+        sb.Append("</div>");
+
+        return Ok(new { Html = sb.ToString(), Instructions = "Paste the Html value into Jellyfin Dashboard > General > Branding > Login Disclaimer and save." });
     }
 }

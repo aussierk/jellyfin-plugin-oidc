@@ -45,6 +45,15 @@
                                 <span>Auto-create users on first OIDC login</span>
                             </label>
                         </div>
+                        <div style="grid-column:1/-1;">
+                            <label>
+                                <input type="checkbox" id="migrateLocalUsers" is="emby-checkbox" />
+                                <span>Migrate local users to SSO on first OIDC login</span>
+                            </label>
+                            <p class="fieldDescription" style="margin:0.3em 0 0 1.5em;font-size:0.85em;color:#aaa;">
+                                When enabled, existing local Jellyfin accounts that log in via OIDC will have their authentication provider switched to SSO automatically. Leave off if you want users to opt in manually.
+                            </p>
+                        </div>
                     </div>
                 </div>
             </div>

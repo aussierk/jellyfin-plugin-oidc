@@ -241,6 +241,7 @@ export default function (view) {
             view.querySelector('#defaultProvider').value = cfg.DefaultProvider || '';
             view.querySelector('#defaultRoleName').value = cfg.DefaultRoleName || '';
             view.querySelector('#autoCreateUsers').checked = cfg.AutoCreateUsers !== false;
+            view.querySelector('#migrateLocalUsers').checked = cfg.MigrateLocalUsers === true;
             Dashboard.hideLoadingMsg();
         }).catch(function (err) {
             Dashboard.hideLoadingMsg();
@@ -300,6 +301,7 @@ export default function (view) {
         cfg.DefaultProvider = gval(view, 'defaultProvider');
         cfg.DefaultRoleName = gval(view, 'defaultRoleName');
         cfg.AutoCreateUsers = gchk(view, 'autoCreateUsers');
+        cfg.MigrateLocalUsers = gchk(view, 'migrateLocalUsers');
         ApiClient.updatePluginConfiguration(pluginId, cfg).then(function (result) {
             Dashboard.processPluginConfigurationUpdateResult(result);
             Dashboard.hideLoadingMsg();

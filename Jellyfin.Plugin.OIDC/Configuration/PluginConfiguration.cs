@@ -13,6 +13,13 @@ public class PluginConfiguration : BasePluginConfiguration
 
     public bool AutoCreateUsers { get; set; } = true;
 
+    /// <summary>
+    /// When true, existing local Jellyfin users who log in via OIDC will have their
+    /// AuthenticationProviderId updated to OidcAuthProvider, migrating them to SSO.
+    /// Defaults to false — opt-in only.
+    /// </summary>
+    public bool MigrateLocalUsers { get; set; } = false;
+
     public string DefaultRoleName { get; set; } = string.Empty;
 }
 
