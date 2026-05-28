@@ -4,15 +4,15 @@
     "name": "OIDC RBAC",
     "description": "Advanced OIDC authentication with role-based library access control",
     "overview": "OpenID Connect SSO with role-to-library mapping, multi-provider support, and admin UI.",
-    "owner": "Ezeqielle",
+    "owner": "aussierk",
     "category": "Authentication",
     "versions": [
       {
         "version": "1.0.2.0",
         "changelog": "Fix OidcAuthProvider not registered with Jellyfin DI; fix new user creation crashing on ChangePassword; fix MaxParentalRating defaulting to 0; fix credential storage missing ServerId",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "",
-        "checksum": "",
+        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.2/oidc-rbac.zip",
+        "checksum": "ce930774777f3b89209879d91b20c13f",
         "timestamp": "2026-05-28T00:00:00Z"
       },
       {

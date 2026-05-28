@@ -37,8 +37,8 @@ cat > "$REPO_DIR/manifest.json" <<EOF
     "category": "Authentication",
     "versions": [
       {
-        "version": "1.0.0.0",
-        "changelog": "Initial release: OIDC auth with PKCE, role-based library access, multi-provider, admin UI",
+        "version": "1.0.2.0",
+        "changelog": "Fix OidcAuthProvider not registered with Jellyfin DI; fix new user creation crashing on ChangePassword; fix MaxParentalRating defaulting to 0; fix credential storage missing ServerId",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "$SOURCE_URL",
         "checksum": "$CHECKSUM",
