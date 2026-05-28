@@ -39,6 +39,9 @@ public class UserSyncService
             user = await _userManager.CreateUserAsync(username).ConfigureAwait(false);
             user.AuthenticationProviderId = typeof(Auth.OidcAuthProvider).FullName!;
 
+            var randomPassword = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+            await _userManager.ChangePasswordAsync(user, randomPassword).ConfigureAwait(false);
+
             _logger.LogInformation("Created new OIDC user: {Username}", username);
         }
 
