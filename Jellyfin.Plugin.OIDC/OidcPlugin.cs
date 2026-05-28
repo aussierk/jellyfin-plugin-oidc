@@ -18,7 +18,7 @@ public class OidcPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public static OidcPlugin? Instance { get; private set; }
 
-    public override string Name => "OIDC RBAC";
+    public override string Name => "SSO-OIDC RBAC";
 
     public override Guid Id => Guid.Parse("d4e5f6a7-b8c9-0d1e-2f3a-4b5c6d7e8f90");
 
