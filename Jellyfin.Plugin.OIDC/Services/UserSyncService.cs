@@ -23,7 +23,7 @@ public class UserSyncService
         _logger = logger;
     }
 
-    public async Task<Guid> SyncUserAsync(string username, string? displayName, string[] roles)
+    public async Task<Guid> SyncUserAsync(string username)
     {
         var user = _userManager.GetUserByName(username);
 
@@ -45,18 +45,12 @@ public class UserSyncService
             _logger.LogInformation("Created new OIDC user: {Username}", username);
         }
 
-        if (!string.IsNullOrWhiteSpace(displayName))
-        {
-            // Only update if the display name is not already set or is different
-            // The User entity doesn't expose DisplayName directly; it's part of the DTO
-            // We skip display name update here as it requires additional API surface
-        }
-
         user.SetPermission(PermissionKind.IsDisabled, false);
-
         await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
-        await _rbacService.ApplyRoleMappingsAsync(user.Id, roles).ConfigureAwait(false);
 
         return user.Id;
     }
+
+    public Task ApplyRolesAsync(Guid userId, string[] roles)
+        => _rbacService.ApplyRoleMappingsAsync(userId, roles);
 }

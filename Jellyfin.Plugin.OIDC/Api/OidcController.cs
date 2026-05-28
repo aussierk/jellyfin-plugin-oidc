@@ -211,10 +211,7 @@ public class OidcController : ControllerBase
 
         try
         {
-            var userId = await _userSyncService.SyncUserAsync(
-                session.Username,
-                session.DisplayName,
-                session.Roles).ConfigureAwait(false);
+            var userId = await _userSyncService.SyncUserAsync(session.Username).ConfigureAwait(false);
 
             var authRequest = new AuthenticationRequest
             {
@@ -226,6 +223,10 @@ public class OidcController : ControllerBase
             };
 
             var authResult = await _sessionManager.AuthenticateDirect(authRequest).ConfigureAwait(false);
+
+            // Apply RBAC after AuthenticateDirect so Jellyfin's session setup
+            // cannot overwrite our permission changes.
+            await _userSyncService.ApplyRolesAsync(userId, session.Roles).ConfigureAwait(false);
 
             return Ok(authResult);
         }

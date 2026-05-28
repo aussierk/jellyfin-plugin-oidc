@@ -94,10 +94,23 @@ public class RbacService
 
         await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
 
+        // Verify persistence by re-reading from store
+        var saved = _userManager.GetUserById(userId);
+        var savedAdmin = saved?.HasPermission(PermissionKind.IsAdministrator) ?? false;
+        if (merged.IsAdmin && !savedAdmin && saved != null)
+        {
+            _logger.LogWarning(
+                "RBAC admin flag for {Username} was set but did not persist after UpdateUserAsync — re-applying",
+                user.Username);
+            saved.SetPermission(PermissionKind.IsAdministrator, true);
+            await _userManager.UpdateUserAsync(saved).ConfigureAwait(false);
+        }
+
         _logger.LogInformation(
-            "Applied RBAC for user {Username}: admin={IsAdmin}, libraries={LibraryCount}, roles matched=[{Roles}]",
+            "Applied RBAC for user {Username}: admin={IsAdmin} (verified={VerifiedAdmin}), libraries={LibraryCount}, roles matched=[{Roles}]",
             user.Username,
             merged.IsAdmin,
+            savedAdmin || (merged.IsAdmin && saved != null),
             merged.EnableAllLibraries ? "ALL" : merged.LibraryIds.Count.ToString(),
             string.Join(", ", matchedMappings.Select(m => m.RoleName)));
     }
