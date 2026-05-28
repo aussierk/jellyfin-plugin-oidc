@@ -1,6 +1,6 @@
 {
   "guid": "d4e5f6a7-b8c9-0d1e-2f3a-4b5c6d7e8f90",
-  "name": "OIDC RBAC",
+  "name": "SSO-OIDC RBAC",
   "description": "Advanced OIDC authentication with role-based library access control",
   "overview": "OpenID Connect SSO with granular role-to-library mapping, multi-provider support, and a full admin configuration UI.",
   "owner": "Ezeqielle",
