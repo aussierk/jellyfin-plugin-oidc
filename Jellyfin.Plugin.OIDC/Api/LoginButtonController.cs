@@ -26,7 +26,7 @@ public class LoginButtonController : ControllerBase
         var sb = new StringBuilder();
         sb.AppendLine("(function() {");
         sb.AppendLine("  function addButtons() {");
-        sb.AppendLine("    var form = document.querySelector('.manualLoginForm, #loginPage form, [data-role=\"page\"] form');");
+        sb.AppendLine("    var form = document.querySelector('.manualLoginForm, #loginPage form, .loginPage form, [data-page=\"loginPage\"] form, form[action*=\"login\"], #loginPage .padded-left form');");
         sb.AppendLine("    if (!form || document.getElementById('oidc-sso-buttons')) return;");
         sb.AppendLine("    var container = document.createElement('div');");
         sb.AppendLine("    container.id = 'oidc-sso-buttons';");
@@ -60,7 +60,9 @@ public class LoginButtonController : ControllerBase
     [HttpGet("BrandingSnippet")]
     public ActionResult GetBrandingSnippet()
     {
-        var snippet = "<script src=\"/sso/OIDC/LoginButtons\"></script>";
-        return Ok(new { Html = snippet, Instructions = "Add this to Jellyfin Dashboard > General > Custom CSS/HTML, or paste the <script> tag into the Login Disclaimer field under Branding." });
+        // Browsers block <script> tags injected via innerHTML (Jellyfin's Login Disclaimer mechanism).
+        // The img onerror trick executes even in that context.
+        var snippet = "<img src=\"x\" onerror=\"var s=document.createElement('script');s.src='/sso/OIDC/LoginButtons';document.head.appendChild(s);this.remove()\" style=\"display:none\">";
+        return Ok(new { Html = snippet, Instructions = "Paste this into Jellyfin Dashboard > General > Branding > Login Disclaimer field and save." });
     }
 }
