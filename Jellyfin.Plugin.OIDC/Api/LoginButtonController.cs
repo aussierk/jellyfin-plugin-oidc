@@ -60,9 +60,26 @@ public class LoginButtonController : ControllerBase
     [HttpGet("BrandingSnippet")]
     public ActionResult GetBrandingSnippet()
     {
-        // Browsers block <script> tags injected via innerHTML (Jellyfin's Login Disclaimer mechanism).
-        // The img onerror trick executes even in that context.
-        var snippet = "<img src=\"x\" onerror=\"var s=document.createElement('script');s.src='/sso/OIDC/LoginButtons';document.head.appendChild(s);this.remove()\" style=\"display:none\">";
-        return Ok(new { Html = snippet, Instructions = "Paste this into Jellyfin Dashboard > General > Branding > Login Disclaimer field and save." });
+        var config = OidcPlugin.Instance?.Configuration;
+        var providers = config?.Providers.Where(p => p.Enabled).ToList()
+                        ?? new System.Collections.Generic.List<Configuration.OidcProviderConfig>();
+
+        if (providers.Count == 0)
+        {
+            return Ok(new { Html = "", Instructions = "No enabled providers configured." });
+        }
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<div style=\"margin:1em 0;text-align:center;\">");
+        foreach (var p in providers)
+        {
+            var name = System.Net.WebUtility.HtmlEncode(p.DisplayName);
+            var color = System.Net.WebUtility.HtmlEncode(p.ButtonColor);
+            sb.Append($"<a href=\"/sso/OIDC/Start/{p.ProviderId}\" style=\"display:block;margin:0.5em auto;padding:0.7em 1.5em;background:{color};color:#fff;text-decoration:none;border-radius:4px;font-size:1em;max-width:300px;\">{name}</a>");
+        }
+        sb.Append("<div style=\"margin:1em 0;color:#888;\">— or sign in with password —</div>");
+        sb.Append("</div>");
+
+        return Ok(new { Html = sb.ToString(), Instructions = "Paste the Html value into Jellyfin Dashboard > General > Branding > Login Disclaimer and save." });
     }
 }
