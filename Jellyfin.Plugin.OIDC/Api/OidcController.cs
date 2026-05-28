@@ -349,20 +349,14 @@ public class OidcController : ControllerBase
             .then(function(auth) {
                 var credentials = {
                     Servers: [{
+                        Id: auth.ServerId,
                         ManualAddress: window.location.origin,
                         AccessToken: auth.AccessToken,
                         UserId: auth.User.Id,
-                        IsLocalUser: true
+                        DateLastAccessed: Date.now()
                     }]
                 };
                 localStorage.setItem('jellyfin_credentials', JSON.stringify(credentials));
-
-                var user = {
-                    Id: auth.User.Id,
-                    ServerId: auth.ServerId,
-                    AccessToken: auth.AccessToken
-                };
-                localStorage.setItem('_jellyfin_user_' + auth.ServerId, JSON.stringify(user));
 
                 document.getElementById('status').textContent = 'Success! Redirecting...';
                 window.location.href = '/';
