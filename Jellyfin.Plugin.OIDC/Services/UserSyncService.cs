@@ -92,14 +92,17 @@ public class UserSyncService
                 await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
             }
 
-            // Sync display name — renames the Jellyfin account to match the IdP name.
+            // Sync display name — updates the Jellyfin account name to match the IdP.
+            // IUserManager.RenameUser was removed in Jellyfin 10.11.10; set Username
+            // directly and persist via UpdateUserAsync instead.
             if (syncDisplayName
                 && !string.Equals(user.Username, displayName, StringComparison.OrdinalIgnoreCase))
             {
                 var oldName = user.Username;
                 try
                 {
-                    await _userManager.RenameUser(user, displayName!).ConfigureAwait(false);
+                    user.Username = displayName!;
+                    await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
                     _logger.LogInformation(
                         "Updated display name for user {OldName} → {NewName}", oldName, displayName);
                 }
@@ -108,6 +111,8 @@ public class UserSyncService
                     _logger.LogWarning(ex,
                         "Could not rename user {OldName} to {NewName} — name may already be taken",
                         oldName, displayName);
+                    // Restore original name so downstream code uses the correct username
+                    user.Username = oldName;
                 }
             }
         }
