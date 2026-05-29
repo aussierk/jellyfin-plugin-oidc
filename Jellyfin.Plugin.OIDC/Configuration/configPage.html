@@ -54,6 +54,15 @@
                                 When enabled, existing local Jellyfin accounts that log in via OIDC will have their authentication provider switched to SSO automatically. Leave off if you want users to opt in manually.
                             </p>
                         </div>
+                        <div style="grid-column:1/-1;">
+                            <label>
+                                <input type="checkbox" id="syncDisplayName" is="emby-checkbox" />
+                                <span>Sync display name from OIDC token on login</span>
+                            </label>
+                            <p class="fieldDescription" style="margin:0.3em 0 0 1.5em;font-size:0.85em;color:#aaa;">
+                                When enabled, the Jellyfin account name is updated to match the display name claim from the IdP on every login. Note: in Jellyfin the username and display name are the same — enabling this renames the account. Display names must be unique.
+                            </p>
+                        </div>
                     </div>
                 </div>
             </div>

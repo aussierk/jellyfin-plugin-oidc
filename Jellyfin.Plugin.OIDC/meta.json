@@ -7,8 +7,8 @@
   "category": "Authentication",
   "versions": [
     {
-      "version": "1.0.4.0",
-      "changelog": "Fix admin not showing in UI: switch to UpdatePolicyAsync to properly refresh Jellyfin runtime state; apply RBAC before session creation so token captures correct admin flag",
+      "version": "1.0.5.0",
+      "changelog": "Respect disabled flag on existing users (blocked from SSO login); opt-in display name sync from OIDC token; preserve disabled flag in RBAC policy updates",
       "targetAbi": "10.11.0.0",
       "sourceUrl": "",
       "timestamp": "2026-05-28T00:00:00Z"

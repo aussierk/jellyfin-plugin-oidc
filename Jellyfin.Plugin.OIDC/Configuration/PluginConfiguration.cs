@@ -20,6 +20,14 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public bool MigrateLocalUsers { get; set; } = false;
 
+    /// <summary>
+    /// When true, the user's Jellyfin display name (username) is updated to match
+    /// the display name claim from the OIDC token on each login. Note: in Jellyfin,
+    /// the username IS the display name — enabling this renames the account.
+    /// Defaults to false — opt-in only.
+    /// </summary>
+    public bool SyncDisplayName { get; set; } = false;
+
     public string DefaultRoleName { get; set; } = string.Empty;
 }
 
