@@ -54,13 +54,13 @@
                                 When enabled, existing local Jellyfin accounts that log in via OIDC will have their authentication provider switched to SSO automatically. Leave off if you want users to opt in manually.
                             </p>
                         </div>
-                        <div style="grid-column:1/-1;">
+                        <div style="grid-column:1/-1;opacity:0.5;">
                             <label>
-                                <input type="checkbox" id="syncDisplayName" is="emby-checkbox" />
-                                <span>Sync display name from OIDC token on login</span>
+                                <input type="checkbox" id="syncDisplayName" is="emby-checkbox" disabled />
+                                <span>Sync display name from OIDC token on login <em>(pending Jellyfin upstream support)</em></span>
                             </label>
                             <p class="fieldDescription" style="margin:0.3em 0 0 1.5em;font-size:0.85em;color:#aaa;">
-                                When enabled, the Jellyfin account name is updated to match the display name claim from the IdP on every login. Note: in Jellyfin the username and display name are the same — enabling this renames the account. Display names must be unique.
+                                Requires Jellyfin to expose a stable external subject ID on the User entity so the plugin can look up accounts without relying on a mutable display name. Tracking: <a href="https://github.com/jellyfin/jellyfin/issues" target="_blank" style="color:#aaa;">jellyfin/jellyfin</a>.
                             </p>
                         </div>
                     </div>
