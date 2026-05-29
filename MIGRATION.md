@@ -56,20 +56,40 @@ Plan your role mappings to match the access you want users to have **before** th
 
    The first SSO login finds the existing user by name, leaves their data alone, and applies the role mapping.
 
+## Opt-in migration features
+
+The General settings tab exposes two migration options that default to **off**:
+
+### Migrate local users to SSO (MigrateLocalUsers)
+
+When enabled, the first time an existing local-password user successfully logs in via SSO their `AuthenticationProviderId` is automatically switched to `OidcAuthProvider`. This prevents them from continuing to use their old Jellyfin password.
+
+When disabled (default), existing users can still log in via SSO and have RBAC applied, but their password login remains active. You can disable it manually in the Jellyfin dashboard after migration if needed.
+
+### Sync display name from OIDC token (SyncDisplayName)
+
+When enabled, the Jellyfin account username is updated to match the **Display Name Claim** from the IdP on every SSO login.
+
+> **Note:** In Jellyfin the username and display name are the same field. Enabling this renames the account. Display names must be unique across all users.
+
+When this is on, the plugin:
+1. Attempts to look up the user by the OIDC `preferred_username` first
+2. Falls back to looking up by the display name (to find accounts already renamed in previous sessions)
+3. On first login, creates the account using the display name as the Jellyfin username
+4. On subsequent logins, renames the account if the IdP name has changed
+
+If the rename fails (e.g. name collision), a warning is logged and login proceeds with the existing name.
+
 ## Caveats
-
-### Password login still works after migration
-
-The plugin does **not** change the user's `AuthenticationProviderId` when an existing user logs in via SSO. The user can still sign in with their old Jellyfin password. If you want to lock that down, manually disable the user's password (Dashboard → Users → user → Password tab → set an empty / random password) or delete it via the API after migration.
 
 ### Duplicate accounts on username mismatch
 
 If a user logs in via SSO before you've aligned usernames, the plugin will create a **second** Jellyfin user with the OIDC username, and the old account's data will not be visible to the new one. To recover, delete the new (empty) account and re-align the names before retrying.
 
-### Display name claim is ignored on existing users
+### Disabled users are blocked from SSO login
 
-The configured **Display Name Claim** is read but never applied to existing users (or new ones — see `UserSyncService.cs:49-54`). The Jellyfin username is what's shown. If you need a different display name, set it manually in Jellyfin.
+If a Jellyfin admin disables a user account, that user cannot log in via SSO — they will receive a `403 Forbidden` response. The plugin respects the disabled flag and will not re-enable it. To permanently lock someone out of SSO, disable them in Jellyfin or remove them from the IdP group.
 
-### Disabled users are re-enabled on SSO login
+### Password login for non-migrated users
 
-The plugin sets `IsDisabled = false` on every successful SSO login. If you've disabled a user in Jellyfin to lock them out, that won't survive an SSO login — remove them from the IdP group instead.
+If **Migrate local users to SSO** is off (the default), existing local users who authenticate via SSO retain their Jellyfin password login. Their password can be disabled manually via Dashboard → Users → user → Password, or removed via the Jellyfin API after migration is complete.
