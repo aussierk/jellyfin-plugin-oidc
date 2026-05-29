@@ -7,8 +7,8 @@
   "category": "Authentication",
   "versions": [
     {
-      "version": "1.0.6.0",
-      "changelog": "Fix display name sync crashing on Jellyfin 10.11.10: IUserManager.RenameUser removed in that version; now sets Username directly via UpdateUserAsync",
+      "version": "1.0.7.0",
+      "changelog": "Remove unsafe display name sync: fallback lookup by display name risks matching wrong users; disable in UI pending Jellyfin upstream ExternalSubjectId support",
       "targetAbi": "10.11.0.0",
       "sourceUrl": "",
       "timestamp": "2026-05-28T00:00:00Z"

@@ -32,15 +32,8 @@ public class UserSyncService
     {
         var config = OidcPlugin.Instance?.Configuration;
         var oidcProviderId = typeof(Auth.OidcAuthProvider).FullName!;
-        var syncDisplayName = config?.SyncDisplayName == true && !string.IsNullOrWhiteSpace(displayName);
 
-        // Primary lookup by OIDC username. If display name sync is on and the lookup
-        // misses (user was renamed to their display name on a previous login), fall back.
         var user = _userManager.GetUserByName(username);
-        if (user == null && syncDisplayName && displayName != username)
-        {
-            user = _userManager.GetUserByName(displayName!);
-        }
 
         if (user == null)
         {
@@ -50,25 +43,20 @@ public class UserSyncService
                     $"User '{username}' does not exist and auto-creation is disabled");
             }
 
-            // New users: use display name as the Jellyfin username when sync is on,
-            // so the account shows the friendly name from day one.
-            var newUsername = syncDisplayName ? displayName! : username;
-            user = await _userManager.CreateUserAsync(newUsername).ConfigureAwait(false);
+            user = await _userManager.CreateUserAsync(username).ConfigureAwait(false);
             user.AuthenticationProviderId = oidcProviderId;
             user.SetPermission(PermissionKind.IsDisabled, false);
             await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
-            _logger.LogInformation("Created new OIDC user: {Username}", newUsername);
+            _logger.LogInformation("Created new OIDC user: {Username}", username);
         }
         else
         {
-            // Existing user — respect the disabled flag set by a Jellyfin admin.
+            // Respect a disabled flag set by a Jellyfin admin — never re-enable it here.
             if (user.HasPermission(PermissionKind.IsDisabled))
             {
                 throw new InvalidOperationException(
                     $"User '{user.Username}' is disabled in Jellyfin. Remove them from the IdP or re-enable them in Jellyfin.");
             }
-
-            bool needsSave = false;
 
             // Migrate auth provider on first SSO login when opt-in is on.
             if (config?.MigrateLocalUsers == true
@@ -78,42 +66,7 @@ public class UserSyncService
                     "Migrating user {Username} from {OldProvider} to OidcAuthProvider",
                     user.Username, user.AuthenticationProviderId ?? "none");
                 user.AuthenticationProviderId = oidcProviderId;
-                needsSave = true;
-            }
-            else if (!config?.MigrateLocalUsers == true)
-            {
-                _logger.LogDebug(
-                    "User {Username} has provider {Provider}; migration disabled — skipping",
-                    user.Username, user.AuthenticationProviderId ?? "none");
-            }
-
-            if (needsSave)
-            {
                 await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
-            }
-
-            // Sync display name — updates the Jellyfin account name to match the IdP.
-            // IUserManager.RenameUser was removed in Jellyfin 10.11.10; set Username
-            // directly and persist via UpdateUserAsync instead.
-            if (syncDisplayName
-                && !string.Equals(user.Username, displayName, StringComparison.OrdinalIgnoreCase))
-            {
-                var oldName = user.Username;
-                try
-                {
-                    user.Username = displayName!;
-                    await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
-                    _logger.LogInformation(
-                        "Updated display name for user {OldName} → {NewName}", oldName, displayName);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex,
-                        "Could not rename user {OldName} to {NewName} — name may already be taken",
-                        oldName, displayName);
-                    // Restore original name so downstream code uses the correct username
-                    user.Username = oldName;
-                }
             }
         }
 

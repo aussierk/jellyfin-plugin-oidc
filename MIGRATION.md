@@ -68,21 +68,11 @@ When disabled (default), existing users can still log in via SSO and have RBAC a
 
 ### Sync display name from OIDC token (SyncDisplayName)
 
-When enabled, the Jellyfin account username is updated to match the **Display Name Claim** from the IdP on every SSO login.
+**Not yet available** — this setting is visible in the UI but disabled. It requires Jellyfin to expose a stable external subject ID on the `User` entity so the plugin can look up accounts by identity rather than by a mutable name.
 
-> **Note:** In Jellyfin the username and display name are the same field. Enabling this renames the account. Display names must be unique across all users.
+The core problem: in Jellyfin, username and display name are the same field. Renaming an account to match the IdP display name means the next SSO login can no longer find the account by `preferred_username`. Any fallback lookup by display name risks accidentally matching an unrelated local Jellyfin user, which is both a correctness and security issue.
 
-When this is on, the plugin:
-1. Attempts to look up the user by the OIDC `preferred_username` first
-2. Falls back to looking up by the display name (to find accounts already renamed in previous sessions)
-3. On first login, creates the account using the display name as the Jellyfin username
-4. On subsequent logins, renames the account if the IdP name has changed
-
-If the rename fails (e.g. name collision), a warning is logged and login proceeds with the existing name.
-
-**How subsequent logins work:** On first login the account is found by the OIDC `preferred_username` and renamed to the display name. On subsequent logins the primary lookup (by `preferred_username`) misses, and the plugin falls back to searching by the display name — which now matches the Jellyfin username set on the previous login.
-
-**Limitation — display name changes in the IdP:** If the display name changes (e.g. `"John Smith"` → `"John A. Smith"`), neither the username nor the old display name will match the new one. A new duplicate account will be created and the old one will be orphaned. To recover, delete the new empty account and manually rename the old one to the new display name before the user logs in again.
+The correct fix is an upstream Jellyfin change to store the OIDC `sub` (subject) claim — a stable, never-changing identifier — alongside the user record. Once that lands, display name sync can be implemented safely.
 
 ## Caveats
 
