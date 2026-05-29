@@ -80,6 +80,10 @@ When this is on, the plugin:
 
 If the rename fails (e.g. name collision), a warning is logged and login proceeds with the existing name.
 
+**How subsequent logins work:** On first login the account is found by the OIDC `preferred_username` and renamed to the display name. On subsequent logins the primary lookup (by `preferred_username`) misses, and the plugin falls back to searching by the display name — which now matches the Jellyfin username set on the previous login.
+
+**Limitation — display name changes in the IdP:** If the display name changes (e.g. `"John Smith"` → `"John A. Smith"`), neither the username nor the old display name will match the new one. A new duplicate account will be created and the old one will be orphaned. To recover, delete the new empty account and manually rename the old one to the new display name before the user logs in again.
+
 ## Caveats
 
 ### Duplicate accounts on username mismatch
