@@ -6,6 +6,7 @@ using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.OIDC.Configuration;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Users;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.OIDC.Services;
@@ -65,53 +66,69 @@ public class RbacService
 
         var merged = MergeMappings(matchedMappings);
 
-        user.SetPermission(PermissionKind.IsAdministrator, merged.IsAdmin);
-        user.SetPermission(PermissionKind.EnableMediaPlayback, merged.EnableMediaPlayback);
-        user.SetPermission(PermissionKind.EnableRemoteAccess, merged.EnableRemoteAccess);
-        user.SetPermission(PermissionKind.EnableAudioPlaybackTranscoding, merged.EnableTranscoding);
-        user.SetPermission(PermissionKind.EnableVideoPlaybackTranscoding, merged.EnableTranscoding);
-        user.SetPermission(PermissionKind.EnableLiveTvAccess, merged.EnableLiveTv);
-        user.SetPermission(PermissionKind.EnableLiveTvManagement, merged.EnableLiveTvManagement);
-        user.SetPermission(PermissionKind.EnableContentDeletion, merged.EnableContentDeletion);
-        user.SetPermission(PermissionKind.EnableCollectionManagement, merged.EnableCollectionManagement);
-        user.SetPermission(PermissionKind.EnableSubtitleManagement, merged.EnableSubtitleManagement);
-
-        if (merged.EnableAllLibraries)
+        // Resolve library IDs before building policy
+        Guid[] enabledFolderIds = Array.Empty<Guid>();
+        if (!merged.EnableAllLibraries)
         {
-            user.SetPermission(PermissionKind.EnableAllFolders, true);
-        }
-        else
-        {
-            user.SetPermission(PermissionKind.EnableAllFolders, false);
             var resolvedIds = ResolveLibraryIds(merged.LibraryIds, merged.LibraryNames);
-            user.SetPreference(PreferenceKind.EnabledFolders, resolvedIds.ToArray());
+            enabledFolderIds = resolvedIds
+                .Select(id => Guid.TryParse(id, out var g) ? g : (Guid?)null)
+                .Where(g => g.HasValue)
+                .Select(g => g!.Value)
+                .ToArray();
         }
+
+        // Build a policy from the current user state and override with RBAC values.
+        // Using UpdatePolicyAsync ensures Jellyfin refreshes its runtime user state
+        // (not just the database), so the session created by AuthenticateDirect
+        // picks up the correct admin flag.
+        var policy = new UserPolicy
+        {
+            // Preserve identity fields
+            AuthenticationProviderId = user.AuthenticationProviderId,
+            PasswordResetProviderId = user.PasswordResetProviderId,
+
+            // Preserve non-RBAC permissions from current user state
+            IsHidden = user.HasPermission(PermissionKind.IsHidden),
+            EnableUserPreferenceAccess = true,
+            EnableRemoteControlOfOtherUsers = user.HasPermission(PermissionKind.EnableRemoteControlOfOtherUsers),
+            EnableSharedDeviceControl = user.HasPermission(PermissionKind.EnableSharedDeviceControl),
+            EnablePlaybackRemuxing = user.HasPermission(PermissionKind.EnablePlaybackRemuxing),
+            EnableContentDownloading = user.HasPermission(PermissionKind.EnableContentDownloading),
+            EnableSyncTranscoding = user.HasPermission(PermissionKind.EnableSyncTranscoding),
+            EnableMediaConversion = user.HasPermission(PermissionKind.EnableMediaConversion),
+            EnableAllDevices = user.HasPermission(PermissionKind.EnableAllDevices),
+            EnableAllChannels = user.HasPermission(PermissionKind.EnableAllChannels),
+            MaxParentalRating = user.MaxParentalRatingScore,
+
+            // RBAC-controlled fields
+            IsAdministrator = merged.IsAdmin,
+            IsDisabled = false,
+            EnableMediaPlayback = merged.EnableMediaPlayback,
+            EnableRemoteAccess = merged.EnableRemoteAccess,
+            EnableAudioPlaybackTranscoding = merged.EnableTranscoding,
+            EnableVideoPlaybackTranscoding = merged.EnableTranscoding,
+            EnableLiveTvAccess = merged.EnableLiveTv,
+            EnableLiveTvManagement = merged.EnableLiveTvManagement,
+            EnableContentDeletion = merged.EnableContentDeletion,
+            EnableCollectionManagement = merged.EnableCollectionManagement,
+            EnableSubtitleManagement = merged.EnableSubtitleManagement,
+            EnableAllFolders = merged.EnableAllLibraries,
+            EnabledFolders = enabledFolderIds,
+        };
 
         if (merged.MaxParentalRating.HasValue)
         {
-            user.MaxParentalRatingScore = merged.MaxParentalRating;
+            policy.MaxParentalRating = merged.MaxParentalRating;
         }
 
-        await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
-
-        // Verify persistence by re-reading from store
-        var saved = _userManager.GetUserById(userId);
-        var savedAdmin = saved?.HasPermission(PermissionKind.IsAdministrator) ?? false;
-        if (merged.IsAdmin && !savedAdmin && saved != null)
-        {
-            _logger.LogWarning(
-                "RBAC admin flag for {Username} was set but did not persist after UpdateUserAsync — re-applying",
-                user.Username);
-            saved.SetPermission(PermissionKind.IsAdministrator, true);
-            await _userManager.UpdateUserAsync(saved).ConfigureAwait(false);
-        }
+        await _userManager.UpdatePolicyAsync(userId, policy).ConfigureAwait(false);
 
         _logger.LogInformation(
-            "Applied RBAC for user {Username}: admin={IsAdmin} (verified={VerifiedAdmin}), libraries={LibraryCount}, roles matched=[{Roles}]",
+            "Applied RBAC for user {Username}: admin={IsAdmin}, libraries={Libraries}, roles matched=[{Roles}]",
             user.Username,
             merged.IsAdmin,
-            savedAdmin || (merged.IsAdmin && saved != null),
-            merged.EnableAllLibraries ? "ALL" : merged.LibraryIds.Count.ToString(),
+            merged.EnableAllLibraries ? "ALL" : enabledFolderIds.Length.ToString(),
             string.Join(", ", matchedMappings.Select(m => m.RoleName)));
     }
 
@@ -151,7 +168,7 @@ public class RbacService
 
     private static RoleMapping MergeMappings(List<RoleMapping> mappings)
     {
-        var merged = new RoleMapping
+        return new RoleMapping
         {
             IsAdmin = mappings.Any(m => m.IsAdmin),
             EnableAllLibraries = mappings.Any(m => m.EnableAllLibraries),
@@ -177,7 +194,5 @@ public class RbacService
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList()
         };
-
-        return merged;
     }
 }
