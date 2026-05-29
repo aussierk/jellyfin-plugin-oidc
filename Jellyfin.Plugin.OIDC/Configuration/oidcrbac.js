@@ -242,6 +242,7 @@ export default function (view) {
             view.querySelector('#defaultRoleName').value = cfg.DefaultRoleName || '';
             view.querySelector('#autoCreateUsers').checked = cfg.AutoCreateUsers !== false;
             view.querySelector('#migrateLocalUsers').checked = cfg.MigrateLocalUsers === true;
+            view.querySelector('#syncDisplayName').checked = cfg.SyncDisplayName === true;
             Dashboard.hideLoadingMsg();
         }).catch(function (err) {
             Dashboard.hideLoadingMsg();
@@ -302,6 +303,7 @@ export default function (view) {
         cfg.DefaultRoleName = gval(view, 'defaultRoleName');
         cfg.AutoCreateUsers = gchk(view, 'autoCreateUsers');
         cfg.MigrateLocalUsers = gchk(view, 'migrateLocalUsers');
+        cfg.SyncDisplayName = gchk(view, 'syncDisplayName');
         ApiClient.updatePluginConfiguration(pluginId, cfg).then(function (result) {
             Dashboard.processPluginConfigurationUpdateResult(result);
             Dashboard.hideLoadingMsg();

@@ -103,7 +103,7 @@ public class RbacService
 
             // RBAC-controlled fields
             IsAdministrator = merged.IsAdmin,
-            IsDisabled = false,
+            IsDisabled = user.HasPermission(PermissionKind.IsDisabled), // preserve — never re-enable a disabled user
             EnableMediaPlayback = merged.EnableMediaPlayback,
             EnableRemoteAccess = merged.EnableRemoteAccess,
             EnableAudioPlaybackTranscoding = merged.EnableTranscoding,
