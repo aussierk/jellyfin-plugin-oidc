@@ -167,17 +167,19 @@ The plugin checks both the ID token and access token for role claims.
 
 ## Identity Provider Guides
 
-### Authentik
+| Provider | Guide | Role Claim |
+|----------|-------|------------|
+| Authentik | [examples/authentik/SETUP.md](examples/authentik/SETUP.md) | `groups` |
+| Azure AD / Entra ID | [examples/azure-ad/SETUP.md](examples/azure-ad/SETUP.md) | `roles` or `groups` |
+| Google | [examples/google/SETUP.md](examples/google/SETUP.md) | `email` (groups require Workspace) |
+| Okta | [examples/okta/SETUP.md](examples/okta/SETUP.md) | `groups` |
+| Pocket ID | [examples/pocket-id/SETUP.md](examples/pocket-id/SETUP.md) | `groups` |
+| Authelia | [examples/authelia/SETUP.md](examples/authelia/SETUP.md) | `groups` |
+| Tinyauth | [examples/tinyauth/SETUP.md](examples/tinyauth/SETUP.md) | `groups` |
 
-See [examples/authentik/SETUP.md](examples/authentik/SETUP.md) for a complete step-by-step guide including:
-- Docker Compose stack (Jellyfin + Authentik)
-- Group creation and OIDC provider configuration
-- Custom property mapping for filtered role claims
-- Troubleshooting
+### Keycloak (quick reference)
 
-### Keycloak
-
-1. Create a new Client in your realm (Client type: OpenID Connect, Client authentication: On)
+1. Create a new Client (Client type: OpenID Connect, Client authentication: On)
 2. Set Valid Redirect URIs: `https://jellyfin.example.com/sso/OIDC/Callback/keycloak`
 3. Roles are in `realm_access.roles` by default
 4. Plugin config: Authority = `https://keycloak.example.com/realms/myrealm`, Role Claim Path = `realm_access.roles`
