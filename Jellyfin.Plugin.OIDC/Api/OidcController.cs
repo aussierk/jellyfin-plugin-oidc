@@ -340,7 +340,7 @@ public class OidcController : ControllerBase
             Policy = new DiscoveryPolicy
             {
                 ValidateIssuerName = true,
-                ValidateEndpoints = true
+                ValidateEndpoints = provider.ValidateDiscoveryEndpoints
             }
         }).ConfigureAwait(false);
     }

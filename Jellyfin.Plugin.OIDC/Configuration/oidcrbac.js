@@ -64,6 +64,9 @@ function renderProviders(view) {
             '<div class="oidc-field full"><label><input type="checkbox" id="prov_strict_access_' + idx + '"' +
             (p.StrictAccessTokenValidation !== false ? ' checked' : '') + '/> Strict access token validation</label>' +
             '<span style="font-size:0.8em;color:#aaa;margin-left:1.5em;">Only applies when the IdP issues JWT access tokens (e.g. Keycloak). Opaque access tokens (Google, default Authelia) are skipped automatically and unaffected by this setting. Uncheck if your IdP signs access tokens with a different key than the JWKS endpoint advertises.</span></div>' +
+            '<div class="oidc-field full"><label><input type="checkbox" id="prov_validate_endpoints_' + idx + '"' +
+            (p.ValidateDiscoveryEndpoints !== false ? ' checked' : '') + '/> Validate discovery endpoint URLs</label>' +
+            '<span style="font-size:0.8em;color:#aaa;margin-left:1.5em;">Requires all endpoints in the discovery document to share the same base address as the issuer. Uncheck for Authentik and other IdPs whose endpoints are on different URL paths than the issuer.</span></div>' +
             '</div>' +
             '<div style="margin-top:0.5em;display:flex;gap:0.5em;align-items:center;">' +
             '<button type="button" class="oidc-btn-secondary" data-action="test-provider" data-idx="' + idx + '">Test Connection</button>' +
@@ -193,6 +196,7 @@ function collectProviders(view) {
             AdditionalParameters: gval(view, 'prov_params_' + idx),
             Enabled: gchk(view, 'prov_enabled_' + idx),
             StrictAccessTokenValidation: gchk(view, 'prov_strict_access_' + idx),
+            ValidateDiscoveryEndpoints: gchk(view, 'prov_validate_endpoints_' + idx),
             ButtonIcon: ''
         });
     });
@@ -279,7 +283,8 @@ export default function (view) {
             RoleClaim: 'groups', UsernameClaim: 'preferred_username',
             DisplayNameClaim: 'name', Enabled: true, ButtonColor: '#4285F4',
             ButtonIcon: '', AdditionalParameters: '',
-            StrictAccessTokenValidation: true
+            StrictAccessTokenValidation: true,
+            ValidateDiscoveryEndpoints: true
         });
         renderProviders(view);
     });
