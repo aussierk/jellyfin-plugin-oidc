@@ -64,6 +64,13 @@ public class OidcProviderConfig
     /// authentication error. Set to false only for IdPs that issue unsigned or opaque access tokens.
     /// </summary>
     public bool StrictAccessTokenValidation { get; set; } = true;
+
+    /// <summary>
+    /// When true, endpoint URLs in the OIDC discovery document must share the same base address
+    /// as the issuer. Set to false for IdPs like Authentik whose endpoints are on different paths
+    /// than the issuer (e.g. /application/o/authorize/ vs /o/jellyfin).
+    /// </summary>
+    public bool ValidateDiscoveryEndpoints { get; set; } = true;
 }
 
 public class RoleMapping
