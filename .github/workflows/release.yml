@@ -19,9 +19,11 @@ jobs:
         with:
           dotnet-version: "9.0.x"
 
-      - name: Extract version from tag
+      - name: Extract version from csproj
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          VERSION=$(grep -oP '(?<=<Version>)[^<]+' Jellyfin.Plugin.OIDC/Jellyfin.Plugin.OIDC.csproj)
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Build
         run: dotnet publish Jellyfin.Plugin.OIDC/Jellyfin.Plugin.OIDC.csproj -c Release -o dist
@@ -35,7 +37,7 @@ jobs:
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           VERSION="${{ steps.version.outputs.version }}"
           DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}/oidc-rbac.zip"
-          CHANGELOG=$(jq -r --arg v "${VERSION}.0" '.versions[] | select(.version == $v) | .changelog' Jellyfin.Plugin.OIDC/meta.json)
+          CHANGELOG=$(jq -r --arg v "${VERSION}" '.versions[] | select(.version == $v) | .changelog' Jellyfin.Plugin.OIDC/meta.json)
 
           cat > manifest.json <<EOF
           [
@@ -48,7 +50,7 @@ jobs:
               "category": "Authentication",
               "versions": [
                 {
-                  "version": "${VERSION}.0",
+                  "version": "${VERSION}",
                   "changelog": "${CHANGELOG}",
                   "targetAbi": "10.11.0.0",
                   "sourceUrl": "${DOWNLOAD_URL}",
@@ -63,7 +65,9 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: oidc-rbac.zip
+          files: |
+            oidc-rbac.zip
+            manifest.json
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
 
