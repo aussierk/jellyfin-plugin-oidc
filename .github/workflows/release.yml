@@ -35,6 +35,7 @@ jobs:
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           VERSION="${{ steps.version.outputs.version }}"
           DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}/oidc-rbac.zip"
+          CHANGELOG=$(jq -r --arg v "${VERSION}.0" '.versions[] | select(.version == $v) | .changelog' Jellyfin.Plugin.OIDC/meta.json)
 
           cat > manifest.json <<EOF
           [
@@ -48,7 +49,7 @@ jobs:
               "versions": [
                 {
                   "version": "${VERSION}.0",
-                  "changelog": "Release ${GITHUB_REF_NAME}",
+                  "changelog": "${CHANGELOG}",
                   "targetAbi": "10.11.0.0",
                   "sourceUrl": "${DOWNLOAD_URL}",
                   "checksum": "${CHECKSUM}",
@@ -64,6 +65,7 @@ jobs:
         with:
           files: oidc-rbac.zip
           generate_release_notes: true
+          prerelease: true
 
       - name: Commit updated manifest
         run: |
