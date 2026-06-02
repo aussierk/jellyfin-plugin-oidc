@@ -58,6 +58,12 @@ public class OidcProviderConfig
     public string ButtonIcon { get; set; } = string.Empty;
 
     public string AdditionalParameters { get; set; } = string.Empty;
+
+    /// <summary>
+    /// When true, a failure to validate the access token's signature is treated as a fatal
+    /// authentication error. Set to false only for IdPs that issue unsigned or opaque access tokens.
+    /// </summary>
+    public bool StrictAccessTokenValidation { get; set; } = true;
 }
 
 public class RoleMapping
