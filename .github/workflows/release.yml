@@ -65,9 +65,10 @@ jobs:
         with:
           files: oidc-rbac.zip
           generate_release_notes: true
-          prerelease: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
 
       - name: Commit updated manifest
+        if: ${{ !contains(github.ref_name, '-') }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
