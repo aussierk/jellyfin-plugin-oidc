@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Jellyfin.Plugin.OIDC.Api;
@@ -23,26 +24,30 @@ public class LoginButtonController : ControllerBase
             return Content("", "application/javascript");
         }
 
+        var providerData = providers.Select(p => new
+        {
+            id = p.ProviderId,
+            name = p.DisplayName,
+            color = p.ButtonColor
+        });
+        var providersJson = JsonSerializer.Serialize(providerData);
+
         var sb = new StringBuilder();
         sb.AppendLine("(function() {");
+        sb.AppendLine($"  var providers = {providersJson};");
         sb.AppendLine("  function addButtons() {");
         sb.AppendLine("    var form = document.querySelector('.manualLoginForm, #loginPage form, .loginPage form, [data-page=\"loginPage\"] form, form[action*=\"login\"], #loginPage .padded-left form');");
         sb.AppendLine("    if (!form || document.getElementById('oidc-sso-buttons')) return;");
         sb.AppendLine("    var container = document.createElement('div');");
         sb.AppendLine("    container.id = 'oidc-sso-buttons';");
         sb.AppendLine("    container.style.cssText = 'margin:1em 0;text-align:center;';");
-
-        foreach (var p in providers)
-        {
-            var escapedName = p.DisplayName.Replace("'", "\\'");
-            var escapedColor = p.ButtonColor.Replace("'", "\\'");
-            sb.AppendLine($"    var btn_{p.ProviderId} = document.createElement('a');");
-            sb.AppendLine($"    btn_{p.ProviderId}.href = '/sso/OIDC/Start/{p.ProviderId}';");
-            sb.AppendLine($"    btn_{p.ProviderId}.textContent = 'Sign in with {escapedName}';");
-            sb.AppendLine($"    btn_{p.ProviderId}.style.cssText = 'display:block;margin:0.5em auto;padding:0.7em 1.5em;background:{escapedColor};color:#fff;text-decoration:none;border-radius:4px;font-size:1em;max-width:300px;';");
-            sb.AppendLine($"    container.appendChild(btn_{p.ProviderId});");
-        }
-
+        sb.AppendLine("    providers.forEach(function(p) {");
+        sb.AppendLine("      var btn = document.createElement('a');");
+        sb.AppendLine("      btn.href = '/sso/OIDC/Start/' + encodeURIComponent(p.id);");
+        sb.AppendLine("      btn.textContent = 'Sign in with ' + p.name;");
+        sb.AppendLine("      btn.style.cssText = 'display:block;margin:0.5em auto;padding:0.7em 1.5em;background:' + p.color + ';color:#fff;text-decoration:none;border-radius:4px;font-size:1em;max-width:300px;';");
+        sb.AppendLine("      container.appendChild(btn);");
+        sb.AppendLine("    });");
         sb.AppendLine("    var sep = document.createElement('div');");
         sb.AppendLine("    sep.style.cssText = 'margin:1em 0;text-align:center;color:#888;';");
         sb.AppendLine("    sep.textContent = '— or sign in with password —';");
@@ -75,7 +80,8 @@ public class LoginButtonController : ControllerBase
         {
             var name = System.Net.WebUtility.HtmlEncode(p.DisplayName);
             var color = System.Net.WebUtility.HtmlEncode(p.ButtonColor);
-            sb.Append($"<a href=\"/sso/OIDC/Start/{p.ProviderId}\" style=\"display:block;margin:0.5em auto;padding:0.7em 1.5em;background:{color};color:#fff;text-decoration:none;border-radius:4px;font-size:1em;max-width:300px;\">{name}</a>");
+            var encodedId = System.Net.WebUtility.UrlEncode(p.ProviderId);
+            sb.Append($"<a href=\"/sso/OIDC/Start/{encodedId}\" style=\"display:block;margin:0.5em auto;padding:0.7em 1.5em;background:{color};color:#fff;text-decoration:none;border-radius:4px;font-size:1em;max-width:300px;\">{name}</a>");
         }
         sb.Append("<div style=\"margin:1em 0;color:#888;\">— or sign in with password —</div>");
         sb.Append("</div>");
