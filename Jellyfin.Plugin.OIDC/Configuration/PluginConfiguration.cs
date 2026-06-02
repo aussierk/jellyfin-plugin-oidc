@@ -70,7 +70,7 @@ public class OidcProviderConfig
     /// as the issuer. Set to false for IdPs like Authentik whose endpoints are on different paths
     /// than the issuer (e.g. /application/o/authorize/ vs /o/jellyfin).
     /// </summary>
-    public bool ValidateDiscoveryEndpoints { get; set; } = true;
+    public bool ValidateDiscoveryEndpoints { get; set; } = false;
 }
 
 public class RoleMapping

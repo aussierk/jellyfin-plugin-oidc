@@ -284,7 +284,7 @@ export default function (view) {
             DisplayNameClaim: 'name', Enabled: true, ButtonColor: '#4285F4',
             ButtonIcon: '', AdditionalParameters: '',
             StrictAccessTokenValidation: true,
-            ValidateDiscoveryEndpoints: true
+            ValidateDiscoveryEndpoints: false
         });
         renderProviders(view);
     });
