@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -47,22 +49,21 @@ jobs:
             --arg timestamp  "${TIMESTAMP}" \
             '{version: $version, changelog: $changelog, targetAbi: "10.11.0.0", sourceUrl: $sourceUrl, checksum: $checksum, timestamp: $timestamp}')
 
-          if [[ "${GITHUB_REF_NAME}" == *"-"* ]]; then
-            # Pre-release: single-entry manifest for the release artifact only
-            jq -n --argjson entry "${NEW_ENTRY}" \
-              '[{
-                "guid": "d4e5f6a7-b8c9-0d1e-2f3a-4b5c6d7e8f90",
-                "name": "SSO-OIDC RBAC",
-                "description": "Advanced OIDC authentication with role-based library access control",
-                "overview": "OpenID Connect SSO with role-to-library mapping, multi-provider support, and admin UI.",
-                "owner": "aussierk",
-                "category": "Authentication",
-                "versions": [$entry]
-              }]' > manifest.json
+          # Resolve the branch this tag was pushed from
+          SOURCE_BRANCH=$(git branch -r --contains "${{ github.sha }}" \
+            | grep -v 'HEAD' | sed 's|.*origin/||' | xargs | awk '{print $1}')
+          [ -z "$SOURCE_BRANCH" ] && SOURCE_BRANCH="main"
+          echo "SOURCE_BRANCH=${SOURCE_BRANCH}" >> "$GITHUB_ENV"
+
+          # Read the existing manifest from the source branch and prepend the new entry.
+          # If this version already exists (re-run), replace it in-place instead.
+          git show "origin/${SOURCE_BRANCH}:manifest.json" > manifest_existing.json
+
+          if jq -e --arg v "${VERSION}" '.[0].versions[] | select(.version == $v)' manifest_existing.json > /dev/null 2>&1; then
+            jq --argjson entry "${NEW_ENTRY}" \
+              '.[0].versions = [.[0].versions[] | if .version == $entry.version then $entry else . end]' \
+              manifest_existing.json > manifest.json
           else
-            # Full release: prepend new entry to the existing manifest on main
-            git fetch origin main
-            git show origin/main:manifest.json > manifest_existing.json
             jq --argjson entry "${NEW_ENTRY}" \
               '.[0].versions = [$entry] + .[0].versions' \
               manifest_existing.json > manifest.json
@@ -77,14 +78,25 @@ jobs:
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
 
-      - name: Commit updated manifest to main
-        if: ${{ !contains(github.ref_name, '-') }}
+      - name: Commit updated manifest
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
           cp manifest.json /tmp/manifest.json
-          git checkout main
+
+          # Always commit back to the source branch
+          git checkout "${SOURCE_BRANCH}"
           cp /tmp/manifest.json manifest.json
           git add manifest.json
           git commit -m "chore(release): update manifest.json for ${GITHUB_REF_NAME}" || echo "No changes"
-          git push origin main
+          git push origin "${SOURCE_BRANCH}"
+
+          # For full releases, also update main if the source branch wasn't main
+          if [[ "${GITHUB_REF_NAME}" != *"-"* ]] && [[ "${SOURCE_BRANCH}" != "main" ]]; then
+            git checkout main
+            cp /tmp/manifest.json manifest.json
+            git add manifest.json
+            git commit -m "chore(release): update manifest.json for ${GITHUB_REF_NAME}" || echo "No changes"
+            git push origin main
+          fi
