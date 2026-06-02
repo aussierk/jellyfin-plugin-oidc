@@ -31,7 +31,7 @@ jobs:
       - name: Package
         run: cd dist && zip ../oidc-rbac.zip *.dll meta.json
 
-      - name: Update manifest.json
+      - name: Generate manifest.json
         run: |
           CHECKSUM=$(md5sum oidc-rbac.zip | cut -d' ' -f1)
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -39,28 +39,34 @@ jobs:
           DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}/oidc-rbac.zip"
           CHANGELOG=$(jq -r --arg v "${VERSION}" '.versions[] | select(.version == $v) | .changelog' Jellyfin.Plugin.OIDC/meta.json)
 
-          cat > manifest.json <<EOF
-          [
-            {
-              "guid": "d4e5f6a7-b8c9-0d1e-2f3a-4b5c6d7e8f90",
-              "name": "OIDC RBAC",
-              "description": "Advanced OIDC authentication with role-based library access control",
-              "overview": "OpenID Connect SSO with role-to-library mapping, multi-provider support, and admin UI.",
-              "owner": "Ezeqielle",
-              "category": "Authentication",
-              "versions": [
-                {
-                  "version": "${VERSION}",
-                  "changelog": "${CHANGELOG}",
-                  "targetAbi": "10.11.0.0",
-                  "sourceUrl": "${DOWNLOAD_URL}",
-                  "checksum": "${CHECKSUM}",
-                  "timestamp": "${TIMESTAMP}"
-                }
-              ]
-            }
-          ]
-          EOF
+          NEW_ENTRY=$(jq -n \
+            --arg version    "${VERSION}" \
+            --arg changelog  "${CHANGELOG}" \
+            --arg sourceUrl  "${DOWNLOAD_URL}" \
+            --arg checksum   "${CHECKSUM}" \
+            --arg timestamp  "${TIMESTAMP}" \
+            '{version: $version, changelog: $changelog, targetAbi: "10.11.0.0", sourceUrl: $sourceUrl, checksum: $checksum, timestamp: $timestamp}')
+
+          if [[ "${GITHUB_REF_NAME}" == *"-"* ]]; then
+            # Pre-release: single-entry manifest for the release artifact only
+            jq -n --argjson entry "${NEW_ENTRY}" \
+              '[{
+                "guid": "d4e5f6a7-b8c9-0d1e-2f3a-4b5c6d7e8f90",
+                "name": "SSO-OIDC RBAC",
+                "description": "Advanced OIDC authentication with role-based library access control",
+                "overview": "OpenID Connect SSO with role-to-library mapping, multi-provider support, and admin UI.",
+                "owner": "aussierk",
+                "category": "Authentication",
+                "versions": [$entry]
+              }]' > manifest.json
+          else
+            # Full release: prepend new entry to the existing manifest on main
+            git fetch origin main
+            git show origin/main:manifest.json > manifest_existing.json
+            jq --argjson entry "${NEW_ENTRY}" \
+              '.[0].versions = [$entry] + .[0].versions' \
+              manifest_existing.json > manifest.json
+          fi
 
       - name: Create release
         uses: softprops/action-gh-release@v2
@@ -71,15 +77,14 @@ jobs:
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
 
-      - name: Commit updated manifest
+      - name: Commit updated manifest to main
         if: ${{ !contains(github.ref_name, '-') }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           cp manifest.json /tmp/manifest.json
-          git fetch origin main
           git checkout main
           cp /tmp/manifest.json manifest.json
           git add manifest.json
-          git commit -m "Update manifest.json for ${GITHUB_REF_NAME}" || echo "No changes"
+          git commit -m "chore(release): update manifest.json for ${GITHUB_REF_NAME}" || echo "No changes"
           git push origin main
