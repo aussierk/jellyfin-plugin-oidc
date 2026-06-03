@@ -11,6 +11,7 @@ using IdentityModel;
 using IdentityModel.Client;
 using Jellyfin.Plugin.OIDC.Configuration;
 using Jellyfin.Plugin.OIDC.Services;
+using MediaBrowser.Controller;
 using MediaBrowser.Controller.Session;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -29,6 +30,7 @@ public class OidcController : ControllerBase
     private readonly UserSyncService _userSyncService;
     private readonly ISessionManager _sessionManager;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IServerApplicationHost _appHost;
     private readonly ILogger<OidcController> _logger;
 
     public OidcController(
@@ -36,12 +38,14 @@ public class OidcController : ControllerBase
         UserSyncService userSyncService,
         ISessionManager sessionManager,
         IHttpClientFactory httpClientFactory,
+        IServerApplicationHost appHost,
         ILogger<OidcController> logger)
     {
         _stateManager = stateManager;
         _userSyncService = userSyncService;
         _sessionManager = sessionManager;
         _httpClientFactory = httpClientFactory;
+        _appHost = appHost;
         _logger = logger;
     }
 
@@ -64,7 +68,7 @@ public class OidcController : ControllerBase
         var codeVerifier = CryptoRandom.CreateUniqueId(64);
         var codeChallenge = CreateCodeChallenge(codeVerifier);
         var nonce = CryptoRandom.CreateUniqueId(32);
-        var redirectUri = BuildRedirectUri(providerId);
+        var redirectUri = BuildRedirectUri(provider);
 
         var state = new OidcState
         {
@@ -345,9 +349,13 @@ public class OidcController : ControllerBase
         }).ConfigureAwait(false);
     }
 
-    private string BuildRedirectUri(string providerId)
+    private string BuildRedirectUri(OidcProviderConfig provider)
     {
-        return $"{Request.Scheme}://{Request.Host}/sso/OIDC/Callback/{providerId}";
+        var baseUrl = !string.IsNullOrWhiteSpace(provider.ServerBaseUrl)
+            ? provider.ServerBaseUrl
+            : _appHost.GetSmartApiUrl(Request);
+
+        return $"{baseUrl.TrimEnd('/')}/sso/OIDC/Callback/{provider.ProviderId}";
     }
 
     private static string CreateCodeChallenge(string codeVerifier)
