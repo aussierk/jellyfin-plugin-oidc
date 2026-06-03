@@ -65,6 +65,11 @@ public class OidcController : ControllerBase
             return StatusCode(502, "Failed to contact identity provider");
         }
 
+        if (!ValidateOrPinEndpoints(provider, disco))
+        {
+            return StatusCode(502, "Identity provider endpoint mismatch detected. Re-run Test Connection in the plugin admin UI.");
+        }
+
         var codeVerifier = CryptoRandom.CreateUniqueId(64);
         var codeChallenge = CreateCodeChallenge(codeVerifier);
         var nonce = CryptoRandom.CreateUniqueId(32);
@@ -127,6 +132,11 @@ public class OidcController : ControllerBase
         if (disco.IsError)
         {
             return StatusCode(502, "Failed to contact identity provider");
+        }
+
+        if (!ValidateOrPinEndpoints(provider, disco))
+        {
+            return StatusCode(502, "Identity provider endpoint mismatch detected. Re-run Test Connection in the plugin admin UI.");
         }
 
         var httpClient = _httpClientFactory.CreateClient("OidcPlugin");
@@ -335,6 +345,39 @@ public class OidcController : ControllerBase
                                  && p.Enabled);
     }
 
+    private bool ValidateOrPinEndpoints(OidcProviderConfig provider, DiscoveryDocumentResponse disco)
+    {
+        var authorityChanged = !string.Equals(provider.Authority, provider.PinnedAuthority, StringComparison.OrdinalIgnoreCase);
+        var unpinned = string.IsNullOrEmpty(provider.PinnedIssuer);
+
+        if (unpinned || authorityChanged)
+        {
+            provider.PinnedAuthority = provider.Authority;
+            provider.PinnedIssuer = disco.Issuer ?? string.Empty;
+            provider.PinnedTokenEndpoint = disco.TokenEndpoint ?? string.Empty;
+            provider.PinnedJwksUri = disco.JwksUri ?? string.Empty;
+            OidcPlugin.Instance?.SaveConfiguration();
+            _logger.LogInformation("Pinned discovery endpoints for provider {Provider}", provider.ProviderId);
+            return true;
+        }
+
+        var issuerMatch = string.Equals(disco.Issuer, provider.PinnedIssuer, StringComparison.Ordinal);
+        var tokenMatch = string.Equals(disco.TokenEndpoint, provider.PinnedTokenEndpoint, StringComparison.Ordinal);
+        var jwksMatch = string.Equals(disco.JwksUri, provider.PinnedJwksUri, StringComparison.Ordinal);
+
+        if (!issuerMatch || !tokenMatch || !jwksMatch)
+        {
+            _logger.LogError(
+                "Discovery endpoint mismatch for {Provider} — expected issuer={Issuer} token={Token} jwks={Jwks}; got issuer={ActualIssuer} token={ActualToken} jwks={ActualJwks}. Pins retained — re-run Test Connection in the admin UI to update them.",
+                provider.ProviderId,
+                provider.PinnedIssuer, provider.PinnedTokenEndpoint, provider.PinnedJwksUri,
+                disco.Issuer, disco.TokenEndpoint, disco.JwksUri);
+            return false;
+        }
+
+        return true;
+    }
+
     private async Task<DiscoveryDocumentResponse> GetDiscoveryDocumentAsync(OidcProviderConfig provider)
     {
         var httpClient = _httpClientFactory.CreateClient("OidcPlugin");
@@ -344,7 +387,7 @@ public class OidcController : ControllerBase
             Policy = new DiscoveryPolicy
             {
                 ValidateIssuerName = true,
-                ValidateEndpoints = provider.ValidateDiscoveryEndpoints
+                ValidateEndpoints = false
             }
         }).ConfigureAwait(false);
     }

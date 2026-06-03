@@ -68,11 +68,18 @@ public class OidcProviderConfig
     public bool StrictAccessTokenValidation { get; set; } = true;
 
     /// <summary>
-    /// When true, endpoint URLs in the OIDC discovery document must share the same base address
-    /// as the issuer. Set to false for IdPs like Authentik whose endpoints are on different paths
-    /// than the issuer (e.g. /application/o/authorize/ vs /o/jellyfin).
+    /// The authority URL that was used when endpoints were last pinned.
+    /// If this differs from Authority, pins are treated as stale and re-pinned on next auth.
     /// </summary>
-    public bool ValidateDiscoveryEndpoints { get; set; } = false;
+    public string PinnedAuthority { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Pinned OIDC discovery endpoints — set on first successful auth (TOFU) or via Test Connection.
+    /// If these change unexpectedly in a later discovery document, login is blocked and pins are cleared.
+    /// </summary>
+    public string PinnedIssuer { get; set; } = string.Empty;
+    public string PinnedTokenEndpoint { get; set; } = string.Empty;
+    public string PinnedJwksUri { get; set; } = string.Empty;
 }
 
 public class RoleMapping
