@@ -39,7 +39,7 @@ These changes are not present in the upstream plugin:
 ### Add repository to Jellyfin
 
 ```
-https://raw.githubusercontent.com/aussierk/jellyfin-plugin-oidc-secure/main/manifest.json
+https://raw.githubusercontent.com/aussierk/jellyfin-plugin-oidc/main/manifest.json
 ```
 
 1. Go to **Admin Dashboard → Plugins → Repositories**
@@ -50,7 +50,7 @@ https://raw.githubusercontent.com/aussierk/jellyfin-plugin-oidc-secure/main/mani
 
 ### Manual installation
 
-1. Download `oidc-rbac.zip` from the [latest release](https://github.com/aussierk/jellyfin-plugin-oidc-secure/releases/latest)
+1. Download `oidc-rbac.zip` from the [latest release](https://github.com/aussierk/jellyfin-plugin-oidc/releases/latest)
 2. On your server, create a folder named `SSO-OIDC-Secure-RBAC_1.0.8.0` inside your Jellyfin plugins directory (e.g. `/config/plugins/`)
 3. Extract the contents of the zip into that folder
 4. Restart Jellyfin
