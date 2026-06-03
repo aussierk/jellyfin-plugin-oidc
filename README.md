@@ -1,8 +1,23 @@
-# SSO-OIDC RBAC — Jellyfin Plugin
+# SSO-OIDC-Secure-RBAC — Jellyfin Plugin
 
-A Jellyfin plugin providing **OpenID Connect authentication** with **role-based library access control**.
+A security-hardened Jellyfin plugin providing **OpenID Connect authentication** with **role-based library access control**.
 
 Authenticate users via any OIDC-compatible identity provider (Authentik, Keycloak, Azure AD, Okta, etc.) and automatically assign Jellyfin permissions and library access based on IdP group/role claims.
+
+> **Forked from [Ezeqielle/jellyfin-plugin-oidc](https://github.com/Ezeqielle/jellyfin-plugin-oidc)** with significant security hardening. See [Security improvements](#security-improvements) for what was changed and why.
+
+## Security improvements
+
+These changes are not present in the upstream plugin:
+
+| Area | Upstream | This fork |
+|------|----------|-----------|
+| JWT validation | `ReadJwtToken()` — parses only, no cryptographic verification | `ValidateToken()` against IdP's JWKS endpoint — verifies signature, issuer, audience, and lifetime |
+| Nonce enforcement | Optional guard that could pass on a missing nonce claim | Always enforced — missing nonce claim is a hard rejection |
+| XSS in login button | Provider values string-interpolated into generated JavaScript | Provider data JSON-serialized; values injected via DOM APIs |
+| Access token validation | No signature check on access token used for role extraction | Signature-validated; per-provider toggle for non-JWT access tokens |
+| Discovery endpoint validation | Not validated | Per-provider toggle (default off for compatibility with Authentik) |
+| redirect_uri behind reverse proxies | `Request.Host` — fails behind proxies | `IServerApplicationHost.GetSmartApiUrl()` — honours Jellyfin's Published Server URLs |
 
 ## Features
 
@@ -24,19 +39,19 @@ Authenticate users via any OIDC-compatible identity provider (Authentik, Keycloa
 ### Add repository to Jellyfin
 
 ```
-https://raw.githubusercontent.com/aussierk/jellyfin-plugin-oidc/main/manifest.json
+https://raw.githubusercontent.com/aussierk/jellyfin-plugin-oidc-secure/main/manifest.json
 ```
 
 1. Go to **Admin Dashboard → Plugins → Repositories**
-2. Click **Add repository** and paste the URL above (Repository Name: `SSO-OIDC RBAC`)
+2. Click **Add repository** and paste the URL above (Repository Name: `SSO-OIDC-Secure-RBAC`)
 3. Go to **Catalog → Authentication**
-4. Install **SSO-OIDC RBAC**
+4. Install **SSO-OIDC-Secure-RBAC**
 5. Restart Jellyfin
 
 ### Manual installation
 
-1. Download `oidc-rbac.zip` from the [latest release](https://github.com/aussierk/jellyfin-plugin-oidc/releases/latest)
-2. On your server, create a folder named `SSO-OIDC RBAC_1.0.5.0` inside your Jellyfin plugins directory (e.g. `/config/plugins/`)
+1. Download `oidc-rbac.zip` from the [latest release](https://github.com/aussierk/jellyfin-plugin-oidc-secure/releases/latest)
+2. On your server, create a folder named `SSO-OIDC-Secure-RBAC_1.0.8.0` inside your Jellyfin plugins directory (e.g. `/config/plugins/`)
 3. Extract the contents of the zip into that folder
 4. Restart Jellyfin
 
@@ -44,7 +59,7 @@ https://raw.githubusercontent.com/aussierk/jellyfin-plugin-oidc/main/manifest.js
 
 ### 1. Configure a Provider
 
-Go to **Admin Dashboard → Plugins → SSO-OIDC RBAC → Providers tab**
+Go to **Admin Dashboard → Plugins → SSO-OIDC-Secure-RBAC → Providers tab**
 
 | Field              | Example (Authentik)                                        |
 |--------------------|------------------------------------------------------------|

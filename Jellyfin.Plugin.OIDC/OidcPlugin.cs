@@ -18,9 +18,9 @@ public class OidcPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public static OidcPlugin? Instance { get; private set; }
 
-    public override string Name => "SSO-OIDC RBAC";
+    public override string Name => "SSO-OIDC-Secure-RBAC";
 
-    public override Guid Id => Guid.Parse("d4e5f6a7-b8c9-0d1e-2f3a-4b5c6d7e8f90");
+    public override Guid Id => Guid.Parse("e1c020c5-3972-4b7b-9538-ee4934cc902c");
 
     public override string Description => "Advanced OIDC authentication with role-based library access control";
 
