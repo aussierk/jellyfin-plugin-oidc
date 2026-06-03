@@ -57,6 +57,9 @@ Go to **Admin Dashboard → Plugins → SSO-OIDC RBAC → Providers tab**
 | Role Claim Path    | `groups`                                                   |
 | Username Claim     | `preferred_username`                                       |
 | Display Name Claim | `name`                                                     |
+| Server Base URL    | *(optional, e.g. `https://jellyfin.example.com`)*          |
+
+> **Server Base URL** is only needed if Jellyfin can't resolve its public URL on its own (e.g. behind a reverse proxy whose `X-Forwarded-*` headers aren't trusted). See [Reverse proxy / redirect_uri](#reverse-proxy--redirect_uri).
 
 ### 2. Create Role Mappings
 
@@ -164,6 +167,17 @@ The **Role Claim Path** supports:
 | `roles`                | `{"roles": ["admin"]}`                           | Custom/Azure |
 
 The plugin checks both the ID token and access token for role claims.
+
+## Reverse proxy / redirect_uri
+
+The plugin builds the OIDC `redirect_uri` from Jellyfin's published URL via `IServerApplicationHost.GetSmartApiUrl()`. This honours Jellyfin's **Published Server URLs** field (Admin Dashboard → Networking) and any trusted `X-Forwarded-*` headers from a proxy listed under **Known proxies**.
+
+If your IdP rejects the callback with `Invalid redirect_uri` (or you see `127.0.0.1:8096` in the URL), pick one of these:
+
+- **Recommended:** set **Published Server URL** in Jellyfin → Networking and/or add your proxy to **Known proxies** so Jellyfin trusts the forwarded host.
+- **Or:** set the per-provider **Server Base URL** field to the exact origin your IdP has registered (e.g. `https://jellyfin.example.com`). It overrides auto-detection.
+
+The path is always appended as `/sso/OIDC/Callback/{providerId}`, so make sure the IdP's allowed redirect URI matches that suffix.
 
 ## Identity Provider Guides
 
