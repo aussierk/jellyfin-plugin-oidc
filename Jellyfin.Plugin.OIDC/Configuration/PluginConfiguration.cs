@@ -59,6 +59,8 @@ public class OidcProviderConfig
 
     public string AdditionalParameters { get; set; } = string.Empty;
 
+    public string ServerBaseUrl { get; set; } = string.Empty;
+
     /// <summary>
     /// When true, a failure to validate the access token's signature is treated as a fatal
     /// authentication error. Set to false only for IdPs that issue unsigned or opaque access tokens.
