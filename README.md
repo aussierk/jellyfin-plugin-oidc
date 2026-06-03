@@ -194,6 +194,36 @@ If your IdP rejects the callback with `Invalid redirect_uri` (or you see `127.0.
 
 The path is always appended as `/sso/OIDC/Callback/{providerId}`, so make sure the IdP's allowed redirect URI matches that suffix.
 
+## Avoiding admin lockout
+
+> **Keep at least one local Jellyfin admin account with password authentication.** This is your recovery path if SSO becomes unavailable.
+
+### Why this matters
+
+This plugin pins the OIDC discovery endpoints (issuer, token endpoint, JWKS URI) the first time a provider is used. If those endpoints change — which can happen when you upgrade your IdP (Authentik, Keycloak, and others occasionally restructure their OIDC paths between versions) — all SSO logins will be blocked until an admin re-runs **Test Connection** in the plugin config.
+
+If every admin account is an SSO account, you cannot reach the admin UI to fix it. You are locked out of your own server.
+
+### How to maintain a local fallback account
+
+1. In Jellyfin, go to **Admin Dashboard → Users → Add User**
+2. Create a user (e.g. `jellyfin-local-admin`) with a strong password
+3. Grant it Administrator permissions
+4. Set its Authentication Provider to **Default** (not OIDC) — this ensures it always logs in with a local password regardless of SSO state
+5. Store the credentials somewhere safe (password manager, etc.)
+
+> If `MigrateLocalUsers` is enabled in the plugin's General settings, this account will be migrated to SSO if it ever logs in via the SSO flow. **Do not use this account to log in via SSO** — use it only as a break-glass fallback via the standard Jellyfin login form.
+
+### Recovery: re-pinning after an IdP update
+
+If SSO logins start failing after an IdP upgrade:
+
+1. Log in with your local fallback account
+2. Go to **Admin Dashboard → Plugins → SSO-OIDC-Secure-RBAC**
+3. Find the affected provider and click **Test Connection**
+4. If the test succeeds, the endpoints are re-pinned and SSO logins resume immediately
+5. If the test fails, the IdP is unreachable or misconfigured — check the Jellyfin logs for the exact mismatch
+
 ## Identity Provider Guides
 
 | Provider | Guide | Role Claim |
