@@ -8,10 +8,10 @@
   "versions": [
     {
       "version": "1.0.8.0",
-      "changelog": "Security: validate JWT signatures against IdP JWKS endpoint; enforce nonce on all tokens; enable discovery endpoint URL validation; add per-provider strict access token validation toggle; prevent XSS in login button script generation; demote IdP error descriptions from error to debug logs",
+      "changelog": "Security: validate JWT tokens against IdP JWKS endpoint; pin discovery endpoints on first use (TOFU) with mismatch detection; enforce nonce on all tokens; prevent XSS in login button output; per-provider strict access token validation toggle. Fix: redirect_uri resolves correctly behind reverse proxies via GetSmartApiUrl. Rebrand as SSO-OIDC-Secure-RBAC with new plugin GUID.",
       "targetAbi": "10.11.0.0",
       "sourceUrl": "",
-      "timestamp": "2026-06-02T00:00:00Z"
+      "timestamp": "2026-06-03T00:00:00Z"
     },
     {
       "version": "1.0.7.0",
