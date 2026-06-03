@@ -65,9 +65,11 @@ function renderProviders(view) {
             '<div class="oidc-field full"><label><input type="checkbox" id="prov_strict_access_' + idx + '"' +
             (p.StrictAccessTokenValidation !== false ? ' checked' : '') + '/> Strict access token validation</label>' +
             '<span style="font-size:0.8em;color:#aaa;margin-left:1.5em;">Only applies when the IdP issues JWT access tokens (e.g. Keycloak). Opaque access tokens (Google, default Authelia) are skipped automatically and unaffected by this setting. Uncheck if your IdP signs access tokens with a different key than the JWKS endpoint advertises.</span></div>' +
-            '<div class="oidc-field full"><label><input type="checkbox" id="prov_validate_endpoints_' + idx + '"' +
-            (p.ValidateDiscoveryEndpoints !== false ? ' checked' : '') + '/> Validate discovery endpoint URLs</label>' +
-            '<span style="font-size:0.8em;color:#aaa;margin-left:1.5em;">Requires all endpoints in the discovery document to share the same base address as the issuer. Uncheck for Authentik and other IdPs whose endpoints are on different URL paths than the issuer.</span></div>' +
+            '<div class="oidc-field full" id="prov_pin_status_' + idx + '">' +
+            (p.PinnedIssuer
+                ? '<span style="color:#4caf50;font-size:0.9em;">&#10003; Endpoints pinned — issuer: ' + esc(p.PinnedIssuer) + '</span>'
+                : '<span style="color:#ff9800;font-size:0.9em;">&#9888; Endpoints not pinned — run Test Connection before saving</span>') +
+            '</div>' +
             '</div>' +
             '<div style="margin-top:0.5em;display:flex;gap:0.5em;align-items:center;">' +
             '<button type="button" class="oidc-btn-secondary" data-action="test-provider" data-idx="' + idx + '">Test Connection</button>' +
@@ -149,6 +151,14 @@ function testProvider(view, idx) {
         dataType: 'json'
     }).then(function (result) {
         if (result.Success) {
+            cfg.Providers[idx].PinnedAuthority = cfg.Providers[idx].Authority;
+            cfg.Providers[idx].PinnedIssuer = result.Issuer || '';
+            cfg.Providers[idx].PinnedTokenEndpoint = result.TokenEndpoint || '';
+            cfg.Providers[idx].PinnedJwksUri = result.JwksUri || '';
+            var pinEl = view.querySelector('#prov_pin_status_' + idx);
+            if (pinEl) {
+                pinEl.innerHTML = '<span style="color:#4caf50;font-size:0.9em;">&#10003; Endpoints pinned — issuer: ' + esc(result.Issuer || '') + '</span>';
+            }
             if (resultEl) {
                 resultEl.style.color = '#4caf50';
                 var msg = 'OK — issuer ' + result.Issuer;
@@ -198,7 +208,10 @@ function collectProviders(view) {
             ServerBaseUrl: gval(view, 'prov_baseurl_' + idx),
             Enabled: gchk(view, 'prov_enabled_' + idx),
             StrictAccessTokenValidation: gchk(view, 'prov_strict_access_' + idx),
-            ValidateDiscoveryEndpoints: gchk(view, 'prov_validate_endpoints_' + idx),
+            PinnedAuthority: cfg.Providers[idx].PinnedAuthority || '',
+            PinnedIssuer: cfg.Providers[idx].PinnedIssuer || '',
+            PinnedTokenEndpoint: cfg.Providers[idx].PinnedTokenEndpoint || '',
+            PinnedJwksUri: cfg.Providers[idx].PinnedJwksUri || '',
             ButtonIcon: ''
         });
     });
@@ -286,7 +299,7 @@ export default function (view) {
             DisplayNameClaim: 'name', Enabled: true, ButtonColor: '#4285F4',
             ButtonIcon: '', AdditionalParameters: '',
             StrictAccessTokenValidation: true,
-            ValidateDiscoveryEndpoints: false
+            PinnedAuthority: '', PinnedIssuer: '', PinnedTokenEndpoint: '', PinnedJwksUri: ''
         });
         renderProviders(view);
     });
@@ -308,6 +321,13 @@ export default function (view) {
     // Save
     view.querySelector('#btnSave').addEventListener('click', function () {
         if (!cfg) return;
+        var unpinned = (cfg.Providers || []).filter(function (p, idx) {
+            return p.Enabled !== false && !cfg.Providers[idx].PinnedIssuer;
+        });
+        if (unpinned.length > 0) {
+            Dashboard.alert({ title: 'Test Connection required', message: 'Please run Test Connection for all enabled providers before saving. Unpinned: ' + unpinned.map(function (p) { return p.DisplayName || p.ProviderId; }).join(', ') });
+            return;
+        }
         Dashboard.showLoadingMsg();
         cfg.Providers = collectProviders(view);
         cfg.RoleMappings = collectRoleMappings(view);
