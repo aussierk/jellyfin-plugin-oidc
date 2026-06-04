@@ -12,9 +12,9 @@
         "version": "1.0.5.1",
         "changelog": "Fix: role mappings added after a previous save were overwriting earlier ones. Rename plugin to SSO-OIDC Authentication.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "",
-        "checksum": "",
-        "timestamp": "2026-06-03T00:00:00Z"
+        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.5.1/oidc-rbac.zip",
+        "checksum": "34aa5390ed848607d9db7f4a61322779",
+        "timestamp": "2026-06-04T02:35:00Z"
       }
     ]
   }
