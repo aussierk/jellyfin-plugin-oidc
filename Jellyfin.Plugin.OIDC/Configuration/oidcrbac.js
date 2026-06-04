@@ -316,6 +316,7 @@ export default function (view) {
     // Add provider
     view.querySelector('#btnAddProvider').addEventListener('click', function () {
         if (!cfg) return;
+        cfg.Providers = collectProviders(view);
         cfg.Providers.push({
             ProviderId: '', DisplayName: 'New Provider', Authority: '',
             ClientId: '', ClientSecret: '', Scopes: 'openid profile email',
@@ -331,6 +332,7 @@ export default function (view) {
     // Add role mapping
     view.querySelector('#btnAddRoleMapping').addEventListener('click', function () {
         if (!cfg) return;
+        cfg.RoleMappings = collectRoleMappings(view);
         cfg.RoleMappings.push({
             RoleName: '', Priority: 0, ProviderFilter: '', IsAdmin: false, EnableAllLibraries: false,
             LibraryIds: [], LibraryNames: [], EnableLiveTv: false,
@@ -378,6 +380,7 @@ export default function (view) {
         if (!btn) return;
         var idx = parseInt(btn.getAttribute('data-idx'));
         if (btn.getAttribute('data-action') === 'remove-provider') {
+            cfg.Providers = collectProviders(view);
             cfg.Providers.splice(idx, 1);
             renderProviders(view);
         } else if (btn.getAttribute('data-action') === 'test-provider') {
@@ -395,6 +398,7 @@ export default function (view) {
         if (!btn) return;
         var idx = parseInt(btn.getAttribute('data-idx'));
         if (btn.getAttribute('data-action') === 'remove-role') {
+            cfg.RoleMappings = collectRoleMappings(view);
             cfg.RoleMappings.splice(idx, 1);
             renderRoleMappings(view);
         } else if (btn.getAttribute('data-action') === 'add-lib') {

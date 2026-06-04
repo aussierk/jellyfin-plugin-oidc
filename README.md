@@ -6,19 +6,6 @@ Authenticate users via any OIDC-compatible identity provider (Authentik, Keycloa
 
 > **Forked from [Ezeqielle/jellyfin-plugin-oidc](https://github.com/Ezeqielle/jellyfin-plugin-oidc)** with significant security hardening. See [Security improvements](#security-improvements) for what was changed and why.
 
-## Upgrading from v1.0.8 — breaking change
-
-**Read this before upgrading if you have existing users.**
-
-v1.0.9 introduces provider-level user isolation. From this version:
-
-- **Each Jellyfin account is bound to the OIDC provider that created it.** A second provider cannot authenticate as a user created by the first provider.
-- **OIDC can no longer silently take over local Jellyfin accounts.** If a local user (password auth) has the same username as an incoming OIDC login, the login is now blocked — unless `Migrate local users to SSO` is enabled in the General tab.
-
-**If you have existing users who match both a local account and an OIDC account, enable `Migrate local users to SSO` in the General settings before upgrading**, or rename the conflicting accounts.
-
-The first time an existing user logs in via SSO after upgrading, their account is registered to that provider and subsequent logins work normally.
-
 ## Security improvements
 
 These changes are not present in the upstream plugin:

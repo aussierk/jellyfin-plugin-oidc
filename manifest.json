@@ -18,7 +18,7 @@
       },
       {
         "version": "1.0.8.0",
-        "changelog": "Security: validate JWT signatures against IdP JWKS endpoint; enforce nonce on all tokens; enable discovery endpoint URL validation; add per-provider strict access token validation toggle; prevent XSS in login button script generation; demote IdP error descriptions from error to debug logs",
+        "changelog": "Security: validate JWT tokens against IdP JWKS endpoint; pin discovery endpoints on first use (TOFU) with mismatch detection; enforce nonce on all tokens; prevent XSS in login button output; per-provider strict access token validation toggle. Fix: redirect_uri resolves correctly behind reverse proxies via GetSmartApiUrl. Rebrand as SSO-OIDC-Secure-RBAC with new plugin GUID.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.8/oidc-rbac.zip",
         "checksum": "0dda53e34b1e03b9696e5fd200ce03f6",
@@ -60,8 +60,8 @@
         "version": "1.0.3.0",
         "changelog": "Fix admin/RBAC permissions not persisting: apply role mappings after AuthenticateDirect so Jellyfin cannot overwrite them; add post-update verification with retry",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.3/oidc-rbac.zip",
-        "checksum": "89c83c1b7f4234c7ffb78bd581383c11",
+        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.3.0/oidc-rbac.zip",
+        "checksum": "2b28db06eaaba72d95bdb92e6dbb3549",
         "timestamp": "2026-05-28T00:00:00Z"
       },
       {
@@ -76,9 +76,9 @@
         "version": "1.0.1.0",
         "changelog": "Release v1.0.1",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/Ezeqielle/jellyfin-plugin-oidc/releases/download/v1.0.0/oidc-rbac.zip",
-        "checksum": "fbc8fea175b43505d7108c692cdc084d",
-        "timestamp": "2026-05-12T13:49:10Z"
+        "sourceUrl": "https://github.com/Ezeqielle/jellyfin-plugin-oidc/releases/download/v1.0.1/oidc-rbac.zip",
+        "checksum": "458e47ea72da58622658325d564e49ba",
+        "timestamp": "2026-05-18T11:23:39Z"
       }
     ]
   }
