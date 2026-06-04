@@ -85,6 +85,9 @@ jobs:
 
           cp manifest.json /tmp/manifest.json
 
+          # Discard the locally generated manifest so git checkout doesn't refuse
+          git restore manifest.json 2>/dev/null || git checkout -- manifest.json
+
           # Always commit back to the source branch
           git checkout "${SOURCE_BRANCH}"
           cp /tmp/manifest.json manifest.json
