@@ -38,20 +38,31 @@ public static class ClaimParser
 
     private static string[] ExtractFromFlatClaim(JwtSecurityToken token, string claimType)
     {
-        var claims = token.Claims.Where(c => c.Type == claimType).Select(c => c.Value).ToArray();
-        if (claims.Length > 0)
+        var claims = token.Claims.Where(c => c.Type == claimType).ToArray();
+
+        if (claims.Length == 0)
         {
-            return claims;
+            return Array.Empty<string>();
         }
 
-        // Try parsing the single claim value as a JSON array
-        var singleClaim = token.Claims.FirstOrDefault(c => c.Type == claimType)?.Value;
-        if (singleClaim != null && singleClaim.TrimStart().StartsWith('['))
+        // Multiple separate claim values (standard multi-value encoding) → return them all.
+        if (claims.Length > 1)
         {
-            return ParseJsonStringArray(singleClaim);
+            return claims.Select(c => c.Value).ToArray();
         }
 
-        return Array.Empty<string>();
+        // Single claim: if its value is a JSON array, parse and expand it.
+        var singleValue = claims[0].Value;
+        if (singleValue.TrimStart().StartsWith('['))
+        {
+            var parsed = ParseJsonStringArray(singleValue);
+            if (parsed.Length > 0)
+            {
+                return parsed;
+            }
+        }
+
+        return [singleValue];
     }
 
     private static string[] ExtractFromNestedClaim(JwtSecurityToken token, string[] pathParts)

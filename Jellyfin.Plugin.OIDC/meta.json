@@ -7,6 +7,13 @@
   "category": "Authentication",
   "versions": [
     {
+      "version": "1.0.5.2",
+      "changelog": "Feat: per-IP fixed-window rate limiting on OIDC auth endpoints. Fix: dead-code bug in ClaimParser where JSON array claim values were never parsed. CI: 77-test suite with AAA pattern coverage across all services and controllers.",
+      "targetAbi": "10.11.0.0",
+      "sourceUrl": "",
+      "timestamp": "2026-06-04T00:00:00Z"
+    },
+    {
       "version": "1.0.5.1",
       "changelog": "Fix: role mappings added after a previous save were overwriting earlier ones. Rename plugin to SSO-OIDC Authentication.",
       "targetAbi": "10.11.0.0",
