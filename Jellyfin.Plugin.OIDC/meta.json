@@ -1,11 +1,18 @@
 {
   "guid": "e1c020c5-3972-4b7b-9538-ee4934cc902c",
-  "name": "SSO-OIDC-Secure-RBAC",
+  "name": "SSO-OIDC Authentication",
   "description": "Advanced OIDC authentication with role-based library access control",
   "overview": "OpenID Connect SSO with granular role-to-library mapping, multi-provider support, and a full admin configuration UI.",
   "owner": "aussierk",
   "category": "Authentication",
   "versions": [
+    {
+      "version": "1.0.9.1",
+      "changelog": "Fix: role mappings added after a previous save were overwriting earlier ones. Rename plugin to SSO-OIDC Authentication.",
+      "targetAbi": "10.11.0.0",
+      "sourceUrl": "",
+      "timestamp": "2026-06-03T00:00:00Z"
+    },
     {
       "version": "1.0.9.0",
       "changelog": "Security: prevent cross-provider username hijacking (UserProviderMap); block OIDC from taking over local accounts; enable OIDC discovery endpoint validation (ValidateEndpoints) with per-provider opt-out; cap StateManager to prevent memory DoS; SemaphoreSlim for endpoint pin race condition; fix GetProviders URL behind reverse proxy; per-provider ProviderFilter on role mappings; security headers on callback page; ButtonColor CSS injection prevention; username validation from IdP claims; JSON-encode callback HTML JS values.",

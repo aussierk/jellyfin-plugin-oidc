@@ -1,4 +1,4 @@
-# SSO-OIDC-Secure-RBAC — Jellyfin Plugin
+# SSO-OIDC Authentication — Jellyfin Plugin
 
 A security-hardened Jellyfin plugin providing **OpenID Connect authentication** with **role-based library access control**.
 
@@ -51,15 +51,15 @@ https://raw.githubusercontent.com/aussierk/jellyfin-plugin-oidc/main/manifest.js
 ```
 
 1. Go to **Admin Dashboard → Plugins → Repositories**
-2. Click **Add repository** and paste the URL above (Repository Name: `SSO-OIDC-Secure-RBAC`)
+2. Click **Add repository** and paste the URL above (Repository Name: `SSO-OIDC Authentication`)
 3. Go to **Catalog → Authentication**
-4. Install **SSO-OIDC-Secure-RBAC**
+4. Install **SSO-OIDC Authentication**
 5. Restart Jellyfin
 
 ### Manual installation
 
 1. Download `oidc-rbac.zip` from the [latest release](https://github.com/aussierk/jellyfin-plugin-oidc/releases/latest)
-2. On your server, create a folder named `SSO-OIDC-Secure-RBAC_1.0.9.0` inside your Jellyfin plugins directory (e.g. `/config/plugins/`)
+2. On your server, create a folder named `SSO-OIDC Authentication_1.0.9.1` inside your Jellyfin plugins directory (e.g. `/config/plugins/`)
 3. Extract the contents of the zip into that folder
 4. Restart Jellyfin
 
@@ -69,7 +69,7 @@ https://raw.githubusercontent.com/aussierk/jellyfin-plugin-oidc/main/manifest.js
 
 ### 1. Configure a Provider
 
-Go to **Admin Dashboard → Plugins → SSO-OIDC-Secure-RBAC → Providers tab**
+Go to **Admin Dashboard → Plugins → SSO-OIDC Authentication → Providers tab**
 
 | Field              | Example (Authentik)                                        |
 |--------------------|------------------------------------------------------------|
@@ -248,7 +248,7 @@ If every admin account is an SSO account, you cannot reach the admin UI to fix i
 If SSO logins start failing after an IdP upgrade:
 
 1. Log in with your local fallback account
-2. Go to **Admin Dashboard → Plugins → SSO-OIDC-Secure-RBAC**
+2. Go to **Admin Dashboard → Plugins → SSO-OIDC Authentication**
 3. Find the affected provider and click **Test Connection**
 4. If the test succeeds, the endpoints are re-pinned and SSO logins resume immediately
 5. If the test fails, the IdP is unreachable or misconfigured — check the Jellyfin logs for the exact mismatch
