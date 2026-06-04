@@ -54,6 +54,7 @@ public class OidcController : ControllerBase
     }
 
     [HttpGet("Start/{providerId}")]
+    [RateLimit("oidc-start", maxRequests: 20, windowSeconds: 60)]
     public async Task<ActionResult> Start(string providerId)
     {
         var provider = GetProvider(providerId);
@@ -118,6 +119,7 @@ public class OidcController : ControllerBase
     }
 
     [HttpGet("Callback/{providerId}")]
+    [RateLimit("oidc-callback", maxRequests: 10, windowSeconds: 60)]
     public async Task<ActionResult> Callback(string providerId, [FromQuery] string code, [FromQuery] string state)
     {
         if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state))
@@ -301,6 +303,7 @@ public class OidcController : ControllerBase
     }
 
     [HttpPost("Auth/{providerId}")]
+    [RateLimit("oidc-auth", maxRequests: 10, windowSeconds: 60)]
     public async Task<ActionResult> Authenticate(
         string providerId,
         [FromBody] AuthenticateRequest request)
