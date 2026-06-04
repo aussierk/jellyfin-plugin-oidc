@@ -7,7 +7,7 @@
   "category": "Authentication",
   "versions": [
     {
-      "version": "1.0.5.3",
+      "version": "1.0.5.2",
       "changelog": "Feat: per-IP fixed-window rate limiting on OIDC auth endpoints. Fix: dead-code bug in ClaimParser where JSON array claim values were never parsed. CI: 77-test suite with AAA pattern coverage across all services and controllers.",
       "targetAbi": "10.11.0.0",
       "sourceUrl": "",
