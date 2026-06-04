@@ -3,82 +3,18 @@
     "guid": "e1c020c5-3972-4b7b-9538-ee4934cc902c",
     "name": "SSO-OIDC Authentication",
     "description": "Advanced OIDC authentication with role-based library access control",
-    "overview": "OpenID Connect SSO with role-to-library mapping, multi-provider support, and admin UI.",
+    "overview": "OpenID Connect SSO with role-to-library mapping, multi-provider support, and a full admin configuration UI.",
     "owner": "aussierk",
     "repositoryUrl": "https://github.com/aussierk/jellyfin-plugin-oidc",
     "category": "Authentication",
     "versions": [
       {
-        "version": "1.0.9.0",
-        "changelog": "Security: prevent cross-provider username hijacking (UserProviderMap); block OIDC from taking over local accounts; enable OIDC discovery endpoint validation (ValidateEndpoints) with per-provider opt-out; cap StateManager to prevent memory DoS; SemaphoreSlim for endpoint pin race condition; fix GetProviders URL behind reverse proxy; per-provider ProviderFilter on role mappings; security headers on callback page; ButtonColor CSS injection prevention; username validation from IdP claims; JSON-encode callback HTML JS values.",
+        "version": "1.0.5.1",
+        "changelog": "Fix: role mappings added after a previous save were overwriting earlier ones. Rename plugin to SSO-OIDC Authentication.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.9/oidc-rbac.zip",
-        "checksum": "a8e92e0a1edf1559f9bb54b48a0eaf19",
-        "timestamp": "2026-06-03T21:42:03Z"
-      },
-      {
-        "version": "1.0.8.0",
-        "changelog": "Security: validate JWT tokens against IdP JWKS endpoint; pin discovery endpoints on first use (TOFU) with mismatch detection; enforce nonce on all tokens; prevent XSS in login button output; per-provider strict access token validation toggle. Fix: redirect_uri resolves correctly behind reverse proxies via GetSmartApiUrl. Rebrand as SSO-OIDC-Secure-RBAC with new plugin GUID.",
-        "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.8/oidc-rbac.zip",
-        "checksum": "0dda53e34b1e03b9696e5fd200ce03f6",
-        "timestamp": "2026-06-03T16:43:43Z"
-      },
-      {
-        "version": "1.0.7.0",
-        "changelog": "Remove unsafe display name sync: fallback lookup by display name risks matching wrong users; disable in UI pending Jellyfin upstream ExternalSubjectId support",
-        "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.7.0/oidc-rbac.zip",
-        "checksum": "14349e665dba32495b4c71c78e7dde36",
-        "timestamp": "2026-05-29T00:00:00Z"
-      },
-      {
-        "version": "1.0.6.0",
-        "changelog": "Fix display name sync crashing on Jellyfin 10.11.10: IUserManager.RenameUser removed in that version; now sets Username directly via UpdateUserAsync",
-        "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.6.0/oidc-rbac.zip",
-        "checksum": "9cde3571e31097899e303dc46aaac603",
-        "timestamp": "2026-05-29T00:00:00Z"
-      },
-      {
-        "version": "1.0.5.0",
-        "changelog": "Respect disabled flag on existing users (blocked from SSO login); opt-in display name sync from OIDC token; preserve disabled flag in RBAC policy updates",
-        "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.5.0/oidc-rbac.zip",
-        "checksum": "d1b0a2389d2ee09dcb00991116849bc3",
-        "timestamp": "2026-05-29T00:00:00Z"
-      },
-      {
-        "version": "1.0.4.0",
-        "changelog": "Fix admin not showing in UI: switch to UpdatePolicyAsync to properly refresh Jellyfin runtime state; apply RBAC before session creation so token captures correct admin flag",
-        "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.4.0/oidc-rbac.zip",
-        "checksum": "aa6612ec9e07c6875b95ddbf8e9f1528",
-        "timestamp": "2026-05-29T00:00:00Z"
-      },
-      {
-        "version": "1.0.3.0",
-        "changelog": "Fix admin/RBAC permissions not persisting: apply role mappings after AuthenticateDirect so Jellyfin cannot overwrite them; add post-update verification with retry",
-        "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.3.0/oidc-rbac.zip",
-        "checksum": "2b28db06eaaba72d95bdb92e6dbb3549",
-        "timestamp": "2026-05-28T00:00:00Z"
-      },
-      {
-        "version": "1.0.2.0",
-        "changelog": "Fix OidcAuthProvider not registered with Jellyfin DI; fix new user creation crashing on ChangePassword; fix MaxParentalRating defaulting to 0; fix credential storage missing ServerId",
-        "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.2/oidc-rbac.zip",
-        "checksum": "67a71a9ac46962385518108682b7487f",
-        "timestamp": "2026-05-28T00:00:00Z"
-      },
-      {
-        "version": "1.0.1.0",
-        "changelog": "Release v1.0.1",
-        "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/Ezeqielle/jellyfin-plugin-oidc/releases/download/v1.0.1/oidc-rbac.zip",
-        "checksum": "458e47ea72da58622658325d564e49ba",
-        "timestamp": "2026-05-18T11:23:39Z"
+        "sourceUrl": "",
+        "checksum": "",
+        "timestamp": "2026-06-03T00:00:00Z"
       }
     ]
   }
