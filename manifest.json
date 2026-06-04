@@ -9,6 +9,14 @@
     "category": "Authentication",
     "versions": [
       {
+        "version": "1.0.9.1",
+        "changelog": "Fix: role mappings added after a previous save were overwriting earlier ones. Rename plugin to SSO-OIDC Authentication.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.9.1/oidc-rbac.zip",
+        "checksum": "1632a224caa942c678131ccb6d5d8efa",
+        "timestamp": "2026-06-04T02:11:44Z"
+      },
+      {
         "version": "1.0.9.0",
         "changelog": "Security: prevent cross-provider username hijacking (UserProviderMap); block OIDC from taking over local accounts; enable OIDC discovery endpoint validation (ValidateEndpoints) with per-provider opt-out; cap StateManager to prevent memory DoS; SemaphoreSlim for endpoint pin race condition; fix GetProviders URL behind reverse proxy; per-provider ProviderFilter on role mappings; security headers on callback page; ButtonColor CSS injection prevention; username validation from IdP claims; JSON-encode callback HTML JS values.",
         "targetAbi": "10.11.0.0",
