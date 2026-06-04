@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
@@ -26,6 +27,9 @@ namespace Jellyfin.Plugin.OIDC.Api;
 [Route("sso/OIDC")]
 public class OidcController : ControllerBase
 {
+    // Per-provider semaphores guard the TOFU endpoint pin read-modify-write against races.
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> _pinLocks = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly StateManager _stateManager;
     private readonly UserSyncService _userSyncService;
     private readonly ISessionManager _sessionManager;
@@ -65,9 +69,18 @@ public class OidcController : ControllerBase
             return StatusCode(502, "Failed to contact identity provider");
         }
 
-        if (!ValidateOrPinEndpoints(provider, disco))
+        var pinLock = _pinLocks.GetOrAdd(provider.ProviderId, _ => new SemaphoreSlim(1, 1));
+        await pinLock.WaitAsync().ConfigureAwait(false);
+        try
         {
-            return StatusCode(502, "Identity provider endpoint mismatch detected. Re-run Test Connection in the plugin admin UI.");
+            if (!ValidateOrPinEndpoints(provider, disco))
+            {
+                return StatusCode(502, "Identity provider endpoint mismatch detected. Re-run Test Connection in the plugin admin UI.");
+            }
+        }
+        finally
+        {
+            pinLock.Release();
         }
 
         var codeVerifier = CryptoRandom.CreateUniqueId(64);
@@ -84,6 +97,10 @@ public class OidcController : ControllerBase
         };
 
         var stateKey = _stateManager.StoreState(state);
+        if (stateKey == null)
+        {
+            return StatusCode(503, "Server is busy. Please try again in a moment.");
+        }
 
         var authorizeUrl = new RequestUrl(disco.AuthorizeEndpoint!);
         var url = authorizeUrl.CreateAuthorizeUrl(
@@ -134,9 +151,18 @@ public class OidcController : ControllerBase
             return StatusCode(502, "Failed to contact identity provider");
         }
 
-        if (!ValidateOrPinEndpoints(provider, disco))
+        var pinLockCallback = _pinLocks.GetOrAdd(provider.ProviderId, _ => new SemaphoreSlim(1, 1));
+        await pinLockCallback.WaitAsync().ConfigureAwait(false);
+        try
         {
-            return StatusCode(502, "Identity provider endpoint mismatch detected. Re-run Test Connection in the plugin admin UI.");
+            if (!ValidateOrPinEndpoints(provider, disco))
+            {
+                return StatusCode(502, "Identity provider endpoint mismatch detected. Re-run Test Connection in the plugin admin UI.");
+            }
+        }
+        finally
+        {
+            pinLockCallback.Release();
         }
 
         var httpClient = _httpClientFactory.CreateClient("OidcPlugin");
@@ -263,6 +289,14 @@ public class OidcController : ControllerBase
             Roles = roles
         });
 
+        if (sessionToken == null)
+        {
+            return StatusCode(503, "Server is busy. Please try again in a moment.");
+        }
+
+        Response.Headers["X-Frame-Options"] = "DENY";
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        Response.Headers["Content-Security-Policy"] = "default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'";
         return Content(BuildCallbackHtml(sessionToken, providerId), "text/html");
     }
 
@@ -284,11 +318,11 @@ public class OidcController : ControllerBase
 
         try
         {
-            var userId = await _userSyncService.SyncUserAsync(session.Username, session.DisplayName).ConfigureAwait(false);
+            var userId = await _userSyncService.SyncUserAsync(session.Username, session.DisplayName, session.ProviderId).ConfigureAwait(false);
 
             // Apply RBAC via UpdatePolicyAsync BEFORE AuthenticateDirect so that
             // Jellyfin's runtime user state is correct when the session token is minted.
-            await _userSyncService.ApplyRolesAsync(userId, session.Roles).ConfigureAwait(false);
+            await _userSyncService.ApplyRolesAsync(userId, session.Roles, session.ProviderId).ConfigureAwait(false);
 
             var authRequest = new AuthenticationRequest
             {
@@ -324,6 +358,7 @@ public class OidcController : ControllerBase
             return Ok(Array.Empty<object>());
         }
 
+        var baseUrl = _appHost.GetSmartApiUrl(Request).TrimEnd('/');
         var providers = config.Providers
             .Where(p => p.Enabled)
             .Select(p => new
@@ -332,7 +367,7 @@ public class OidcController : ControllerBase
                 p.DisplayName,
                 p.ButtonColor,
                 p.ButtonIcon,
-                StartUrl = $"{Request.Scheme}://{Request.Host}/sso/OIDC/Start/{p.ProviderId}"
+                StartUrl = $"{baseUrl}/sso/OIDC/Start/{p.ProviderId}"
             });
 
         return Ok(providers);
@@ -347,8 +382,16 @@ public class OidcController : ControllerBase
 
     private bool ValidateOrPinEndpoints(OidcProviderConfig provider, DiscoveryDocumentResponse disco)
     {
-        var authorityChanged = !string.Equals(provider.Authority, provider.PinnedAuthority, StringComparison.OrdinalIgnoreCase);
-        var unpinned = string.IsNullOrEmpty(provider.PinnedIssuer);
+        // Treat as unpinned only when all three endpoint fields are empty.
+        // Admin-pre-filled pins (PinnedAuthority empty, but Issuer/Token/Jwks set) are respected.
+        var unpinned = string.IsNullOrEmpty(provider.PinnedIssuer)
+                       && string.IsNullOrEmpty(provider.PinnedTokenEndpoint)
+                       && string.IsNullOrEmpty(provider.PinnedJwksUri);
+
+        // Only treat the authority as having changed when there was a previous pinned authority.
+        // This prevents overwriting admin-pre-set pins when PinnedAuthority hasn't been written yet.
+        var authorityChanged = !string.IsNullOrEmpty(provider.PinnedAuthority)
+                               && !string.Equals(provider.Authority, provider.PinnedAuthority, StringComparison.OrdinalIgnoreCase);
 
         if (unpinned || authorityChanged)
         {
@@ -427,6 +470,11 @@ public class OidcController : ControllerBase
 
     private static string BuildCallbackHtml(string sessionToken, string providerId)
     {
+        // JSON-encode both values so single quotes, backslashes, or other JS metacharacters
+        // in admin-configured provider IDs cannot break out of the string literal.
+        var tokenJson = System.Text.Json.JsonSerializer.Serialize(sessionToken);
+        var providerIdJson = System.Text.Json.JsonSerializer.Serialize(providerId);
+
         return $$"""
         <!DOCTYPE html>
         <html>
@@ -436,8 +484,8 @@ public class OidcController : ControllerBase
         <p id="status">Please wait...</p>
         <script>
         (function() {
-            const token = '{{sessionToken}}';
-            const providerId = '{{providerId}}';
+            const token = {{tokenJson}};
+            const providerId = {{providerIdJson}};
 
             const deviceId = localStorage.getItem('_deviceId2') || crypto.randomUUID();
             localStorage.setItem('_deviceId2', deviceId);

@@ -1,6 +1,7 @@
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Jellyfin.Plugin.OIDC.Api;
@@ -9,6 +10,16 @@ namespace Jellyfin.Plugin.OIDC.Api;
 [Route("sso/OIDC")]
 public class LoginButtonController : ControllerBase
 {
+    // Allows only #RGB, #RGBA, #RRGGBB, #RRGGBBAA, and CSS named colors (letters/hyphens only).
+    private static readonly Regex _safeCssColor = new(
+        @"^(#[0-9a-fA-F]{3,8}|[a-zA-Z\-]+)$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static string SanitizeColor(string? color, string fallback = "#4285F4")
+        => !string.IsNullOrWhiteSpace(color) && _safeCssColor.IsMatch(color.Trim())
+            ? color.Trim()
+            : fallback;
+
     [HttpGet("LoginButtons")]
     public ActionResult GetLoginButtonsScript()
     {
@@ -28,7 +39,7 @@ public class LoginButtonController : ControllerBase
         {
             id = p.ProviderId,
             name = p.DisplayName,
-            color = p.ButtonColor
+            color = SanitizeColor(p.ButtonColor)
         });
         var providersJson = JsonSerializer.Serialize(providerData);
 
@@ -79,7 +90,7 @@ public class LoginButtonController : ControllerBase
         foreach (var p in providers)
         {
             var name = System.Net.WebUtility.HtmlEncode(p.DisplayName);
-            var color = System.Net.WebUtility.HtmlEncode(p.ButtonColor);
+            var color = System.Net.WebUtility.HtmlEncode(SanitizeColor(p.ButtonColor));
             var encodedId = System.Net.WebUtility.UrlEncode(p.ProviderId);
             sb.Append($"<a href=\"/sso/OIDC/Start/{encodedId}\" style=\"display:block;margin:0.5em auto;padding:0.7em 1.5em;background:{color};color:#fff;text-decoration:none;border-radius:4px;font-size:1em;max-width:300px;\">{name}</a>");
         }

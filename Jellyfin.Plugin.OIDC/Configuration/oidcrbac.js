@@ -65,11 +65,14 @@ function renderProviders(view) {
             '<div class="oidc-field full"><label><input type="checkbox" id="prov_strict_access_' + idx + '"' +
             (p.StrictAccessTokenValidation !== false ? ' checked' : '') + '/> Strict access token validation</label>' +
             '<span style="font-size:0.8em;color:#aaa;margin-left:1.5em;">Only applies when the IdP issues JWT access tokens (e.g. Keycloak). Opaque access tokens (Google, default Authelia) are skipped automatically and unaffected by this setting. Uncheck if your IdP signs access tokens with a different key than the JWKS endpoint advertises.</span></div>' +
-            '<div class="oidc-field full" id="prov_pin_status_' + idx + '">' +
-            (p.PinnedIssuer
-                ? '<span style="color:#4caf50;font-size:0.9em;">&#10003; Endpoints pinned — issuer: ' + esc(p.PinnedIssuer) + '</span>'
-                : '<span style="color:#ff9800;font-size:0.9em;">&#9888; Endpoints not pinned — run Test Connection before saving</span>') +
-            '</div>' +
+            '<div class="oidc-field full" style="margin-top:0.5em;">' +
+            '<label style="font-weight:600;font-size:0.9em;">Endpoint Pins ' +
+            '<span style="font-weight:normal;color:#aaa;">— pre-fill from your IdP docs to eliminate first-use trust, or click Test Connection to fill automatically</span></label>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5em;margin-top:0.4em;">' +
+            fld('Issuer', 'text', 'prov_pinnedissuer_' + idx, p.PinnedIssuer || '', 'https://idp.example.com/realms/myrealm') +
+            fld('Token Endpoint', 'text', 'prov_pinnedtoken_' + idx, p.PinnedTokenEndpoint || '', 'https://idp.example.com/.../token') +
+            fld('JWKS URI', 'text', 'prov_pinnedjwks_' + idx, p.PinnedJwksUri || '', 'https://idp.example.com/.../certs') +
+            '</div></div>' +
             '</div>' +
             '<div style="margin-top:0.5em;display:flex;gap:0.5em;align-items:center;">' +
             '<button type="button" class="oidc-btn-secondary" data-action="test-provider" data-idx="' + idx + '">Test Connection</button>' +
@@ -97,10 +100,21 @@ function renderRoleMappings(view) {
                 return f || name;
             })
         );
+        // Build provider filter dropdown: blank = applies to all providers
+        var provOpts = '<option value=""' + (!m.ProviderFilter ? ' selected' : '') + '>All providers (global)</option>' +
+            (cfg.Providers || []).map(function (p) {
+                return '<option value="' + esc(p.ProviderId) + '"' +
+                    (m.ProviderFilter === p.ProviderId ? ' selected' : '') + '>' +
+                    esc(p.DisplayName || p.ProviderId) + '</option>';
+            }).join('');
         card.innerHTML = '<h4>Role: ' + esc(m.RoleName || 'New Role') + '</h4>' +
             '<div class="oidc-grid">' +
             fld('Role Name', 'text', 'role_name_' + idx, m.RoleName, 'Must match IdP role claim value') +
             fld('Priority', 'number', 'role_priority_' + idx, m.Priority || 0, 'Higher = takes precedence') +
+            '</div>' +
+            '<div class="oidc-field full" style="margin-bottom:0.5em;">' +
+            '<label>Provider Filter <span style="font-size:0.8em;color:#aaa;">(restrict to one provider — leave blank to apply to all)</span></label>' +
+            '<select id="role_provfilter_' + idx + '">' + provOpts + '</select>' +
             '</div>' +
             '<div class="oidc-checkbox-row">' +
             chk('role_admin_' + idx, 'Administrator', m.IsAdmin) +
@@ -155,10 +169,13 @@ function testProvider(view, idx) {
             cfg.Providers[idx].PinnedIssuer = result.Issuer || '';
             cfg.Providers[idx].PinnedTokenEndpoint = result.TokenEndpoint || '';
             cfg.Providers[idx].PinnedJwksUri = result.JwksUri || '';
-            var pinEl = view.querySelector('#prov_pin_status_' + idx);
-            if (pinEl) {
-                pinEl.innerHTML = '<span style="color:#4caf50;font-size:0.9em;">&#10003; Endpoints pinned — issuer: ' + esc(result.Issuer || '') + '</span>';
-            }
+            // Fill the editable pin fields so the admin can see and verify the values.
+            var issuerEl = view.querySelector('#prov_pinnedissuer_' + idx);
+            var tokenEl  = view.querySelector('#prov_pinnedtoken_'  + idx);
+            var jwksEl   = view.querySelector('#prov_pinnedjwks_'   + idx);
+            if (issuerEl) issuerEl.value = result.Issuer        || '';
+            if (tokenEl)  tokenEl.value  = result.TokenEndpoint || '';
+            if (jwksEl)   jwksEl.value   = result.JwksUri       || '';
             if (resultEl) {
                 resultEl.style.color = '#4caf50';
                 var msg = 'OK — issuer ' + result.Issuer;
@@ -208,10 +225,16 @@ function collectProviders(view) {
             ServerBaseUrl: gval(view, 'prov_baseurl_' + idx),
             Enabled: gchk(view, 'prov_enabled_' + idx),
             StrictAccessTokenValidation: gchk(view, 'prov_strict_access_' + idx),
-            PinnedAuthority: cfg.Providers[idx].PinnedAuthority || '',
-            PinnedIssuer: cfg.Providers[idx].PinnedIssuer || '',
-            PinnedTokenEndpoint: cfg.Providers[idx].PinnedTokenEndpoint || '',
-            PinnedJwksUri: cfg.Providers[idx].PinnedJwksUri || '',
+            PinnedIssuer: gval(view, 'prov_pinnedissuer_' + idx),
+            PinnedTokenEndpoint: gval(view, 'prov_pinnedtoken_' + idx),
+            PinnedJwksUri: gval(view, 'prov_pinnedjwks_' + idx),
+            // If any pin is set, record the current authority so the mismatch-detection logic
+            // fires correctly on subsequent auths. Clear it if the admin wipes all pins.
+            PinnedAuthority: (gval(view, 'prov_pinnedissuer_' + idx) ||
+                              gval(view, 'prov_pinnedtoken_'  + idx) ||
+                              gval(view, 'prov_pinnedjwks_'   + idx))
+                             ? gval(view, 'prov_authority_' + idx)
+                             : '',
             ButtonIcon: ''
         });
     });
@@ -228,6 +251,7 @@ function collectRoleMappings(view) {
         result.push({
             RoleName: gval(view, 'role_name_' + idx),
             Priority: parseInt(gval(view, 'role_priority_' + idx)) || 0,
+            ProviderFilter: gval(view, 'role_provfilter_' + idx),
             IsAdmin: gchk(view, 'role_admin_' + idx),
             EnableAllLibraries: gchk(view, 'role_alllibs_' + idx),
             LibraryIds: libIds, LibraryNames: [],
@@ -308,7 +332,7 @@ export default function (view) {
     view.querySelector('#btnAddRoleMapping').addEventListener('click', function () {
         if (!cfg) return;
         cfg.RoleMappings.push({
-            RoleName: '', Priority: 0, IsAdmin: false, EnableAllLibraries: false,
+            RoleName: '', Priority: 0, ProviderFilter: '', IsAdmin: false, EnableAllLibraries: false,
             LibraryIds: [], LibraryNames: [], EnableLiveTv: false,
             EnableLiveTvManagement: false, EnableMediaPlayback: true,
             EnableRemoteAccess: true, EnableTranscoding: true,
@@ -321,12 +345,15 @@ export default function (view) {
     // Save
     view.querySelector('#btnSave').addEventListener('click', function () {
         if (!cfg) return;
+        // Warn (not block) if any enabled provider has no pins — TOFU will apply on first auth.
         var unpinned = (cfg.Providers || []).filter(function (p, idx) {
-            return p.Enabled !== false && !cfg.Providers[idx].PinnedIssuer;
+            return p.Enabled !== false && !gval(view, 'prov_pinnedissuer_' + idx);
         });
         if (unpinned.length > 0) {
-            Dashboard.alert({ title: 'Test Connection required', message: 'Please run Test Connection for all enabled providers before saving. Unpinned: ' + unpinned.map(function (p) { return p.DisplayName || p.ProviderId; }).join(', ') });
-            return;
+            var names = unpinned.map(function (p) { return p.DisplayName || p.ProviderId; }).join(', ');
+            if (!window.confirm('Provider(s) without endpoint pins: ' + names + '.\n\nEndpoints will be trusted on first login (TOFU). Pre-fill the pin fields or run Test Connection to eliminate this window.\n\nSave anyway?')) {
+                return;
+            }
         }
         Dashboard.showLoadingMsg();
         cfg.Providers = collectProviders(view);

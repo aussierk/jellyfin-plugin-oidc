@@ -29,6 +29,20 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool SyncDisplayName { get; set; } = false;
 
     public string DefaultRoleName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Maps Jellyfin usernames to the OIDC provider that owns each account.
+    /// Used to detect cross-provider username collisions.
+    /// List of UserProviderEntry is used instead of Dictionary to remain XML-serializable.
+    /// </summary>
+    public List<UserProviderEntry> UserProviderMap { get; set; } = new();
+}
+
+/// <summary>XML-serializable username → provider ID mapping entry.</summary>
+public class UserProviderEntry
+{
+    public string Username { get; set; } = string.Empty;
+    public string ProviderId { get; set; } = string.Empty;
 }
 
 public class OidcProviderConfig
@@ -85,6 +99,12 @@ public class OidcProviderConfig
 public class RoleMapping
 {
     public string RoleName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// When set, this mapping only applies to users authenticated via the specified provider.
+    /// Leave empty to apply to all providers (global mapping).
+    /// </summary>
+    public string ProviderFilter { get; set; } = string.Empty;
 
     public bool IsAdmin { get; set; }
 

@@ -27,7 +27,7 @@ public class RbacService
         _logger = logger;
     }
 
-    public async Task ApplyRoleMappingsAsync(Guid userId, string[] userRoles)
+    public async Task ApplyRoleMappingsAsync(Guid userId, string[] userRoles, string providerId)
     {
         var config = OidcPlugin.Instance?.Configuration;
         if (config == null)
@@ -42,14 +42,20 @@ public class RbacService
             return;
         }
 
-        var matchedMappings = config.RoleMappings
+        // A mapping applies when its ProviderFilter is empty (global) or matches the current provider.
+        var applicableMappings = config.RoleMappings
+            .Where(m => string.IsNullOrEmpty(m.ProviderFilter)
+                        || string.Equals(m.ProviderFilter, providerId, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var matchedMappings = applicableMappings
             .Where(m => userRoles.Contains(m.RoleName, StringComparer.OrdinalIgnoreCase))
             .OrderByDescending(m => m.Priority)
             .ToList();
 
         if (matchedMappings.Count == 0 && !string.IsNullOrEmpty(config.DefaultRoleName))
         {
-            var defaultMapping = config.RoleMappings
+            var defaultMapping = applicableMappings
                 .FirstOrDefault(m => string.Equals(m.RoleName, config.DefaultRoleName, StringComparison.OrdinalIgnoreCase));
             if (defaultMapping != null)
             {

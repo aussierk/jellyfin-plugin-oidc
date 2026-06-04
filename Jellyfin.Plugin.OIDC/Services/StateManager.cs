@@ -31,6 +31,10 @@ public sealed class StateManager : IHostedService, IDisposable
     private static readonly TimeSpan SessionExpiry = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(2);
 
+    // Hard caps prevent unbounded memory growth from unauthenticated flood attacks.
+    private const int MaxPendingStates = 500;
+    private const int MaxAuthorizedSessions = 200;
+
     private readonly ConcurrentDictionary<string, OidcState> _pendingStates = new();
     private readonly ConcurrentDictionary<string, AuthorizedSession> _authorizedSessions = new();
     private readonly ILogger<StateManager> _logger;
@@ -41,8 +45,14 @@ public sealed class StateManager : IHostedService, IDisposable
         _logger = logger;
     }
 
-    public string StoreState(OidcState state)
+    public string? StoreState(OidcState state)
     {
+        if (_pendingStates.Count >= MaxPendingStates)
+        {
+            _logger.LogWarning("Pending OIDC state cap ({Max}) reached — rejecting new auth request", MaxPendingStates);
+            return null;
+        }
+
         var key = Guid.NewGuid().ToString("N");
         _pendingStates[key] = state;
         return key;
@@ -64,8 +74,14 @@ public sealed class StateManager : IHostedService, IDisposable
         return state;
     }
 
-    public string StoreAuthorizedSession(AuthorizedSession session)
+    public string? StoreAuthorizedSession(AuthorizedSession session)
     {
+        if (_authorizedSessions.Count >= MaxAuthorizedSessions)
+        {
+            _logger.LogWarning("Authorized session cap ({Max}) reached — rejecting new session", MaxAuthorizedSessions);
+            return null;
+        }
+
         var token = Guid.NewGuid().ToString("N");
         _authorizedSessions[token] = session;
         return token;

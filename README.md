@@ -6,6 +6,19 @@ Authenticate users via any OIDC-compatible identity provider (Authentik, Keycloa
 
 > **Forked from [Ezeqielle/jellyfin-plugin-oidc](https://github.com/Ezeqielle/jellyfin-plugin-oidc)** with significant security hardening. See [Security improvements](#security-improvements) for what was changed and why.
 
+## Upgrading from v1.0.8 — breaking change
+
+**Read this before upgrading if you have existing users.**
+
+v1.0.9 introduces provider-level user isolation. From this version:
+
+- **Each Jellyfin account is bound to the OIDC provider that created it.** A second provider cannot authenticate as a user created by the first provider.
+- **OIDC can no longer silently take over local Jellyfin accounts.** If a local user (password auth) has the same username as an incoming OIDC login, the login is now blocked — unless `Migrate local users to SSO` is enabled in the General tab.
+
+**If you have existing users who match both a local account and an OIDC account, enable `Migrate local users to SSO` in the General settings before upgrading**, or rename the conflicting accounts.
+
+The first time an existing user logs in via SSO after upgrading, their account is registered to that provider and subsequent logins work normally.
+
 ## Security improvements
 
 These changes are not present in the upstream plugin:
@@ -16,14 +29,22 @@ These changes are not present in the upstream plugin:
 | Nonce enforcement | Optional guard that could pass on a missing nonce claim | Always enforced — missing nonce claim is a hard rejection |
 | XSS in login button | Provider values string-interpolated into generated JavaScript | Provider data JSON-serialized; values injected via DOM APIs |
 | Access token validation | No signature check on access token used for role extraction | Signature-validated; per-provider toggle for non-JWT access tokens |
-| Discovery endpoint validation | Not validated | Per-provider toggle (default off for compatibility with Authentik) |
+| Discovery endpoint hijacking | Not validated | TOFU endpoint pinning; editable pin fields let admins pre-set expected endpoints from IdP docs, eliminating first-use trust window |
+| Cross-provider account takeover | No isolation | Each account is bound to the provider that created it; other providers cannot authenticate as that user |
+| Local account takeover | OIDC silently takes over local accounts | Blocked by default; opt-in migration required |
 | redirect_uri behind reverse proxies | `Request.Host` — fails behind proxies | `IServerApplicationHost.GetSmartApiUrl()` — honours Jellyfin's Published Server URLs |
+| Callback page framing | No protection | `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'` |
+| Memory exhaustion DoS | Unbounded pending state store | Hard cap (500 pending states, 200 sessions); returns 503 when full |
+| Cross-provider role escalation | Role mappings are global | Optional per-mapping `Provider Filter` restricts a mapping to one provider |
 
 ## Features
 
 - **OIDC Authentication** with PKCE (Authorization Code flow)
 - **Multi-provider support** — configure multiple IdPs simultaneously with branded login buttons
+- **Provider isolation** — each Jellyfin account is bound to the provider that created it; cross-provider impersonation is blocked
 - **Role-based access control** — map IdP roles/groups to Jellyfin permissions and specific libraries
+- **Per-provider role filter** — restrict a role mapping to one specific provider to prevent cross-provider privilege grants
+- **Endpoint pinning** — TOFU pins discovery endpoints on first use; editable pin fields let you pre-set expected values from your IdP docs to eliminate the first-use trust window
 - **Auto-provisioning** — create Jellyfin users on first SSO login
 - **Flexible claim parsing** — extract roles from nested JWT claims (e.g. `realm_access.roles`, `groups`)
 - **Merge semantics** — users with multiple roles get the union of all permissions (most permissive wins)
@@ -51,9 +72,11 @@ https://raw.githubusercontent.com/aussierk/jellyfin-plugin-oidc/main/manifest.js
 ### Manual installation
 
 1. Download `oidc-rbac.zip` from the [latest release](https://github.com/aussierk/jellyfin-plugin-oidc/releases/latest)
-2. On your server, create a folder named `SSO-OIDC-Secure-RBAC_1.0.8.0` inside your Jellyfin plugins directory (e.g. `/config/plugins/`)
+2. On your server, create a folder named `SSO-OIDC-Secure-RBAC_1.0.9.0` inside your Jellyfin plugins directory (e.g. `/config/plugins/`)
 3. Extract the contents of the zip into that folder
 4. Restart Jellyfin
+
+> **Upgrading from a previous version?** Stop Jellyfin, delete the old plugin folder entirely, create a fresh folder with the new version number, extract the zip, then start Jellyfin. Jellyfin must be fully restarted (not just the browser) for the new DLL to load.
 
 ## Quick Start
 
@@ -76,6 +99,10 @@ Go to **Admin Dashboard → Plugins → SSO-OIDC-Secure-RBAC → Providers tab**
 
 > **Server Base URL** is only needed if Jellyfin can't resolve its public URL on its own (e.g. behind a reverse proxy whose `X-Forwarded-*` headers aren't trusted). See [Reverse proxy / redirect_uri](#reverse-proxy--redirect_uri).
 
+After filling in the fields, click **Test Connection**. This validates the authority URL, fetches the discovery document, and automatically fills in the **Endpoint Pins** section (Issuer, Token Endpoint, JWKS URI). Once pinned, any unexpected change to those endpoints in a future discovery fetch will block logins and alert you in the logs.
+
+> **For maximum security:** copy the Issuer, Token Endpoint, and JWKS URI values directly from your IdP's documentation and paste them into the Endpoint Pins fields *before* clicking Test Connection. Test Connection will then verify the live discovery document matches your expected values — eliminating any window where a MITM could intercept the first-use trust. If you leave the pins empty, Test Connection fills them in automatically (Trust On First Use).
+
 ### 2. Create Role Mappings
 
 Go to **Role Mappings tab** and create mappings:
@@ -94,6 +121,8 @@ Go to **Role Mappings tab** and create mappings:
 - Role Name: `jellyfin-kids`
 - Libraries: Kids only
 - Max Parental Rating: 7
+
+> **Multiple providers configured?** Use the **Provider Filter** dropdown on each role mapping to restrict it to a specific provider. Without a filter, a role mapping applies to users from *all* providers — so if two providers both issue a role named `admin`, users from either will get admin access. See [Multi-provider role isolation](#multi-provider-role-isolation).
 
 ### 3. General Settings
 
@@ -170,6 +199,19 @@ Each role mapping has a priority field. Higher priority roles take precedence in
 ### Default Role
 
 If no role mappings match a user's IdP roles, the **Default Role** (configured in the General tab) is used as a fallback.
+
+### Multi-provider role isolation
+
+Role mappings are **global by default** — they apply to users from every configured provider. If two providers both issue a role with the same name (e.g. `admin`), users from either provider get the same Jellyfin permissions.
+
+Use the **Provider Filter** field on each role mapping to restrict it to one provider:
+
+| Provider  | Role name in IdP | Role Mapping name | Provider Filter |
+|-----------|-----------------|-------------------|-----------------|
+| Keycloak  | `admin`         | `admin`           | `keycloak`      |
+| Okta      | `admin`         | `admin`           | `okta`          |
+
+Without a filter the mapping is global. A filter of `keycloak` means only users authenticated via the `keycloak` provider will match that mapping, even if an Okta user also has a role named `admin`.
 
 ### Supported Claim Paths
 
@@ -255,6 +297,19 @@ If SSO logins start failing after an IdP upgrade:
 | GET    | `/sso/OIDC/BrandingSnippet`       | HTML snippet for Login Disclaimer  |
 | GET    | `/sso/OIDC/Config/Libraries`      | List available libraries (admin)   |
 | GET    | `/sso/OIDC/Config/Status`         | Plugin status (admin)              |
+
+## Known limitations
+
+These are architectural constraints rather than bugs. They are documented here so you can plan your deployment accordingly.
+
+| Limitation | Impact | Mitigation |
+|---|---|---|
+| Client secret stored as plaintext | Anyone with filesystem read access to the Jellyfin data directory can extract OIDC client secrets | Restrict filesystem permissions on the Jellyfin data directory; use a dedicated service account |
+| No rate limiting on auth endpoints | `/sso/OIDC/Start` is unauthenticated and could be used to generate load | Place a rate-limiting reverse proxy (nginx, Traefik, Caddy) in front of Jellyfin |
+| No back-channel logout | If a user is disabled at the IdP, their active Jellyfin session remains valid until it expires | Use Jellyfin's built-in user disable to immediately block access; set a shorter session timeout |
+| No refresh token support | OIDC role changes at the IdP are not reflected until the user logs in again | Users must re-authenticate to pick up permission changes |
+| In-memory state only | Pending auth states and sessions are lost on server restart; any login in progress at restart time must be retried | Transient; retry is seamless |
+| Single-node only | The in-memory state store means the OIDC callback must reach the same Jellyfin instance that initiated the login | If running multiple Jellyfin nodes, ensure sticky sessions at the load balancer |
 
 ## Building
 
