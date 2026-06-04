@@ -59,7 +59,7 @@ https://raw.githubusercontent.com/aussierk/jellyfin-plugin-oidc/main/manifest.js
 ### Manual installation
 
 1. Download `oidc-rbac.zip` from the [latest release](https://github.com/aussierk/jellyfin-plugin-oidc/releases/latest)
-2. On your server, create a folder named `SSO-OIDC Authentication_1.0.9.1` inside your Jellyfin plugins directory (e.g. `/config/plugins/`)
+2. On your server, create a folder named `SSO-OIDC Authentication_1.0.5.1` inside your Jellyfin plugins directory (e.g. `/config/plugins/`)
 3. Extract the contents of the zip into that folder
 4. Restart Jellyfin
 
