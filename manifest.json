@@ -9,6 +9,14 @@
     "category": "Authentication",
     "versions": [
       {
+        "version": "1.0.5.3",
+        "changelog": "Fix: bind OIDC login flow to the initiating browser to close a login-CSRF gap (#8). Fix: block loopback/link-local Authority URLs by default, with an opt-in plugin-wide setting to also block RFC1918/ULA ranges (#9).",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.5.3-rc.1/oidc-rbac.zip",
+        "checksum": "53de410fdd60a5b90bcbbf0c91c3fc0f",
+        "timestamp": "2026-07-17T19:45:41Z"
+      },
+      {
         "version": "1.0.5.2",
         "changelog": "Feat: per-IP fixed-window rate limiting on OIDC auth endpoints. Fix: dead-code bug in ClaimParser where JSON array claim values were never parsed. CI: 77-test suite with AAA pattern coverage across all services and controllers.",
         "targetAbi": "10.11.0.0",
