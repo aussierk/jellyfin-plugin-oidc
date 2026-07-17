@@ -56,6 +56,15 @@ https://raw.githubusercontent.com/aussierk/jellyfin-plugin-oidc/main/manifest.js
 4. Install **SSO-OIDC Authentication**
 5. Restart Jellyfin
 
+### Release channels
+
+| Channel | Repository URL | Contents |
+|---|---|---|
+| Stable | `https://raw.githubusercontent.com/aussierk/jellyfin-plugin-oidc/main/manifest.json` | Full releases only (e.g. `1.0.6.0`) |
+| Testing | `https://raw.githubusercontent.com/aussierk/jellyfin-plugin-oidc/dev/manifest.json` | Release-candidate builds, may be unstable |
+
+Add the Testing URL as a second repository (same steps as above) if you want early access to RC builds. Stick with Stable for normal use.
+
 ### Manual installation
 
 1. Download `oidc-rbac.zip` from the [latest release](https://github.com/aussierk/jellyfin-plugin-oidc/releases/latest)
