@@ -63,6 +63,18 @@ public class OidcController : ControllerBase
             return NotFound($"Provider '{providerId}' not found or disabled");
         }
 
+        var blockPrivateNetworks = OidcPlugin.Instance?.Configuration?.BlockPrivateNetworkAuthorities ?? false;
+        var blockReason = await AuthorityGuard.ValidateAsync(
+            provider.Authority,
+            provider.AllowLoopbackAuthority,
+            provider.AllowLinkLocalAuthority,
+            blockPrivateNetworks).ConfigureAwait(false);
+        if (blockReason != null)
+        {
+            _logger.LogError("OIDC discovery blocked for {Provider}: {Reason}", providerId, blockReason);
+            return StatusCode(502, "Failed to contact identity provider");
+        }
+
         var disco = await GetDiscoveryDocumentAsync(provider).ConfigureAwait(false);
         if (disco.IsError)
         {
@@ -87,6 +99,7 @@ public class OidcController : ControllerBase
         var codeVerifier = CryptoRandom.CreateUniqueId(64);
         var codeChallenge = CreateCodeChallenge(codeVerifier);
         var nonce = CryptoRandom.CreateUniqueId(32);
+        var csrfToken = CryptoRandom.CreateUniqueId(32);
         var redirectUri = BuildRedirectUri(provider);
 
         var state = new OidcState
@@ -94,7 +107,8 @@ public class OidcController : ControllerBase
             ProviderId = providerId,
             Nonce = nonce,
             CodeVerifier = codeVerifier,
-            RedirectUri = redirectUri
+            RedirectUri = redirectUri,
+            CsrfToken = csrfToken
         };
 
         var stateKey = _stateManager.StoreState(state);
@@ -102,6 +116,18 @@ public class OidcController : ControllerBase
         {
             return StatusCode(503, "Server is busy. Please try again in a moment.");
         }
+
+        Response.Cookies.Append(
+            BuildCsrfCookieName(stateKey),
+            csrfToken,
+            new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = Request.IsHttps,
+                SameSite = SameSiteMode.Lax,
+                Path = "/sso/OIDC",
+                MaxAge = StateManager.StateExpiry
+            });
 
         var authorizeUrl = new RequestUrl(disco.AuthorizeEndpoint!);
         var url = authorizeUrl.CreateAuthorizeUrl(
@@ -136,6 +162,16 @@ public class OidcController : ControllerBase
             return BadRequest("Invalid or expired authentication state. Please try again.");
         }
 
+        var csrfCookieName = BuildCsrfCookieName(state);
+        Request.Cookies.TryGetValue(csrfCookieName, out var csrfCookie);
+        Response.Cookies.Delete(csrfCookieName, new CookieOptions { Path = "/sso/OIDC" });
+
+        if (!VerifyCsrfToken(csrfCookie, oidcState.CsrfToken))
+        {
+            _logger.LogWarning("OIDC CSRF cookie missing or mismatched for provider {Provider}", providerId);
+            return BadRequest("Could not verify this browser started the sign-in. Please retry from the same browser/tab.");
+        }
+
         if (!string.Equals(oidcState.ProviderId, providerId, StringComparison.OrdinalIgnoreCase))
         {
             return BadRequest("Provider mismatch");
@@ -147,9 +183,22 @@ public class OidcController : ControllerBase
             return NotFound($"Provider '{providerId}' not found");
         }
 
+        var blockPrivateNetworks = OidcPlugin.Instance?.Configuration?.BlockPrivateNetworkAuthorities ?? false;
+        var blockReason = await AuthorityGuard.ValidateAsync(
+            provider.Authority,
+            provider.AllowLoopbackAuthority,
+            provider.AllowLinkLocalAuthority,
+            blockPrivateNetworks).ConfigureAwait(false);
+        if (blockReason != null)
+        {
+            _logger.LogError("OIDC discovery blocked for {Provider}: {Reason}", providerId, blockReason);
+            return StatusCode(502, "Failed to contact identity provider");
+        }
+
         var disco = await GetDiscoveryDocumentAsync(provider).ConfigureAwait(false);
         if (disco.IsError)
         {
+            _logger.LogError("OIDC discovery failed for {Provider}: {Error}", providerId, disco.Error);
             return StatusCode(502, "Failed to contact identity provider");
         }
 
@@ -453,6 +502,14 @@ public class OidcController : ControllerBase
         var hash = sha256.ComputeHash(Encoding.ASCII.GetBytes(codeVerifier));
         return Base64UrlEncoder.Encode(hash);
     }
+
+    private static string BuildCsrfCookieName(string stateKey) => $"oidc_csrf.{stateKey}";
+
+    private static bool VerifyCsrfToken(string? cookieValue, string expectedToken) =>
+        !string.IsNullOrEmpty(cookieValue) &&
+        CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(cookieValue),
+            Encoding.UTF8.GetBytes(expectedToken));
 
     private static Parameters? ParseAdditionalParameters(string? raw)
     {

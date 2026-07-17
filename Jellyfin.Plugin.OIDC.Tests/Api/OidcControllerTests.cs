@@ -207,6 +207,80 @@ public class OidcControllerTests
         Assert.Equal("consent", pairs[0].Value);
     }
 
+    // ── BuildCsrfCookieName ────────────────────────────────────────────────────
+
+    private static readonly MethodInfo _buildCsrfCookieName =
+        typeof(OidcController).GetMethod(
+            "BuildCsrfCookieName",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+
+    [Fact]
+    public void BuildCsrfCookieName_ReturnsPrefixedStateKey()
+    {
+        // Act
+        var result = (string)_buildCsrfCookieName.Invoke(null, ["abc123"])!;
+
+        // Assert
+        Assert.Equal("oidc_csrf.abc123", result);
+    }
+
+    // ── VerifyCsrfToken ────────────────────────────────────────────────────────
+
+    private static readonly MethodInfo _verifyCsrfToken =
+        typeof(OidcController).GetMethod(
+            "VerifyCsrfToken",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+
+    [Fact]
+    public void VerifyCsrfToken_ExactMatch_ReturnsTrue()
+    {
+        // Act
+        var result = (bool)_verifyCsrfToken.Invoke(null, ["same-token", "same-token"])!;
+
+        // Assert
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void VerifyCsrfToken_Mismatch_ReturnsFalse()
+    {
+        // Act
+        var result = (bool)_verifyCsrfToken.Invoke(null, ["cookie-token", "expected-token"])!;
+
+        // Assert
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void VerifyCsrfToken_NullCookie_ReturnsFalse()
+    {
+        // Act
+        var result = (bool)_verifyCsrfToken.Invoke(null, [null, "expected-token"])!;
+
+        // Assert
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void VerifyCsrfToken_EmptyCookie_ReturnsFalse()
+    {
+        // Act
+        var result = (bool)_verifyCsrfToken.Invoke(null, ["", "expected-token"])!;
+
+        // Assert
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void VerifyCsrfToken_DifferentLength_ReturnsFalse()
+    {
+        // Act
+        var result = (bool)_verifyCsrfToken.Invoke(null, ["short", "much-longer-expected-token"])!;
+
+        // Assert
+        Assert.False(result);
+    }
+
     // ── BuildRedirectUri ───────────────────────────────────────────────────────
 
     private static readonly MethodInfo _buildRedirectUri =

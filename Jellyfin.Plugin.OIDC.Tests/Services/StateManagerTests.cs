@@ -47,6 +47,7 @@ public class StateManagerTests : IDisposable
             Nonce = "n",
             CodeVerifier = "cv",
             RedirectUri = "https://example.com/callback",
+            CsrfToken = "csrf",
             // Override the default CreatedAt to a past time
         };
         // Use reflection to set CreatedAt to a stale time
@@ -132,7 +133,8 @@ public class StateManagerTests : IDisposable
         ProviderId = providerId,
         Nonce = Guid.NewGuid().ToString("N"),
         CodeVerifier = Guid.NewGuid().ToString("N"),
-        RedirectUri = "https://jellyfin.example.com/sso/OIDC/Callback/test"
+        RedirectUri = "https://jellyfin.example.com/sso/OIDC/Callback/test",
+        CsrfToken = Guid.NewGuid().ToString("N")
     };
 
     private static AuthorizedSession MakeSession(

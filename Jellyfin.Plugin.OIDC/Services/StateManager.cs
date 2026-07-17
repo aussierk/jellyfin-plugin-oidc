@@ -13,6 +13,7 @@ public sealed class OidcState
     public required string Nonce { get; init; }
     public required string CodeVerifier { get; init; }
     public required string RedirectUri { get; init; }
+    public required string CsrfToken { get; init; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 
@@ -27,7 +28,7 @@ public sealed class AuthorizedSession
 
 public sealed class StateManager : IHostedService, IDisposable
 {
-    private static readonly TimeSpan StateExpiry = TimeSpan.FromMinutes(10);
+    internal static readonly TimeSpan StateExpiry = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan SessionExpiry = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(2);
 
