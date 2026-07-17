@@ -65,6 +65,12 @@ function renderProviders(view) {
             '<div class="oidc-field full"><label><input type="checkbox" id="prov_strict_access_' + idx + '"' +
             (p.StrictAccessTokenValidation !== false ? ' checked' : '') + '/> Strict access token validation</label>' +
             '<span style="font-size:0.8em;color:#aaa;margin-left:1.5em;">Only applies when the IdP issues JWT access tokens (e.g. Keycloak). Opaque access tokens (Google, default Authelia) are skipped automatically and unaffected by this setting. Uncheck if your IdP signs access tokens with a different key than the JWKS endpoint advertises.</span></div>' +
+            '<div class="oidc-field full"><label><input type="checkbox" id="prov_allow_loopback_' + idx + '"' +
+            (p.AllowLoopbackAuthority === true ? ' checked' : '') + '/> Allow loopback Authority</label>' +
+            '<span style="font-size:0.8em;color:#aaa;margin-left:1.5em;">By default, an Authority resolving to a loopback address (127.0.0.1, ::1) is blocked. Enable this only if your IdP is intentionally hosted at loopback.</span></div>' +
+            '<div class="oidc-field full"><label><input type="checkbox" id="prov_allow_linklocal_' + idx + '"' +
+            (p.AllowLinkLocalAuthority === true ? ' checked' : '') + '/> Allow link-local Authority</label>' +
+            '<span style="font-size:0.8em;color:#aaa;margin-left:1.5em;">By default, an Authority resolving to a link-local address (169.254.x.x, fe80::) is blocked. Enable this only if your IdP is intentionally hosted at a link-local address.</span></div>' +
             '<div class="oidc-field full" style="margin-top:0.5em;">' +
             '<label style="font-weight:600;font-size:0.9em;">Endpoint Pins ' +
             '<span style="font-weight:normal;color:#aaa;">— pre-fill from your IdP docs to eliminate first-use trust, or click Test Connection to fill automatically</span></label>' +
@@ -157,10 +163,18 @@ function testProvider(view, idx) {
     }
     if (resultEl) { resultEl.style.color = '#888'; resultEl.textContent = 'Testing...'; }
 
+    var allowLoopback = gchk(view, 'prov_allow_loopback_' + idx);
+    var allowLinkLocal = gchk(view, 'prov_allow_linklocal_' + idx);
+
     ApiClient.ajax({
         type: 'POST',
         url: ApiClient.getUrl('sso/OIDC/Config/TestProvider'),
-        data: JSON.stringify({ Authority: authority, Scopes: scopes }),
+        data: JSON.stringify({
+            Authority: authority,
+            Scopes: scopes,
+            AllowLoopbackAuthority: allowLoopback,
+            AllowLinkLocalAuthority: allowLinkLocal
+        }),
         contentType: 'application/json',
         dataType: 'json'
     }).then(function (result) {
@@ -225,6 +239,8 @@ function collectProviders(view) {
             ServerBaseUrl: gval(view, 'prov_baseurl_' + idx),
             Enabled: gchk(view, 'prov_enabled_' + idx),
             StrictAccessTokenValidation: gchk(view, 'prov_strict_access_' + idx),
+            AllowLoopbackAuthority: gchk(view, 'prov_allow_loopback_' + idx),
+            AllowLinkLocalAuthority: gchk(view, 'prov_allow_linklocal_' + idx),
             PinnedIssuer: gval(view, 'prov_pinnedissuer_' + idx),
             PinnedTokenEndpoint: gval(view, 'prov_pinnedtoken_' + idx),
             PinnedJwksUri: gval(view, 'prov_pinnedjwks_' + idx),
@@ -290,6 +306,7 @@ export default function (view) {
             view.querySelector('#autoCreateUsers').checked = cfg.AutoCreateUsers !== false;
             view.querySelector('#migrateLocalUsers').checked = cfg.MigrateLocalUsers === true;
             view.querySelector('#syncDisplayName').checked = cfg.SyncDisplayName === true;
+            view.querySelector('#blockPrivateNetworkAuthorities').checked = cfg.BlockPrivateNetworkAuthorities === true;
             Dashboard.hideLoadingMsg();
         }).catch(function (err) {
             Dashboard.hideLoadingMsg();
@@ -324,6 +341,7 @@ export default function (view) {
             DisplayNameClaim: 'name', Enabled: true, ButtonColor: '#4285F4',
             ButtonIcon: '', AdditionalParameters: '',
             StrictAccessTokenValidation: true,
+            AllowLoopbackAuthority: false, AllowLinkLocalAuthority: false,
             PinnedAuthority: '', PinnedIssuer: '', PinnedTokenEndpoint: '', PinnedJwksUri: ''
         });
         renderProviders(view);
@@ -365,6 +383,7 @@ export default function (view) {
         cfg.AutoCreateUsers = gchk(view, 'autoCreateUsers');
         cfg.MigrateLocalUsers = gchk(view, 'migrateLocalUsers');
         cfg.SyncDisplayName = gchk(view, 'syncDisplayName');
+        cfg.BlockPrivateNetworkAuthorities = gchk(view, 'blockPrivateNetworkAuthorities');
         ApiClient.updatePluginConfiguration(pluginId, cfg).then(function (result) {
             Dashboard.processPluginConfigurationUpdateResult(result);
             Dashboard.hideLoadingMsg();

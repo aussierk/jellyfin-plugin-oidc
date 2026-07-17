@@ -7,6 +7,7 @@ using Jellyfin.Plugin.OIDC.Services;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.OIDC.Api;
 
@@ -15,13 +16,18 @@ namespace Jellyfin.Plugin.OIDC.Api;
 [Authorize(Policy = Policies.RequiresElevation)]
 public class ConfigController : ControllerBase
 {
+    private const string DiscoveryFailedMessage =
+        "Unable to retrieve a discovery document from the given Authority URL. Check the URL and try again; see the server log for details.";
+
     private readonly RbacService _rbacService;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<ConfigController> _logger;
 
-    public ConfigController(RbacService rbacService, IHttpClientFactory httpClientFactory)
+    public ConfigController(RbacService rbacService, IHttpClientFactory httpClientFactory, ILogger<ConfigController> logger)
     {
         _rbacService = rbacService;
         _httpClientFactory = httpClientFactory;
+        _logger = logger;
     }
 
     [HttpGet("Libraries")]
@@ -52,6 +58,18 @@ public class ConfigController : ControllerBase
             return Ok(new { Success = false, Error = "Authority URL is required" });
         }
 
+        var blockPrivateNetworks = OidcPlugin.Instance?.Configuration?.BlockPrivateNetworkAuthorities ?? false;
+        var blockReason = await AuthorityGuard.ValidateAsync(
+            request.Authority,
+            request.AllowLoopbackAuthority,
+            request.AllowLinkLocalAuthority,
+            blockPrivateNetworks).ConfigureAwait(false);
+        if (blockReason != null)
+        {
+            _logger.LogWarning("TestProvider blocked Authority {Authority}: {Reason}", request.Authority, blockReason);
+            return Ok(new { Success = false, Error = blockReason });
+        }
+
         var httpClient = _httpClientFactory.CreateClient("OidcPlugin");
         var disco = await httpClient.GetDiscoveryDocumentAsync(new DiscoveryDocumentRequest
         {
@@ -65,11 +83,15 @@ public class ConfigController : ControllerBase
 
         if (disco.IsError)
         {
+            _logger.LogError(
+                "TestProvider discovery failed for {Authority}: {ErrorType} - {Error}",
+                request.Authority,
+                disco.ErrorType,
+                disco.Error);
             return Ok(new
             {
                 Success = false,
-                Error = disco.Error,
-                ErrorType = disco.ErrorType.ToString()
+                Error = DiscoveryFailedMessage
             });
         }
 
@@ -98,4 +120,6 @@ public class ProviderTestRequest
 {
     public string Authority { get; set; } = string.Empty;
     public string? Scopes { get; set; }
+    public bool AllowLoopbackAuthority { get; set; }
+    public bool AllowLinkLocalAuthority { get; set; }
 }
