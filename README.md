@@ -38,6 +38,7 @@ These changes are not present in the upstream plugin:
 - **Default role fallback** — assign a baseline role to users with no matching IdP roles
 - **Admin UI** — full configuration from the Jellyfin dashboard (Providers, Role Mappings, General settings)
 - **Login button injection** — paste one HTML snippet into Jellyfin's Login Disclaimer; buttons appear automatically
+- **Native/mobile app login** — sign in Android, iOS, and TV apps via Jellyfin [Quick Connect](#mobile--native-apps-quick-connect)
 - **Opt-in local user migration** — switch existing password accounts to SSO on first login
 - **Opt-in display name sync** — keep Jellyfin account names in sync with the IdP
 - **Disabled user enforcement** — disabled Jellyfin accounts are blocked from SSO login
@@ -183,6 +184,44 @@ Browser                    Jellyfin Plugin              Identity Provider
 6. Plugin syncs the Jellyfin user (creates or updates) and applies role-based permissions via `UpdatePolicyAsync`
 7. Plugin issues a Jellyfin session token and redirects to the dashboard
 
+## Mobile & native apps (Quick Connect)
+
+**The SSO login button only works in the browser-based Jellyfin Web client.** The button is
+injected into the web login page and the flow finishes by writing credentials into the browser's
+`localStorage`. Native apps (Android, iOS/Swiftfin, Android TV, etc.) render their own login
+screen and keep credentials in native storage, so they never see the button and can't consume that
+web session. This is a limitation of how Jellyfin exposes login to plugins, not a bug.
+
+To sign a native app in via SSO, the plugin bridges to Jellyfin's built-in **Quick Connect**:
+
+```
+Native app                 Browser                    Jellyfin Plugin           Identity Provider
+   |                          |                            |                          |
+   |-- tap Quick Connect      |                            |                          |
+   |   (shows 6-digit code)   |                            |                          |
+   |   ...polling...          |                            |                          |
+   |                          |-- open QuickConnect link ->|-- OIDC authorize ------->|
+   |                          |<-- login at IdP -----------|<------ callback + code --|
+   |                          |                            |-- sync user + RBAC       |
+   |                          |-- enter 6-digit code ----->|-- AuthorizeRequest ----->|
+   |<-- authenticated, signed in --------------------------|                          |
+```
+
+**Setup:**
+
+1. Enable **Quick Connect** in Jellyfin: *Admin Dashboard → General → Quick Connect → Enable*.
+2. On the mobile/native app, open the login screen and choose **Quick Connect** — it shows a
+   6-digit code and starts polling.
+3. In any browser (on the phone or another device), open
+   `https://jellyfin.example.com/sso/OIDC/QuickConnect/<providerId>`
+   (the injected login page also shows a small *"Sign in a device … (Quick Connect)"* link for this).
+4. Authenticate at your IdP as usual.
+5. Enter the 6-digit code from step 2 and click **Authorize**.
+6. The native app's poll completes and it signs in.
+
+> Quick Connect codes are short-lived. Start the flow on the app first, then enter the code
+> promptly. A mistyped code can be re-entered without repeating the IdP login.
+
 ## RBAC Details
 
 ### Role Merging
@@ -290,9 +329,11 @@ If SSO logins start failing after an IdP upgrade:
 
 | Method | Endpoint                          | Description                        |
 |--------|-----------------------------------|------------------------------------|
-| GET    | `/sso/OIDC/Start/{providerId}`    | Initiate OIDC flow                 |
+| GET    | `/sso/OIDC/Start/{providerId}`    | Initiate OIDC flow (web client)    |
 | GET    | `/sso/OIDC/Callback/{providerId}` | OIDC callback (handles code exchange) |
-| POST   | `/sso/OIDC/Auth/{providerId}`     | Complete authentication            |
+| POST   | `/sso/OIDC/Auth/{providerId}`     | Complete authentication (web client) |
+| GET    | `/sso/OIDC/QuickConnect/{providerId}` | Initiate OIDC flow for a native app via Quick Connect |
+| POST   | `/sso/OIDC/QuickConnect/Authorize/{providerId}` | Authorize a Quick Connect code after OIDC login |
 | GET    | `/sso/OIDC/Providers`             | List enabled providers             |
 | GET    | `/sso/OIDC/LoginButtons`          | JS snippet for login button auto-injection |
 | GET    | `/sso/OIDC/BrandingSnippet`       | HTML snippet for Login Disclaimer  |

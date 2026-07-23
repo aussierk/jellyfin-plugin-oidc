@@ -117,6 +117,88 @@ public class StateManagerTests : IDisposable
         Assert.Null(_manager.StoreAuthorizedSession(MakeSession()));
     }
 
+    // ── PeekAuthorizedSession ──────────────────────────────────────────────────
+
+    [Fact]
+    public void PeekAuthorizedSession_ValidToken_ReturnsSessionWithoutRemovingIt()
+    {
+        var token = _manager.StoreAuthorizedSession(MakeSession("alice", "keycloak"));
+
+        var first = _manager.PeekAuthorizedSession(token!);
+        var second = _manager.PeekAuthorizedSession(token!);
+
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.Equal("alice", first!.Username);
+        Assert.Equal("alice", second!.Username);
+        // Peeking must not consume — a normal Consume should still find it afterwards.
+        Assert.NotNull(_manager.ConsumeAuthorizedSession(token!));
+    }
+
+    [Fact]
+    public void PeekAuthorizedSession_UnknownToken_ReturnsNull()
+    {
+        Assert.Null(_manager.PeekAuthorizedSession("does-not-exist"));
+    }
+
+    [Fact]
+    public void PeekAuthorizedSession_ExpiredSession_ReturnsNullAndRemovesIt()
+    {
+        var session = MakeSession();
+        typeof(AuthorizedSession)
+            .GetProperty(nameof(AuthorizedSession.CreatedAt))!
+            .SetValue(session, DateTimeOffset.UtcNow.AddMinutes(-6));
+
+        var token = _manager.StoreAuthorizedSession(session);
+
+        Assert.Null(_manager.PeekAuthorizedSession(token!));
+        // Expired entries are evicted on peek, so a subsequent consume must also miss.
+        Assert.Null(_manager.ConsumeAuthorizedSession(token!));
+    }
+
+    // ── InvalidateAuthorizedSession ────────────────────────────────────────────
+
+    [Fact]
+    public void InvalidateAuthorizedSession_RemovesSession()
+    {
+        var token = _manager.StoreAuthorizedSession(MakeSession());
+
+        _manager.InvalidateAuthorizedSession(token!);
+
+        Assert.Null(_manager.PeekAuthorizedSession(token!));
+    }
+
+    [Fact]
+    public void InvalidateAuthorizedSession_UnknownToken_DoesNotThrow()
+    {
+        _manager.InvalidateAuthorizedSession("does-not-exist");
+    }
+
+    // ── OidcState.QuickConnect ─────────────────────────────────────────────────
+
+    [Fact]
+    public void ConsumeState_QuickConnectTrue_IsPreserved()
+    {
+        var state = MakeState(quickConnect: true);
+        var key = _manager.StoreState(state);
+
+        var consumed = _manager.ConsumeState(key!);
+
+        Assert.NotNull(consumed);
+        Assert.True(consumed!.QuickConnect);
+    }
+
+    [Fact]
+    public void ConsumeState_QuickConnectDefaultsToFalse()
+    {
+        var key = _manager.StoreState(MakeState());
+
+        var consumed = _manager.ConsumeState(key!);
+
+        Assert.NotNull(consumed);
+        Assert.False(consumed!.QuickConnect);
+    }
+
     // ── Lifecycle ──────────────────────────────────────────────────────────────
 
     [Fact]
@@ -128,13 +210,14 @@ public class StateManagerTests : IDisposable
 
     // ── helpers ────────────────────────────────────────────────────────────────
 
-    private static OidcState MakeState(string providerId = "test-provider") => new()
+    private static OidcState MakeState(string providerId = "test-provider", bool quickConnect = false) => new()
     {
         ProviderId = providerId,
         Nonce = Guid.NewGuid().ToString("N"),
         CodeVerifier = Guid.NewGuid().ToString("N"),
         RedirectUri = "https://jellyfin.example.com/sso/OIDC/Callback/test",
-        CsrfToken = Guid.NewGuid().ToString("N")
+        CsrfToken = Guid.NewGuid().ToString("N"),
+        QuickConnect = quickConnect
     };
 
     private static AuthorizedSession MakeSession(

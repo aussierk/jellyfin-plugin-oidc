@@ -122,6 +122,29 @@ public class LoginButtonControllerTests
         Assert.Contains("basePath + '/sso/OIDC/Start/'", content);
     }
 
+    [Fact]
+    public void GetLoginButtonsScript_ContainsQuickConnectLink()
+    {
+        // Arrange
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers =
+            [
+                new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", Enabled = true }
+            ]
+        });
+
+        // Act
+        var content = Assert.IsType<ContentResult>(
+            MakeController().GetLoginButtonsScript()).Content;
+
+        // Assert — a Quick Connect link is injected alongside the normal login button, for
+        // signing in native/mobile apps that can't render the web button. Base-path-aware,
+        // like the main button.
+        Assert.Contains("basePath + '/sso/OIDC/QuickConnect/'", content);
+        Assert.Contains("Quick Connect", content);
+    }
+
     // ── GetBrandingSnippet ─────────────────────────────────────────────────────
 
     [Fact]

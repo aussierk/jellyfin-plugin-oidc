@@ -62,6 +62,11 @@ public class LoginButtonController : ControllerBase
         sb.AppendLine("      btn.textContent = 'Sign in with ' + p.name;");
         sb.AppendLine("      btn.style.cssText = 'display:block;margin:0.5em auto;padding:0.7em 1.5em;background:' + p.color + ';color:#fff;text-decoration:none;border-radius:4px;font-size:1em;max-width:300px;';");
         sb.AppendLine("      container.appendChild(btn);");
+        sb.AppendLine("      var qc = document.createElement('a');");
+        sb.AppendLine("      qc.href = basePath + '/sso/OIDC/QuickConnect/' + encodeURIComponent(p.id);");
+        sb.AppendLine("      qc.textContent = 'Sign in a device with ' + p.name + ' (Quick Connect)';");
+        sb.AppendLine("      qc.style.cssText = 'display:block;margin:0.2em auto 0.8em;color:#888;text-decoration:none;font-size:0.8em;max-width:300px;';");
+        sb.AppendLine("      container.appendChild(qc);");
         sb.AppendLine("    });");
         sb.AppendLine("    var sep = document.createElement('div');");
         sb.AppendLine("    sep.style.cssText = 'margin:1em 0;text-align:center;color:#888;';");
