@@ -410,7 +410,9 @@ public class OidcController : ControllerBase
             return Ok(Array.Empty<object>());
         }
 
-        var baseUrl = _appHost.GetSmartApiUrl(Request).TrimEnd('/');
+        // GetSmartApiUrl does not include a reverse-proxy base path, so append PathBase
+        // (Jellyfin Dashboard > Networking > Base URL) explicitly.
+        var baseUrl = _appHost.GetSmartApiUrl(Request).TrimEnd('/') + Request.PathBase;
         var providers = config.Providers
             .Where(p => p.Enabled)
             .Select(p => new
@@ -547,10 +549,14 @@ public class OidcController : ControllerBase
             const token = {{tokenJson}};
             const providerId = {{providerIdJson}};
 
+            // Jellyfin may run under a base path (Networking > Base URL). Derive it from the URL
+            // this callback was served at, so every link below keeps the prefix. Empty when unset.
+            const basePath = window.location.pathname.replace(/\/sso\/OIDC\/Callback\/[^/]+\/?$/i, '');
+
             const deviceId = localStorage.getItem('_deviceId2') || crypto.randomUUID();
             localStorage.setItem('_deviceId2', deviceId);
 
-            fetch('/sso/OIDC/Auth/' + providerId, {
+            fetch(basePath + '/sso/OIDC/Auth/' + providerId, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -569,7 +575,7 @@ public class OidcController : ControllerBase
                 var credentials = {
                     Servers: [{
                         Id: auth.ServerId,
-                        ManualAddress: window.location.origin,
+                        ManualAddress: window.location.origin + basePath,
                         AccessToken: auth.AccessToken,
                         UserId: auth.User.Id,
                         DateLastAccessed: Date.now()
@@ -578,7 +584,7 @@ public class OidcController : ControllerBase
                 localStorage.setItem('jellyfin_credentials', JSON.stringify(credentials));
 
                 document.getElementById('status').textContent = 'Success! Redirecting...';
-                window.location.href = '/';
+                window.location.href = basePath + '/';
             })
             .catch(function(err) {
                 document.getElementById('status').textContent = 'Error: ' + err.message;

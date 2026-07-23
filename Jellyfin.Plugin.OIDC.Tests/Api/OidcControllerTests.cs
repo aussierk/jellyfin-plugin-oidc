@@ -94,6 +94,32 @@ public class OidcControllerTests
     }
 
     [Fact]
+    public void GetProviders_PathBaseSet_StartUrlIncludesPathBase()
+    {
+        // Arrange — Jellyfin running under a reverse-proxy base path (Networking > Base URL).
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers =
+            [
+                new OidcProviderConfig { ProviderId = "keycloak", DisplayName = "Keycloak", Enabled = true }
+            ]
+        });
+        var appHost = Substitute.For<IServerApplicationHost>();
+        appHost.GetSmartApiUrl(Arg.Any<HttpRequest>()).Returns("https://jellyfin.local");
+        var controller = MakeController(appHost);
+        controller.HttpContext.Request.PathBase = new PathString("/jellyfin");
+
+        // Act
+        var result = controller.GetProviders();
+
+        // Assert
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.Contains(
+            "https://jellyfin.local/jellyfin/sso/OIDC/Start/keycloak",
+            System.Text.Json.JsonSerializer.Serialize(ok.Value));
+    }
+
+    [Fact]
     public void GetProviders_DisabledProvider_NotIncluded()
     {
         // Arrange
@@ -316,5 +342,45 @@ public class OidcControllerTests
 
         // Assert
         Assert.Equal("https://auto.detected/sso/OIDC/Callback/kc", result);
+    }
+
+    // ── BuildCallbackHtml ──────────────────────────────────────────────────────
+    // Private static — reachable only via a full Callback round-trip that requires live IdP
+    // HTTP calls, so it's tested directly (same rationale as the helpers above).
+
+    private static readonly MethodInfo _buildCallbackHtml =
+        typeof(OidcController).GetMethod(
+            "BuildCallbackHtml",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+
+    [Fact]
+    public void BuildCallbackHtml_DerivesBasePathFromCallbackUrl_NotHardcodedRootRelative()
+    {
+        // Act
+        var html = (string)_buildCallbackHtml.Invoke(null, ["token123", "keycloak"])!;
+
+        // Assert — base path is derived client-side from the callback URL...
+        Assert.Contains(
+            "window.location.pathname.replace(/\\/sso\\/OIDC\\/Callback\\/[^/]+\\/?$/i, '')",
+            html);
+        // ... and used to prefix the auth fetch, the stored server address, and the redirect —
+        // none of these may be hardcoded root-relative (the base-URL bug this fix addresses).
+        Assert.Contains("fetch(basePath + '/sso/OIDC/Auth/' + providerId", html);
+        Assert.Contains("ManualAddress: window.location.origin + basePath", html);
+        Assert.Contains("window.location.href = basePath + '/'", html);
+    }
+
+    [Fact]
+    public void BuildCallbackHtml_TokenAndProviderId_AreJsonEncoded()
+    {
+        // Arrange — a provider ID with a single quote must not break out of the JS string literal.
+        const string maliciousProviderId = "kc'; alert(1); //";
+
+        // Act
+        var html = (string)_buildCallbackHtml.Invoke(null, ["token123", maliciousProviderId])!;
+
+        // Assert
+        Assert.Contains(System.Text.Json.JsonSerializer.Serialize(maliciousProviderId), html);
+        Assert.DoesNotContain("const providerId = 'kc'", html);
     }
 }

@@ -146,6 +146,11 @@ curl https://jellyfin.example.com/sso/OIDC/BrandingSnippet
 
 Copy the `Html` field from the response and paste it into the Login Disclaimer field. The snippet contains styled `<a>` links for each enabled provider — no JavaScript required.
 
+> The auto-injected buttons (`/sso/OIDC/LoginButtons`) and the `BrandingSnippet` links automatically
+> honor a Jellyfin **base URL** (Admin Dashboard → Networking → Base URL). If you hand-write an
+> `<a>` snippet yourself and run Jellyfin under a base path, prefix the href, e.g.
+> `href="/base_url/sso/OIDC/Start/authentik"`.
+
 ## Migrating Existing Users
 
 Already have Jellyfin users you want to move to SSO without losing watch history? See [MIGRATION.md](MIGRATION.md) — username-match is automatic, with opt-in migration and display name sync available in the General settings tab.
