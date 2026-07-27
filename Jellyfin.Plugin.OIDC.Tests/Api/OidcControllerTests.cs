@@ -471,6 +471,8 @@ public class OidcControllerTests
 
         // Assert
         Assert.Contains("<script nonce=\"abc123==\">", html);
+    }
+
     // ── Authenticate ───────────────────────────────────────────────────────────
 
     [Fact]
