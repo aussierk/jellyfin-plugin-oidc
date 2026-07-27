@@ -7,6 +7,7 @@ using Jellyfin.Plugin.OIDC.Api;
 using Jellyfin.Plugin.OIDC.Configuration;
 using Jellyfin.Plugin.OIDC.Services;
 using Jellyfin.Plugin.OIDC.Tests.Fixtures;
+using System.Net;
 using System.Net.Http;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
@@ -41,8 +42,14 @@ public class OidcControllerTests
         var libraryManager = Substitute.For<ILibraryManager>();
         var rbacService = new RbacService(userManager, libraryManager, NullLogger<RbacService>.Instance);
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
+
+        // Not exercised by these tests — every session here has a null PictureUrl, so
+        // ApplyProfileImageAsync returns before touching any HTTP client.
+        HttpClient ProfileImagePinnedClientFactory(IPAddress address, bool allowAutoRedirect) => httpClientFactory.CreateClient("OidcPluginImage");
+
         var profileImageService = new ProfileImageService(
             httpClientFactory,
+            ProfileImagePinnedClientFactory,
             userManager,
             Substitute.For<IServerConfigurationManager>(),
             Substitute.For<IProviderManager>(),
@@ -61,9 +68,14 @@ public class OidcControllerTests
             appHost.GetSmartApiUrl(Arg.Any<HttpRequest>()).Returns("https://jellyfin.test");
         }
 
+        // Not exercised by the tests below (no Start/Callback coverage yet), but required to
+        // construct the controller — points at the same substitute factory's client so it stays
+        // consistent with the "OidcPlugin" mock if a test starts exercising the discovery path.
+        HttpClient PinnedClientFactory(IPAddress address, bool allowAutoRedirect) => httpClientFactory.CreateClient("OidcPlugin");
+
         var controller = new OidcController(
             stateManager, userSyncService, sessionManager, quickConnect,
-            httpClientFactory, appHost, NullLogger<OidcController>.Instance);
+            httpClientFactory, PinnedClientFactory, appHost, NullLogger<OidcController>.Instance);
 
         controller.ControllerContext = new ControllerContext
         {
@@ -377,7 +389,7 @@ public class OidcControllerTests
     public void BuildCallbackHtml_DerivesBasePathFromCallbackUrl_NotHardcodedRootRelative()
     {
         // Act
-        var html = (string)_buildCallbackHtml.Invoke(null, ["token123", "keycloak"])!;
+        var html = (string)_buildCallbackHtml.Invoke(null, ["token123", "keycloak", "nonce123"])!;
 
         // Assert — base path is derived client-side from the callback URL...
         Assert.Contains(
@@ -397,11 +409,21 @@ public class OidcControllerTests
         const string maliciousProviderId = "kc'; alert(1); //";
 
         // Act
-        var html = (string)_buildCallbackHtml.Invoke(null, ["token123", maliciousProviderId])!;
+        var html = (string)_buildCallbackHtml.Invoke(null, ["token123", maliciousProviderId, "nonce123"])!;
 
         // Assert
         Assert.Contains(System.Text.Json.JsonSerializer.Serialize(maliciousProviderId), html);
         Assert.DoesNotContain("const providerId = 'kc'", html);
+    }
+
+    [Fact]
+    public void BuildCallbackHtml_IncludesNonceOnScriptTag()
+    {
+        // Act
+        var html = (string)_buildCallbackHtml.Invoke(null, ["token123", "keycloak", "abc123=="])!;
+
+        // Assert
+        Assert.Contains("<script nonce=\"abc123==\">", html);
     }
 
     // ── BuildQuickConnectHtml ──────────────────────────────────────────────────
@@ -415,7 +437,7 @@ public class OidcControllerTests
     public void BuildQuickConnectHtml_ContainsCodeEntryFormAndBasePathPrefixedAuthorizeUrl()
     {
         // Act
-        var html = (string)_buildQuickConnectHtml.Invoke(null, ["token123", "keycloak"])!;
+        var html = (string)_buildQuickConnectHtml.Invoke(null, ["token123", "keycloak", "nonce123"])!;
 
         // Assert
         Assert.Contains("id=\"code\"", html);
@@ -434,11 +456,21 @@ public class OidcControllerTests
         const string maliciousProviderId = "kc'; alert(1); //";
 
         // Act
-        var html = (string)_buildQuickConnectHtml.Invoke(null, ["token123", maliciousProviderId])!;
+        var html = (string)_buildQuickConnectHtml.Invoke(null, ["token123", maliciousProviderId, "nonce123"])!;
 
         // Assert
         Assert.Contains(System.Text.Json.JsonSerializer.Serialize(maliciousProviderId), html);
         Assert.DoesNotContain("const providerId = 'kc'", html);
+    }
+
+    [Fact]
+    public void BuildQuickConnectHtml_IncludesNonceOnScriptTag()
+    {
+        // Act
+        var html = (string)_buildQuickConnectHtml.Invoke(null, ["token123", "keycloak", "abc123=="])!;
+
+        // Assert
+        Assert.Contains("<script nonce=\"abc123==\">", html);
     }
 
     // ── Authenticate ───────────────────────────────────────────────────────────

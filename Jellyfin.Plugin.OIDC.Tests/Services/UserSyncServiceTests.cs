@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http;
 using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
@@ -29,8 +30,12 @@ public class UserSyncServiceTests
     {
         var libraryManager = Substitute.For<ILibraryManager>();
         var rbac = new RbacService(userManager, libraryManager, NullLogger<RbacService>.Instance);
+        // Not exercised by these tests (no profile-image sync coverage here).
+        HttpClient PinnedClientFactory(IPAddress address, bool allowAutoRedirect) => new();
+
         var profileImageService = new ProfileImageService(
             Substitute.For<IHttpClientFactory>(),
+            PinnedClientFactory,
             userManager,
             Substitute.For<IServerConfigurationManager>(),
             Substitute.For<IProviderManager>(),

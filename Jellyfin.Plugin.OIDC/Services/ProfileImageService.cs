@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Jellyfin.Database.Implementations.Entities;
@@ -19,6 +20,7 @@ public class ProfileImageService
     private const long MaxProfileImageBytes = 5 * 1024 * 1024;
 
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly Func<IPAddress, bool, HttpClient> _pinnedHttpClientFactory;
     private readonly IUserManager _userManager;
     private readonly IServerConfigurationManager _serverConfigurationManager;
     private readonly IProviderManager _providerManager;
@@ -26,12 +28,14 @@ public class ProfileImageService
 
     public ProfileImageService(
         IHttpClientFactory httpClientFactory,
+        Func<IPAddress, bool, HttpClient> pinnedHttpClientFactory,
         IUserManager userManager,
         IServerConfigurationManager serverConfigurationManager,
         IProviderManager providerManager,
         ILogger<ProfileImageService> logger)
     {
         _httpClientFactory = httpClientFactory;
+        _pinnedHttpClientFactory = pinnedHttpClientFactory;
         _userManager = userManager;
         _serverConfigurationManager = serverConfigurationManager;
         _providerManager = providerManager;
@@ -62,7 +66,7 @@ public class ProfileImageService
         var provider = OidcPlugin.Instance?.Configuration?.Providers
             .FirstOrDefault(p => string.Equals(p.ProviderId, providerId, StringComparison.OrdinalIgnoreCase));
         var blockPrivateNetworks = OidcPlugin.Instance?.Configuration?.BlockPrivateNetworkAuthorities ?? false;
-        var blockReason = await AuthorityGuard.ValidateAsync(
+        var (blockReason, pinnedAddress) = await AuthorityGuard.ValidateAndResolveAsync(
             pictureUrl,
             provider?.AllowLoopbackAuthority ?? false,
             provider?.AllowLinkLocalAuthority ?? false,
@@ -75,7 +79,14 @@ public class ProfileImageService
 
         try
         {
-            var httpClient = _httpClientFactory.CreateClient("OidcPluginImage");
+            // Pin to the exact address the guard just validated — closes the same DNS-rebinding
+            // TOCTOU window as the discovery fetch (see AuthorityGuard.ValidateAndResolveAsync).
+            // Redirects stay disabled either way: a redirect target is unvalidated, and this
+            // path's trust boundary is stricter than discovery's (picture claims can be
+            // end-user-influenced on some IdPs).
+            using var httpClient = pinnedAddress != null
+                ? _pinnedHttpClientFactory(pinnedAddress, false)
+                : _httpClientFactory.CreateClient("OidcPluginImage");
             using var response = await httpClient.GetAsync(pictureUrl).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
