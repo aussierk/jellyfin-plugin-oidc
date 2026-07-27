@@ -13,6 +13,14 @@ public sealed class OidcState
     public required string Nonce { get; init; }
     public required string CodeVerifier { get; init; }
     public required string RedirectUri { get; init; }
+    public required string CsrfToken { get; init; }
+
+    /// <summary>
+    /// When true, the callback drives Jellyfin Quick Connect (for logging in a native/mobile
+    /// app) instead of storing web-client credentials in the browser's localStorage.
+    /// </summary>
+    public bool QuickConnect { get; init; }
+
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 
@@ -21,13 +29,14 @@ public sealed class AuthorizedSession
     public required string ProviderId { get; init; }
     public required string Username { get; init; }
     public string? DisplayName { get; init; }
+    public string? PictureUrl { get; init; }
     public required string[] Roles { get; init; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 
 public sealed class StateManager : IHostedService, IDisposable
 {
-    private static readonly TimeSpan StateExpiry = TimeSpan.FromMinutes(10);
+    internal static readonly TimeSpan StateExpiry = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan SessionExpiry = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(2);
 
@@ -101,6 +110,33 @@ public sealed class StateManager : IHostedService, IDisposable
         }
 
         return session;
+    }
+
+    /// <summary>
+    /// Returns the authorized session without removing it, so a caller can validate it across
+    /// multiple attempts (e.g. a mistyped Quick Connect code). Expired sessions are evicted and
+    /// return null. Invalidate explicitly with <see cref="InvalidateAuthorizedSession"/> once done.
+    /// </summary>
+    public AuthorizedSession? PeekAuthorizedSession(string token)
+    {
+        if (!_authorizedSessions.TryGetValue(token, out var session))
+        {
+            return null;
+        }
+
+        if (DateTimeOffset.UtcNow - session.CreatedAt > SessionExpiry)
+        {
+            _authorizedSessions.TryRemove(token, out _);
+            _logger.LogWarning("Authorized session expired for user {Username}", session.Username);
+            return null;
+        }
+
+        return session;
+    }
+
+    public void InvalidateAuthorizedSession(string token)
+    {
+        _authorizedSessions.TryRemove(token, out _);
     }
 
     public Task StartAsync(CancellationToken cancellationToken)

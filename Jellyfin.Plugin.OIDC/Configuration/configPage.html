@@ -63,6 +63,15 @@
                                 Requires Jellyfin to expose a stable external subject ID on the User entity so the plugin can look up accounts without relying on a mutable display name. Tracking: <a href="https://github.com/jellyfin/jellyfin/issues" target="_blank" style="color:#aaa;">jellyfin/jellyfin</a>.
                             </p>
                         </div>
+                        <div style="grid-column:1/-1;">
+                            <label>
+                                <input type="checkbox" id="blockPrivateNetworkAuthorities" is="emby-checkbox" />
+                                <span>Block RFC1918/ULA (private network) Authorities</span>
+                            </label>
+                            <p class="fieldDescription" style="margin:0.3em 0 0 1.5em;font-size:0.85em;color:#aaa;">
+                                When enabled, no provider's Authority may resolve to an RFC1918 private range (10/8, 172.16/12, 192.168/16) or IPv6 ULA (fc00::/7), for stricter network isolation. Off by default, since self-hosted IdPs commonly live on these ranges. Loopback and link-local addresses are always blocked regardless of this setting, unless individually allowed per-provider.
+                            </p>
+                        </div>
                     </div>
                 </div>
             </div>

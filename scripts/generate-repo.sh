@@ -19,6 +19,9 @@ cp "$ZIP_FILE" "$REPO_DIR/"
 
 CHECKSUM=$(md5sum "$ZIP_FILE" | cut -d' ' -f1)
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+META_FILE="$REPO_ROOT/Jellyfin.Plugin.OIDC/meta.json"
+VERSION=$(jq -r '.versions[0].version' "$META_FILE")
+CHANGELOG=$(jq -r '.versions[0].changelog' "$META_FILE")
 
 if [ -n "$REPO_URL" ]; then
     SOURCE_URL="${REPO_URL%/}/oidc-rbac.zip"
@@ -26,28 +29,30 @@ else
     SOURCE_URL=""
 fi
 
-cat > "$REPO_DIR/manifest.json" <<EOF
-[
-  {
-    "guid": "d4e5f6a7-b8c9-0d1e-2f3a-4b5c6d7e8f90",
-    "name": "SSO-OIDC RBAC",
+jq -n \
+  --arg version    "$VERSION" \
+  --arg changelog  "$CHANGELOG" \
+  --arg sourceUrl  "$SOURCE_URL" \
+  --arg checksum   "$CHECKSUM" \
+  --arg timestamp  "$TIMESTAMP" \
+  '[{
+    "guid": "e1c020c5-3972-4b7b-9538-ee4934cc902c",
+    "name": "SSO-OIDC Authentication",
     "description": "Advanced OIDC authentication with role-based library access control",
-    "overview": "OpenID Connect SSO with role-to-library mapping, multi-provider support, and admin UI.",
-    "owner": "Ezeqielle",
+    "overview": "OpenID Connect SSO with role-to-library mapping, multi-provider support, and a full admin configuration UI.",
+    "owner": "aussierk",
     "category": "Authentication",
     "versions": [
       {
-        "version": "1.0.2.0",
-        "changelog": "Fix OidcAuthProvider not registered with Jellyfin DI; fix new user creation crashing on ChangePassword; fix MaxParentalRating defaulting to 0; fix credential storage missing ServerId",
+        "version": $version,
+        "changelog": $changelog,
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "$SOURCE_URL",
-        "checksum": "$CHECKSUM",
-        "timestamp": "$TIMESTAMP"
+        "sourceUrl": $sourceUrl,
+        "checksum": $checksum,
+        "timestamp": $timestamp
       }
     ]
-  }
-]
-EOF
+  }]' > "$REPO_DIR/manifest.json"
 
 echo "Repository generated in $REPO_DIR/"
 echo "  manifest.json  - add this URL to Jellyfin > Plugins > Repositories"

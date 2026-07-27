@@ -28,6 +28,14 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public bool SyncDisplayName { get; set; } = false;
 
+    /// <summary>
+    /// When true, an Authority resolving to an RFC1918 private range (10/8, 172.16/12, 192.168/16)
+    /// or IPv6 ULA (fc00::/7) is blocked for every provider, in addition to the always-checked
+    /// loopback/link-local guard. Defaults to false — opt-in only, for admins who want stricter
+    /// network isolation. Self-hosted IdPs commonly live on RFC1918 addresses, so this is off by default.
+    /// </summary>
+    public bool BlockPrivateNetworkAuthorities { get; set; } = false;
+
     public string DefaultRoleName { get; set; } = string.Empty;
 
     /// <summary>
@@ -65,6 +73,14 @@ public class OidcProviderConfig
 
     public string DisplayNameClaim { get; set; } = "name";
 
+    public string PictureClaim { get; set; } = "picture";
+
+    /// <summary>
+    /// When true, the user's Jellyfin avatar is synced from the picture claim on each login,
+    /// overwriting any existing avatar. Defaults to true, matching upstream.
+    /// </summary>
+    public bool SyncProfileImage { get; set; } = true;
+
     public bool Enabled { get; set; } = true;
 
     public string ButtonColor { get; set; } = "#4285F4";
@@ -80,6 +96,18 @@ public class OidcProviderConfig
     /// authentication error. Set to false only for IdPs that issue unsigned or opaque access tokens.
     /// </summary>
     public bool StrictAccessTokenValidation { get; set; } = true;
+
+    /// <summary>
+    /// When true, allows this provider's Authority to resolve to a loopback address (127.0.0.0/8, ::1).
+    /// Defaults to false — opt-in only, for the rare case of a legitimately loopback-hosted IdP.
+    /// </summary>
+    public bool AllowLoopbackAuthority { get; set; } = false;
+
+    /// <summary>
+    /// When true, allows this provider's Authority to resolve to a link-local address
+    /// (169.254.0.0/16, fe80::/10). Defaults to false — opt-in only.
+    /// </summary>
+    public bool AllowLinkLocalAuthority { get; set; } = false;
 
     /// <summary>
     /// The authority URL that was used when endpoints were last pinned.

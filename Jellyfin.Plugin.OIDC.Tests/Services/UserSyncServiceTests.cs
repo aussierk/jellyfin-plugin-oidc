@@ -1,10 +1,13 @@
+using System.Net.Http;
 using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.OIDC.Configuration;
 using Jellyfin.Plugin.OIDC.Services;
 using Jellyfin.Plugin.OIDC.Tests.Fixtures;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Providers;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
@@ -26,7 +29,13 @@ public class UserSyncServiceTests
     {
         var libraryManager = Substitute.For<ILibraryManager>();
         var rbac = new RbacService(userManager, libraryManager, NullLogger<RbacService>.Instance);
-        return new UserSyncService(userManager, rbac, NullLogger<UserSyncService>.Instance);
+        var profileImageService = new ProfileImageService(
+            Substitute.For<IHttpClientFactory>(),
+            userManager,
+            Substitute.For<IServerConfigurationManager>(),
+            Substitute.For<IProviderManager>(),
+            NullLogger<ProfileImageService>.Instance);
+        return new UserSyncService(userManager, rbac, profileImageService, NullLogger<UserSyncService>.Instance);
     }
 
     private static User MakeOidcUser(string username, bool disabled = false)
