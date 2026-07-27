@@ -440,7 +440,7 @@ public class OidcController : ControllerBase
             // Apply RBAC via UpdatePolicyAsync BEFORE AuthenticateDirect so that
             // Jellyfin's runtime user state is correct when the session token is minted.
             await _userSyncService.ApplyRolesAsync(userId, session.Roles, session.ProviderId).ConfigureAwait(false);
-            await _userSyncService.ApplyProfileImageAsync(userId, session.PictureUrl).ConfigureAwait(false);
+            await _userSyncService.ApplyProfileImageAsync(userId, session.PictureUrl, session.ProviderId).ConfigureAwait(false);
 
             var authRequest = new AuthenticationRequest
             {
@@ -506,7 +506,7 @@ public class OidcController : ControllerBase
         {
             userId = await _userSyncService.SyncUserAsync(session.Username, session.DisplayName, session.ProviderId).ConfigureAwait(false);
             await _userSyncService.ApplyRolesAsync(userId, session.Roles, session.ProviderId).ConfigureAwait(false);
-            await _userSyncService.ApplyProfileImageAsync(userId, session.PictureUrl).ConfigureAwait(false);
+            await _userSyncService.ApplyProfileImageAsync(userId, session.PictureUrl, session.ProviderId).ConfigureAwait(false);
         }
         catch (InvalidOperationException ex)
         {
