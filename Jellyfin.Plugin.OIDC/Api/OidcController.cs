@@ -442,6 +442,11 @@ public class OidcController : ControllerBase
             return BadRequest("Provider mismatch");
         }
 
+        if (GetProvider(providerId) == null)
+        {
+            return NotFound($"Provider '{providerId}' not found or disabled");
+        }
+
         try
         {
             var userId = await _userSyncService.SyncUserAsync(session.Username, session.DisplayName, session.ProviderId).ConfigureAwait(false);
@@ -497,6 +502,11 @@ public class OidcController : ControllerBase
         if (!string.Equals(session.ProviderId, providerId, StringComparison.OrdinalIgnoreCase))
         {
             return BadRequest("Provider mismatch");
+        }
+
+        if (GetProvider(providerId) == null)
+        {
+            return NotFound($"Provider '{providerId}' not found or disabled");
         }
 
         if (!_quickConnect.IsEnabled)

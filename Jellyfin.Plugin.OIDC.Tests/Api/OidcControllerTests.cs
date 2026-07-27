@@ -471,6 +471,42 @@ public class OidcControllerTests
 
         // Assert
         Assert.Contains("<script nonce=\"abc123==\">", html);
+    // ── Authenticate ───────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Authenticate_ProviderDisabled_ReturnsNotFound()
+    {
+        // Arrange — provider existed when the session was authorized but was disabled afterward;
+        // the session token (5-minute TTL) must not still let the login through.
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers = [new OidcProviderConfig { ProviderId = "keycloak", Enabled = false }]
+        });
+        var stateManager = new StateManager(NullLogger<StateManager>.Instance);
+        var token = stateManager.StoreAuthorizedSession(MakeQcSession(username: "alice", providerId: "keycloak"));
+        var controller = MakeController(stateManager: stateManager);
+
+        // Act
+        var result = await controller.Authenticate("keycloak", new AuthenticateRequest { Token = token! });
+
+        // Assert
+        Assert.IsType<NotFoundObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task Authenticate_ProviderRemoved_ReturnsNotFound()
+    {
+        // Arrange — no provider configured at all (e.g. removed from the admin UI mid-flow).
+        _fixture.SetConfiguration(new PluginConfiguration());
+        var stateManager = new StateManager(NullLogger<StateManager>.Instance);
+        var token = stateManager.StoreAuthorizedSession(MakeQcSession(username: "alice", providerId: "keycloak"));
+        var controller = MakeController(stateManager: stateManager);
+
+        // Act
+        var result = await controller.Authenticate("keycloak", new AuthenticateRequest { Token = token! });
+
+        // Assert
+        Assert.IsType<NotFoundObjectResult>(result);
     }
 
     // ── QuickConnectAuthorize ──────────────────────────────────────────────────
@@ -501,7 +537,8 @@ public class OidcControllerTests
         _fixture.SetConfiguration(new PluginConfiguration
         {
             AutoCreateUsers = true,
-            UserProviderMap = [new UserProviderEntry { Username = username, ProviderId = providerId }]
+            UserProviderMap = [new UserProviderEntry { Username = username, ProviderId = providerId }],
+            Providers = [new OidcProviderConfig { ProviderId = providerId, Enabled = true }]
         });
 
     [Fact]
@@ -535,9 +572,33 @@ public class OidcControllerTests
     }
 
     [Fact]
+    public async Task QuickConnectAuthorize_ProviderDisabled_ReturnsNotFound()
+    {
+        // Arrange — provider existed when the session was authorized but was disabled afterward.
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers = [new OidcProviderConfig { ProviderId = "keycloak", Enabled = false }]
+        });
+        var stateManager = new StateManager(NullLogger<StateManager>.Instance);
+        var token = stateManager.StoreAuthorizedSession(MakeQcSession(username: "alice", providerId: "keycloak"));
+        var controller = MakeController(stateManager: stateManager);
+
+        // Act
+        var result = await controller.QuickConnectAuthorize(
+            "keycloak", new QuickConnectAuthorizeRequest { Token = token!, Code = "123456" });
+
+        // Assert
+        Assert.IsType<NotFoundObjectResult>(result);
+    }
+
+    [Fact]
     public async Task QuickConnectAuthorize_QuickConnectDisabled_ReturnsBadRequest()
     {
         // Arrange
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers = [new OidcProviderConfig { ProviderId = "keycloak", Enabled = true }]
+        });
         var stateManager = new StateManager(NullLogger<StateManager>.Instance);
         var token = stateManager.StoreAuthorizedSession(MakeQcSession());
         var quickConnect = Substitute.For<IQuickConnect>();
@@ -558,6 +619,10 @@ public class OidcControllerTests
     public async Task QuickConnectAuthorize_MissingCode_ReturnsBadRequest()
     {
         // Arrange
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers = [new OidcProviderConfig { ProviderId = "keycloak", Enabled = true }]
+        });
         var stateManager = new StateManager(NullLogger<StateManager>.Instance);
         var token = stateManager.StoreAuthorizedSession(MakeQcSession());
         var controller = MakeController(stateManager: stateManager);
@@ -578,7 +643,11 @@ public class OidcControllerTests
         var token = stateManager.StoreAuthorizedSession(MakeQcSession(username: "unknown-user"));
         var userManager = Substitute.For<IUserManager>();
         userManager.GetUserByName("unknown-user").Returns((User?)null);
-        _fixture.SetConfiguration(new PluginConfiguration { AutoCreateUsers = false });
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            AutoCreateUsers = false,
+            Providers = [new OidcProviderConfig { ProviderId = "keycloak", Enabled = true }]
+        });
         var controller = MakeController(stateManager: stateManager, userManager: userManager);
 
         // Act

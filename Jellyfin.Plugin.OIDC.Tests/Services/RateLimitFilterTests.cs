@@ -1,4 +1,5 @@
 using System.Net;
+using System.Reflection;
 using Jellyfin.Plugin.OIDC.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -153,5 +154,38 @@ public class RateLimitFilterTests
 
         Assert.True(called);
         Assert.Null(afterReset.Result);
+    }
+
+    // ── stale-entry cleanup ────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Cleanup_RemovesEntriesOlderThanMaxStaleAge_KeepsFreshOnes()
+    {
+        var stalePolicy = NextPolicy();
+        var freshPolicy = NextPolicy();
+
+        var freshFilter = new RateLimitAttribute(freshPolicy, maxRequests: 5, windowSeconds: 60);
+        await freshFilter.OnActionExecutionAsync(MakeContext("1.1.1.1"), MakeDelegate());
+
+        var staleFilter = new RateLimitAttribute(stalePolicy, maxRequests: 5, windowSeconds: 60);
+        await staleFilter.OnActionExecutionAsync(MakeContext("2.2.2.2"), MakeDelegate());
+
+        // Rewrite the stale entry's WindowStart far in the past via reflection — the only way
+        // to simulate staleness without an actual 10+ minute sleep in the test.
+        var countersField = typeof(RateLimitAttribute).GetField("_counters", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var counters = (System.Collections.IDictionary)countersField.GetValue(null)!;
+        var staleKey = $"{stalePolicy}:2.2.2.2";
+        var freshKey = $"{freshPolicy}:1.1.1.1";
+        var entryType = counters[staleKey]!.GetType();
+        var staleEntry = Activator.CreateInstance(entryType)!;
+        entryType.GetProperty("Count")!.SetValue(staleEntry, 1);
+        entryType.GetProperty("WindowStart")!.SetValue(staleEntry, DateTimeOffset.UtcNow.AddMinutes(-20));
+        counters[staleKey] = staleEntry;
+
+        var cleanup = typeof(RateLimitAttribute).GetMethod("Cleanup", BindingFlags.NonPublic | BindingFlags.Static)!;
+        cleanup.Invoke(null, [null]);
+
+        Assert.False(counters.Contains(staleKey));
+        Assert.True(counters.Contains(freshKey));
     }
 }
