@@ -9,6 +9,14 @@
     "category": "Authentication",
     "versions": [
       {
+        "version": "1.0.6.0",
+        "changelog": "Fix: honor Jellyfin's Base URL setting in generated SSO links (login buttons, branding snippet, callback page) so they work behind a reverse-proxy base path. Feat: sign in native/mobile apps (Android, iOS/Swiftfin, Android TV) via a Quick Connect bridge, since the web login button doesn't reach them. Feat: sync the Jellyfin avatar from the IdP's picture claim on login, with a per-provider opt-out.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.6.0/oidc-rbac.zip",
+        "checksum": "453f825c0de1adc2229324fe4fb0897b",
+        "timestamp": "2026-07-27T00:08:21Z"
+      },
+      {
         "version": "1.0.5.2",
         "changelog": "Feat: per-IP fixed-window rate limiting on OIDC auth endpoints. Fix: dead-code bug in ClaimParser where JSON array claim values were never parsed. CI: 77-test suite with AAA pattern coverage across all services and controllers.",
         "targetAbi": "10.11.0.0",
