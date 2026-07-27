@@ -12,15 +12,18 @@ public class UserSyncService
 {
     private readonly IUserManager _userManager;
     private readonly RbacService _rbacService;
+    private readonly ProfileImageService _profileImageService;
     private readonly ILogger<UserSyncService> _logger;
 
     public UserSyncService(
         IUserManager userManager,
         RbacService rbacService,
+        ProfileImageService profileImageService,
         ILogger<UserSyncService> logger)
     {
         _userManager = userManager;
         _rbacService = rbacService;
+        _profileImageService = profileImageService;
         _logger = logger;
     }
 
@@ -149,4 +152,7 @@ public class UserSyncService
 
     public Task ApplyRolesAsync(Guid userId, string[] roles, string providerId)
         => _rbacService.ApplyRoleMappingsAsync(userId, roles, providerId);
+
+    public Task ApplyProfileImageAsync(Guid userId, string? pictureUrl)
+        => _profileImageService.ApplyProfileImageAsync(userId, pictureUrl);
 }

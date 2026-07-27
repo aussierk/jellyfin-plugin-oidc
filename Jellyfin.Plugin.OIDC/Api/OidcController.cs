@@ -13,6 +13,7 @@ using IdentityModel.Client;
 using Jellyfin.Plugin.OIDC.Configuration;
 using Jellyfin.Plugin.OIDC.Services;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.QuickConnect;
 using MediaBrowser.Controller.Session;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -33,6 +34,7 @@ public class OidcController : ControllerBase
     private readonly StateManager _stateManager;
     private readonly UserSyncService _userSyncService;
     private readonly ISessionManager _sessionManager;
+    private readonly IQuickConnect _quickConnect;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IServerApplicationHost _appHost;
     private readonly ILogger<OidcController> _logger;
@@ -41,6 +43,7 @@ public class OidcController : ControllerBase
         StateManager stateManager,
         UserSyncService userSyncService,
         ISessionManager sessionManager,
+        IQuickConnect quickConnect,
         IHttpClientFactory httpClientFactory,
         IServerApplicationHost appHost,
         ILogger<OidcController> logger)
@@ -48,6 +51,7 @@ public class OidcController : ControllerBase
         _stateManager = stateManager;
         _userSyncService = userSyncService;
         _sessionManager = sessionManager;
+        _quickConnect = quickConnect;
         _httpClientFactory = httpClientFactory;
         _appHost = appHost;
         _logger = logger;
@@ -55,7 +59,23 @@ public class OidcController : ControllerBase
 
     [HttpGet("Start/{providerId}")]
     [RateLimit("oidc-start", maxRequests: 20, windowSeconds: 60)]
-    public async Task<ActionResult> Start(string providerId)
+    public Task<ActionResult> Start(string providerId)
+    {
+        return BeginAuthorizeAsync(providerId, quickConnect: false);
+    }
+
+    /// <summary>
+    /// Entry point for logging in a native/mobile app via Jellyfin Quick Connect. The user opens
+    /// this in a browser, authenticates at the IdP, then enters the code shown by their app.
+    /// </summary>
+    [HttpGet("QuickConnect/{providerId}")]
+    [RateLimit("oidc-start", maxRequests: 20, windowSeconds: 60)]
+    public Task<ActionResult> QuickConnectStart(string providerId)
+    {
+        return BeginAuthorizeAsync(providerId, quickConnect: true);
+    }
+
+    private async Task<ActionResult> BeginAuthorizeAsync(string providerId, bool quickConnect)
     {
         var provider = GetProvider(providerId);
         if (provider == null)
@@ -108,7 +128,8 @@ public class OidcController : ControllerBase
             Nonce = nonce,
             CodeVerifier = codeVerifier,
             RedirectUri = redirectUri,
-            CsrfToken = csrfToken
+            CsrfToken = csrfToken,
+            QuickConnect = quickConnect
         };
 
         var stateKey = _stateManager.StoreState(state);
@@ -329,6 +350,43 @@ public class OidcController : ControllerBase
             }
         }
 
+        // Optionally extract the profile-image URL (standard OIDC "picture" claim). Like roles,
+        // check the ID token first and fall back to the access token, since providers differ
+        // in which token carries the claim.
+        string? pictureUrl = null;
+        if (provider.SyncProfileImage && !string.IsNullOrWhiteSpace(provider.PictureClaim))
+        {
+            pictureUrl = ClaimParser.ExtractClaim(idToken, provider.PictureClaim);
+            if (string.IsNullOrEmpty(pictureUrl) && !string.IsNullOrEmpty(tokenResponse.AccessToken) && handler.CanReadToken(tokenResponse.AccessToken))
+            {
+                pictureUrl = ClaimParser.ExtractClaim(
+                    handler.ReadJwtToken(tokenResponse.AccessToken), provider.PictureClaim);
+            }
+
+            // Many providers (e.g. Authentik) expose the picture only via the userinfo
+            // endpoint, not in the tokens. Fall back to userinfo when it's in neither token.
+            if (string.IsNullOrEmpty(pictureUrl)
+                && !string.IsNullOrEmpty(disco.UserInfoEndpoint)
+                && !string.IsNullOrEmpty(tokenResponse.AccessToken))
+            {
+                var userInfo = await httpClient.GetUserInfoAsync(new UserInfoRequest
+                {
+                    Address = disco.UserInfoEndpoint,
+                    Token = tokenResponse.AccessToken
+                }).ConfigureAwait(false);
+
+                if (userInfo.IsError)
+                {
+                    _logger.LogWarning("OIDC userinfo request failed for {Provider}: {Error}", providerId, userInfo.Error);
+                }
+                else
+                {
+                    pictureUrl = userInfo.Claims
+                        .FirstOrDefault(c => c.Type == provider.PictureClaim)?.Value;
+                }
+            }
+        }
+
         _logger.LogInformation("OIDC auth successful: user={Username}, roles=[{Roles}], provider={Provider}",
             username, string.Join(", ", roles), providerId);
 
@@ -337,6 +395,7 @@ public class OidcController : ControllerBase
             ProviderId = providerId,
             Username = username,
             DisplayName = displayName,
+            PictureUrl = string.IsNullOrEmpty(pictureUrl) ? null : pictureUrl,
             Roles = roles
         });
 
@@ -348,6 +407,12 @@ public class OidcController : ControllerBase
         Response.Headers["X-Frame-Options"] = "DENY";
         Response.Headers["X-Content-Type-Options"] = "nosniff";
         Response.Headers["Content-Security-Policy"] = "default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'";
+
+        if (oidcState.QuickConnect)
+        {
+            return Content(BuildQuickConnectHtml(sessionToken, providerId), "text/html");
+        }
+
         return Content(BuildCallbackHtml(sessionToken, providerId), "text/html");
     }
 
@@ -375,6 +440,7 @@ public class OidcController : ControllerBase
             // Apply RBAC via UpdatePolicyAsync BEFORE AuthenticateDirect so that
             // Jellyfin's runtime user state is correct when the session token is minted.
             await _userSyncService.ApplyRolesAsync(userId, session.Roles, session.ProviderId).ConfigureAwait(false);
+            await _userSyncService.ApplyProfileImageAsync(userId, session.PictureUrl).ConfigureAwait(false);
 
             var authRequest = new AuthenticationRequest
             {
@@ -401,6 +467,80 @@ public class OidcController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Authorizes a pending Quick Connect request using the identity established by the OIDC login.
+    /// The user is provisioned/synced (same as web login) and then the code shown by their native
+    /// app is authorized on their behalf — no pre-existing Jellyfin session required.
+    /// </summary>
+    [HttpPost("QuickConnect/Authorize/{providerId}")]
+    [RateLimit("oidc-auth", maxRequests: 10, windowSeconds: 60)]
+    public async Task<ActionResult> QuickConnectAuthorize(
+        string providerId,
+        [FromBody] QuickConnectAuthorizeRequest request)
+    {
+        // Peek (not consume) so a mistyped code can be retried without redoing the OIDC login.
+        var session = _stateManager.PeekAuthorizedSession(request.Token);
+        if (session == null)
+        {
+            return Unauthorized("Invalid or expired session token");
+        }
+
+        if (!string.Equals(session.ProviderId, providerId, StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest("Provider mismatch");
+        }
+
+        if (!_quickConnect.IsEnabled)
+        {
+            return BadRequest("Quick Connect is not enabled on this server. An administrator can enable it under Dashboard > General.");
+        }
+
+        var code = (request.Code ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(code))
+        {
+            return BadRequest("Missing Quick Connect code");
+        }
+
+        Guid userId;
+        try
+        {
+            userId = await _userSyncService.SyncUserAsync(session.Username, session.DisplayName, session.ProviderId).ConfigureAwait(false);
+            await _userSyncService.ApplyRolesAsync(userId, session.Roles, session.ProviderId).ConfigureAwait(false);
+            await _userSyncService.ApplyProfileImageAsync(userId, session.PictureUrl).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning("User sync failed during Quick Connect: {Message}", ex.Message);
+            return Forbid();
+        }
+
+        try
+        {
+            var authorized = await _quickConnect.AuthorizeRequest(userId, code).ConfigureAwait(false);
+            if (!authorized)
+            {
+                return BadRequest("Quick Connect authorization was rejected.");
+            }
+        }
+        catch (Exception ex) when (ex.GetType().Name == "ResourceNotFoundException")
+        {
+            // Unknown / expired code — keep the session valid so the user can retry.
+            return BadRequest("That code wasn't recognized. Check the code on your device and try again.");
+        }
+        catch (Exception ex) when (ex.GetType().Name == "AuthenticationException")
+        {
+            return BadRequest("Quick Connect is not active on this server.");
+        }
+
+        // Success — invalidate the one-time session so the token can't be replayed.
+        _stateManager.InvalidateAuthorizedSession(request.Token);
+        _logger.LogInformation(
+            "Quick Connect authorized for user {Username} via provider {Provider}",
+            session.Username, providerId);
+
+        return Ok(new { success = true });
+    }
+
     [HttpGet("Providers")]
     public ActionResult GetProviders()
     {
@@ -410,7 +550,9 @@ public class OidcController : ControllerBase
             return Ok(Array.Empty<object>());
         }
 
-        var baseUrl = _appHost.GetSmartApiUrl(Request).TrimEnd('/');
+        // GetSmartApiUrl does not include a reverse-proxy base path, so append PathBase
+        // (Jellyfin Dashboard > Networking > Base URL) explicitly.
+        var baseUrl = _appHost.GetSmartApiUrl(Request).TrimEnd('/') + Request.PathBase;
         var providers = config.Providers
             .Where(p => p.Enabled)
             .Select(p => new
@@ -547,10 +689,14 @@ public class OidcController : ControllerBase
             const token = {{tokenJson}};
             const providerId = {{providerIdJson}};
 
+            // Jellyfin may run under a base path (Networking > Base URL). Derive it from the URL
+            // this callback was served at, so every link below keeps the prefix. Empty when unset.
+            const basePath = window.location.pathname.replace(/\/sso\/OIDC\/Callback\/[^/]+\/?$/i, '');
+
             const deviceId = localStorage.getItem('_deviceId2') || crypto.randomUUID();
             localStorage.setItem('_deviceId2', deviceId);
 
-            fetch('/sso/OIDC/Auth/' + providerId, {
+            fetch(basePath + '/sso/OIDC/Auth/' + providerId, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -569,7 +715,7 @@ public class OidcController : ControllerBase
                 var credentials = {
                     Servers: [{
                         Id: auth.ServerId,
-                        ManualAddress: window.location.origin,
+                        ManualAddress: window.location.origin + basePath,
                         AccessToken: auth.AccessToken,
                         UserId: auth.User.Id,
                         DateLastAccessed: Date.now()
@@ -578,11 +724,105 @@ public class OidcController : ControllerBase
                 localStorage.setItem('jellyfin_credentials', JSON.stringify(credentials));
 
                 document.getElementById('status').textContent = 'Success! Redirecting...';
-                window.location.href = '/';
+                window.location.href = basePath + '/';
             })
             .catch(function(err) {
                 document.getElementById('status').textContent = 'Error: ' + err.message;
             });
+        })();
+        </script>
+        </body>
+        </html>
+        """;
+    }
+
+    private static string BuildQuickConnectHtml(string sessionToken, string providerId)
+    {
+        // JSON-encode both values so single quotes, backslashes, or other JS metacharacters
+        // in admin-configured provider IDs cannot break out of the string literal.
+        var tokenJson = System.Text.Json.JsonSerializer.Serialize(sessionToken);
+        var providerIdJson = System.Text.Json.JsonSerializer.Serialize(providerId);
+
+        return $$"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Quick Connect</title>
+        <style>
+            body { font-family: system-ui, -apple-system, sans-serif; background: #101010; color: #eee;
+                   display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+            .card { background: #1c1c1c; padding: 2em; border-radius: 8px; max-width: 360px; width: 90%;
+                    box-shadow: 0 4px 24px rgba(0,0,0,.5); text-align: center; }
+            h2 { margin-top: 0; }
+            p { color: #aaa; line-height: 1.5; }
+            input { width: 100%; box-sizing: border-box; font-size: 1.6em; letter-spacing: .3em;
+                    text-align: center; padding: .5em; margin: .5em 0 1em; border-radius: 4px;
+                    border: 1px solid #444; background: #111; color: #fff; }
+            button { width: 100%; padding: .8em; font-size: 1em; border: 0; border-radius: 4px;
+                     background: #00a4dc; color: #fff; cursor: pointer; }
+            button:disabled { opacity: .6; cursor: default; }
+            #msg { min-height: 1.4em; margin-top: 1em; }
+            .ok { color: #4caf50; }
+            .err { color: #f44336; }
+        </style>
+        </head>
+        <body>
+        <div class="card">
+            <h2>Quick Connect</h2>
+            <p>Enter the code shown on your device to finish signing in.</p>
+            <input id="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off"
+                   placeholder="000000" aria-label="Quick Connect code">
+            <button id="submit">Authorize</button>
+            <div id="msg"></div>
+        </div>
+        <script>
+        (function() {
+            const token = {{tokenJson}};
+            const providerId = {{providerIdJson}};
+            // Preserve Jellyfin's base path (Networking > Base URL); empty when unset.
+            const basePath = window.location.pathname.replace(/\/sso\/OIDC\/Callback\/[^/]+\/?$/i, '');
+            const codeInput = document.getElementById('code');
+            const button = document.getElementById('submit');
+            const msg = document.getElementById('msg');
+
+            codeInput.focus();
+
+            function submit() {
+                const code = (codeInput.value || '').trim();
+                if (!code) { return; }
+                button.disabled = true;
+                msg.className = '';
+                msg.textContent = 'Authorizing...';
+
+                fetch(basePath + '/sso/OIDC/QuickConnect/Authorize/' + encodeURIComponent(providerId), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ Token: token, Code: code })
+                })
+                .then(function(r) {
+                    return r.text().then(function(body) {
+                        if (!r.ok) { throw new Error(body || ('Error ' + r.status)); }
+                    });
+                })
+                .then(function() {
+                    msg.className = 'ok';
+                    msg.textContent = 'Approved! Return to your device — it should sign in shortly.';
+                    codeInput.disabled = true;
+                    button.disabled = true;
+                })
+                .catch(function(err) {
+                    msg.className = 'err';
+                    msg.textContent = err.message;
+                    button.disabled = false;
+                    codeInput.focus();
+                    codeInput.select();
+                });
+            }
+
+            button.addEventListener('click', submit);
+            codeInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') { submit(); } });
         })();
         </script>
         </body>
@@ -598,4 +838,10 @@ public class AuthenticateRequest
     public string? DeviceName { get; set; }
     public string? App { get; set; }
     public string? AppVersion { get; set; }
+}
+
+public class QuickConnectAuthorizeRequest
+{
+    public string Token { get; set; } = string.Empty;
+    public string Code { get; set; } = string.Empty;
 }

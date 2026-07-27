@@ -46,6 +46,10 @@ public class LoginButtonController : ControllerBase
         var sb = new StringBuilder();
         sb.AppendLine("(function() {");
         sb.AppendLine($"  var providers = {providersJson};");
+        // Jellyfin may run under a base path (Networking > Base URL). The web client is served
+        // under '<basePath>/web/', so derive the prefix from the login page URL. Empty when unset.
+        sb.AppendLine("  var _p = window.location.pathname.split('/web/');");
+        sb.AppendLine("  var basePath = _p.length > 1 ? _p[0] : '';");
         sb.AppendLine("  function addButtons() {");
         sb.AppendLine("    var form = document.querySelector('.manualLoginForm, #loginPage form, .loginPage form, [data-page=\"loginPage\"] form, form[action*=\"login\"], #loginPage .padded-left form');");
         sb.AppendLine("    if (!form || document.getElementById('oidc-sso-buttons')) return;");
@@ -54,10 +58,15 @@ public class LoginButtonController : ControllerBase
         sb.AppendLine("    container.style.cssText = 'margin:1em 0;text-align:center;';");
         sb.AppendLine("    providers.forEach(function(p) {");
         sb.AppendLine("      var btn = document.createElement('a');");
-        sb.AppendLine("      btn.href = '/sso/OIDC/Start/' + encodeURIComponent(p.id);");
+        sb.AppendLine("      btn.href = basePath + '/sso/OIDC/Start/' + encodeURIComponent(p.id);");
         sb.AppendLine("      btn.textContent = 'Sign in with ' + p.name;");
         sb.AppendLine("      btn.style.cssText = 'display:block;margin:0.5em auto;padding:0.7em 1.5em;background:' + p.color + ';color:#fff;text-decoration:none;border-radius:4px;font-size:1em;max-width:300px;';");
         sb.AppendLine("      container.appendChild(btn);");
+        sb.AppendLine("      var qc = document.createElement('a');");
+        sb.AppendLine("      qc.href = basePath + '/sso/OIDC/QuickConnect/' + encodeURIComponent(p.id);");
+        sb.AppendLine("      qc.textContent = 'Sign in a device with ' + p.name + ' (Quick Connect)';");
+        sb.AppendLine("      qc.style.cssText = 'display:block;margin:0.2em auto 0.8em;color:#888;text-decoration:none;font-size:0.8em;max-width:300px;';");
+        sb.AppendLine("      container.appendChild(qc);");
         sb.AppendLine("    });");
         sb.AppendLine("    var sep = document.createElement('div');");
         sb.AppendLine("    sep.style.cssText = 'margin:1em 0;text-align:center;color:#888;';");
@@ -85,6 +94,10 @@ public class LoginButtonController : ControllerBase
             return Ok(new { Html = "", Instructions = "No enabled providers configured." });
         }
 
+        // Jellyfin may run under a base path (Networking > Base URL); include it so pasted
+        // links keep working under a prefixed deployment. Empty PathBase yields root-relative links.
+        var basePath = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
+
         var sb = new System.Text.StringBuilder();
         sb.Append("<div style=\"margin:1em 0;text-align:center;\">");
         foreach (var p in providers)
@@ -92,7 +105,7 @@ public class LoginButtonController : ControllerBase
             var name = System.Net.WebUtility.HtmlEncode(p.DisplayName);
             var color = System.Net.WebUtility.HtmlEncode(SanitizeColor(p.ButtonColor));
             var encodedId = System.Net.WebUtility.UrlEncode(p.ProviderId);
-            sb.Append($"<a href=\"/sso/OIDC/Start/{encodedId}\" style=\"display:block;margin:0.5em auto;padding:0.7em 1.5em;background:{color};color:#fff;text-decoration:none;border-radius:4px;font-size:1em;max-width:300px;\">{name}</a>");
+            sb.Append($"<a href=\"{basePath}/sso/OIDC/Start/{encodedId}\" style=\"display:block;margin:0.5em auto;padding:0.7em 1.5em;background:{color};color:#fff;text-decoration:none;border-radius:4px;font-size:1em;max-width:300px;\">{name}</a>");
         }
         sb.Append("<div style=\"margin:1em 0;color:#888;\">— or sign in with password —</div>");
         sb.Append("</div>");
