@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
@@ -36,6 +37,7 @@ public class OidcController : ControllerBase
     private readonly ISessionManager _sessionManager;
     private readonly IQuickConnect _quickConnect;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly Func<IPAddress, bool, HttpClient> _pinnedHttpClientFactory;
     private readonly IServerApplicationHost _appHost;
     private readonly ILogger<OidcController> _logger;
 
@@ -45,6 +47,7 @@ public class OidcController : ControllerBase
         ISessionManager sessionManager,
         IQuickConnect quickConnect,
         IHttpClientFactory httpClientFactory,
+        Func<IPAddress, bool, HttpClient> pinnedHttpClientFactory,
         IServerApplicationHost appHost,
         ILogger<OidcController> logger)
     {
@@ -53,6 +56,7 @@ public class OidcController : ControllerBase
         _sessionManager = sessionManager;
         _quickConnect = quickConnect;
         _httpClientFactory = httpClientFactory;
+        _pinnedHttpClientFactory = pinnedHttpClientFactory;
         _appHost = appHost;
         _logger = logger;
     }
@@ -84,7 +88,7 @@ public class OidcController : ControllerBase
         }
 
         var blockPrivateNetworks = OidcPlugin.Instance?.Configuration?.BlockPrivateNetworkAuthorities ?? false;
-        var blockReason = await AuthorityGuard.ValidateAsync(
+        var (blockReason, pinnedAddress) = await AuthorityGuard.ValidateAndResolveAsync(
             provider.Authority,
             provider.AllowLoopbackAuthority,
             provider.AllowLinkLocalAuthority,
@@ -95,7 +99,7 @@ public class OidcController : ControllerBase
             return StatusCode(502, "Failed to contact identity provider");
         }
 
-        var disco = await GetDiscoveryDocumentAsync(provider).ConfigureAwait(false);
+        var disco = await GetDiscoveryDocumentAsync(provider, pinnedAddress).ConfigureAwait(false);
         if (disco.IsError)
         {
             _logger.LogError("OIDC discovery failed for {Provider}: {Error}", providerId, disco.Error);
@@ -205,7 +209,7 @@ public class OidcController : ControllerBase
         }
 
         var blockPrivateNetworks = OidcPlugin.Instance?.Configuration?.BlockPrivateNetworkAuthorities ?? false;
-        var blockReason = await AuthorityGuard.ValidateAsync(
+        var (blockReason, pinnedAddress) = await AuthorityGuard.ValidateAndResolveAsync(
             provider.Authority,
             provider.AllowLoopbackAuthority,
             provider.AllowLinkLocalAuthority,
@@ -216,7 +220,7 @@ public class OidcController : ControllerBase
             return StatusCode(502, "Failed to contact identity provider");
         }
 
-        var disco = await GetDiscoveryDocumentAsync(provider).ConfigureAwait(false);
+        var disco = await GetDiscoveryDocumentAsync(provider, pinnedAddress).ConfigureAwait(false);
         if (disco.IsError)
         {
             _logger.LogError("OIDC discovery failed for {Provider}: {Error}", providerId, disco.Error);
@@ -404,16 +408,21 @@ public class OidcController : ControllerBase
             return StatusCode(503, "Server is busy. Please try again in a moment.");
         }
 
+        // A per-response nonce lets the CSP require it on the inline script instead of
+        // 'unsafe-inline' — pure defense-in-depth, since the script's only dynamic content is
+        // already JSON-encoded below.
+        var nonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));
+
         Response.Headers["X-Frame-Options"] = "DENY";
         Response.Headers["X-Content-Type-Options"] = "nosniff";
-        Response.Headers["Content-Security-Policy"] = "default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'";
+        Response.Headers["Content-Security-Policy"] = $"default-src 'none'; script-src 'nonce-{nonce}'; connect-src 'self'; frame-ancestors 'none'";
 
         if (oidcState.QuickConnect)
         {
-            return Content(BuildQuickConnectHtml(sessionToken, providerId), "text/html");
+            return Content(BuildQuickConnectHtml(sessionToken, providerId, nonce), "text/html");
         }
 
-        return Content(BuildCallbackHtml(sessionToken, providerId), "text/html");
+        return Content(BuildCallbackHtml(sessionToken, providerId, nonce), "text/html");
     }
 
     [HttpPost("Auth/{providerId}")]
@@ -433,6 +442,11 @@ public class OidcController : ControllerBase
             return BadRequest("Provider mismatch");
         }
 
+        if (GetProvider(providerId) == null)
+        {
+            return NotFound($"Provider '{providerId}' not found or disabled");
+        }
+
         try
         {
             var userId = await _userSyncService.SyncUserAsync(session.Username, session.DisplayName, session.ProviderId).ConfigureAwait(false);
@@ -440,7 +454,7 @@ public class OidcController : ControllerBase
             // Apply RBAC via UpdatePolicyAsync BEFORE AuthenticateDirect so that
             // Jellyfin's runtime user state is correct when the session token is minted.
             await _userSyncService.ApplyRolesAsync(userId, session.Roles, session.ProviderId).ConfigureAwait(false);
-            await _userSyncService.ApplyProfileImageAsync(userId, session.PictureUrl).ConfigureAwait(false);
+            await _userSyncService.ApplyProfileImageAsync(userId, session.PictureUrl, session.ProviderId).ConfigureAwait(false);
 
             var authRequest = new AuthenticationRequest
             {
@@ -490,6 +504,11 @@ public class OidcController : ControllerBase
             return BadRequest("Provider mismatch");
         }
 
+        if (GetProvider(providerId) == null)
+        {
+            return NotFound($"Provider '{providerId}' not found or disabled");
+        }
+
         if (!_quickConnect.IsEnabled)
         {
             return BadRequest("Quick Connect is not enabled on this server. An administrator can enable it under Dashboard > General.");
@@ -506,7 +525,7 @@ public class OidcController : ControllerBase
         {
             userId = await _userSyncService.SyncUserAsync(session.Username, session.DisplayName, session.ProviderId).ConfigureAwait(false);
             await _userSyncService.ApplyRolesAsync(userId, session.Roles, session.ProviderId).ConfigureAwait(false);
-            await _userSyncService.ApplyProfileImageAsync(userId, session.PictureUrl).ConfigureAwait(false);
+            await _userSyncService.ApplyProfileImageAsync(userId, session.PictureUrl, session.ProviderId).ConfigureAwait(false);
         }
         catch (InvalidOperationException ex)
         {
@@ -615,9 +634,15 @@ public class OidcController : ControllerBase
         return true;
     }
 
-    private async Task<DiscoveryDocumentResponse> GetDiscoveryDocumentAsync(OidcProviderConfig provider)
+    private async Task<DiscoveryDocumentResponse> GetDiscoveryDocumentAsync(OidcProviderConfig provider, IPAddress? pinnedAddress)
     {
-        var httpClient = _httpClientFactory.CreateClient("OidcPlugin");
+        // Pin the connection to the exact address AuthorityGuard already validated, so a
+        // DNS-rebinding attacker can't swap in a different (internal) address between the
+        // guard check and this request. Falls back to the shared client only when resolution
+        // failed naturally (malformed URL/DNS failure) — the fetch is left to fail on its own.
+        using var httpClient = pinnedAddress != null
+            ? _pinnedHttpClientFactory(pinnedAddress, true)
+            : _httpClientFactory.CreateClient("OidcPlugin");
         return await httpClient.GetDiscoveryDocumentAsync(new DiscoveryDocumentRequest
         {
             Address = provider.Authority,
@@ -670,7 +695,7 @@ public class OidcController : ControllerBase
         return new Parameters(pairs);
     }
 
-    private static string BuildCallbackHtml(string sessionToken, string providerId)
+    private static string BuildCallbackHtml(string sessionToken, string providerId, string nonce)
     {
         // JSON-encode both values so single quotes, backslashes, or other JS metacharacters
         // in admin-configured provider IDs cannot break out of the string literal.
@@ -684,7 +709,7 @@ public class OidcController : ControllerBase
         <body>
         <h3>Completing authentication...</h3>
         <p id="status">Please wait...</p>
-        <script>
+        <script nonce="{{nonce}}">
         (function() {
             const token = {{tokenJson}};
             const providerId = {{providerIdJson}};
@@ -736,7 +761,7 @@ public class OidcController : ControllerBase
         """;
     }
 
-    private static string BuildQuickConnectHtml(string sessionToken, string providerId)
+    private static string BuildQuickConnectHtml(string sessionToken, string providerId, string nonce)
     {
         // JSON-encode both values so single quotes, backslashes, or other JS metacharacters
         // in admin-configured provider IDs cannot break out of the string literal.
@@ -777,7 +802,7 @@ public class OidcController : ControllerBase
             <button id="submit">Authorize</button>
             <div id="msg"></div>
         </div>
-        <script>
+        <script nonce="{{nonce}}">
         (function() {
             const token = {{tokenJson}};
             const providerId = {{providerIdJson}};

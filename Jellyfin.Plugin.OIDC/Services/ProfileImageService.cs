@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Jellyfin.Database.Implementations.Entities;
@@ -12,7 +14,13 @@ namespace Jellyfin.Plugin.OIDC.Services;
 
 public class ProfileImageService
 {
+    // Cap the download so a malicious/compromised picture-claim host can't exhaust memory or
+    // disk via an oversized response. Partial mitigation: a host that omits Content-Length
+    // isn't caught by this check, only by whatever limits the underlying HttpClient applies.
+    private const long MaxProfileImageBytes = 5 * 1024 * 1024;
+
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly Func<IPAddress, bool, HttpClient> _pinnedHttpClientFactory;
     private readonly IUserManager _userManager;
     private readonly IServerConfigurationManager _serverConfigurationManager;
     private readonly IProviderManager _providerManager;
@@ -20,12 +28,14 @@ public class ProfileImageService
 
     public ProfileImageService(
         IHttpClientFactory httpClientFactory,
+        Func<IPAddress, bool, HttpClient> pinnedHttpClientFactory,
         IUserManager userManager,
         IServerConfigurationManager serverConfigurationManager,
         IProviderManager providerManager,
         ILogger<ProfileImageService> logger)
     {
         _httpClientFactory = httpClientFactory;
+        _pinnedHttpClientFactory = pinnedHttpClientFactory;
         _userManager = userManager;
         _serverConfigurationManager = serverConfigurationManager;
         _providerManager = providerManager;
@@ -36,22 +46,62 @@ public class ProfileImageService
     /// Downloads the image at <paramref name="pictureUrl"/> and sets it as the user's profile
     /// image, overwriting any existing one. Never throws: avatar sync must not break login.
     /// </summary>
-    public async Task ApplyProfileImageAsync(Guid userId, string? pictureUrl)
+    public async Task ApplyProfileImageAsync(Guid userId, string? pictureUrl, string providerId)
     {
         if (string.IsNullOrWhiteSpace(pictureUrl))
         {
             return;
         }
 
+        if (!Uri.TryCreate(pictureUrl, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            _logger.LogWarning("Rejected profile image URL with disallowed scheme: {Url}", pictureUrl);
+            return;
+        }
+
+        // The picture claim can come from the IdP's userinfo/token payload — and on some IdPs
+        // (e.g. Keycloak, Authentik) end users can set it themselves — so it gets the same
+        // SSRF guard as Authority, using that provider's own loopback/link-local trust settings.
+        var provider = OidcPlugin.Instance?.Configuration?.Providers
+            .FirstOrDefault(p => string.Equals(p.ProviderId, providerId, StringComparison.OrdinalIgnoreCase));
+        var blockPrivateNetworks = OidcPlugin.Instance?.Configuration?.BlockPrivateNetworkAuthorities ?? false;
+        var (blockReason, pinnedAddress) = await AuthorityGuard.ValidateAndResolveAsync(
+            pictureUrl,
+            provider?.AllowLoopbackAuthority ?? false,
+            provider?.AllowLinkLocalAuthority ?? false,
+            blockPrivateNetworks).ConfigureAwait(false);
+        if (blockReason != null)
+        {
+            _logger.LogWarning("Blocked profile image fetch for {Url}: {Reason}", pictureUrl, blockReason);
+            return;
+        }
+
         try
         {
-            var httpClient = _httpClientFactory.CreateClient("OidcPlugin");
+            // Pin to the exact address the guard just validated — closes the same DNS-rebinding
+            // TOCTOU window as the discovery fetch (see AuthorityGuard.ValidateAndResolveAsync).
+            // Redirects stay disabled either way: a redirect target is unvalidated, and this
+            // path's trust boundary is stricter than discovery's (picture claims can be
+            // end-user-influenced on some IdPs).
+            using var httpClient = pinnedAddress != null
+                ? _pinnedHttpClientFactory(pinnedAddress, false)
+                : _httpClientFactory.CreateClient("OidcPluginImage");
             using var response = await httpClient.GetAsync(pictureUrl).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning(
                     "Failed to download profile image from {Url}: HTTP {Status}",
                     pictureUrl, (int)response.StatusCode);
+                return;
+            }
+
+            var contentLength = response.Content.Headers.ContentLength;
+            if (contentLength.HasValue && contentLength.Value > MaxProfileImageBytes)
+            {
+                _logger.LogWarning(
+                    "Profile image at {Url} exceeds the {MaxBytes}-byte limit (Content-Length: {Length})",
+                    pictureUrl, MaxProfileImageBytes, contentLength.Value);
                 return;
             }
 

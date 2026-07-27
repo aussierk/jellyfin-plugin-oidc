@@ -153,6 +153,6 @@ public class UserSyncService
     public Task ApplyRolesAsync(Guid userId, string[] roles, string providerId)
         => _rbacService.ApplyRoleMappingsAsync(userId, roles, providerId);
 
-    public Task ApplyProfileImageAsync(Guid userId, string? pictureUrl)
-        => _profileImageService.ApplyProfileImageAsync(userId, pictureUrl);
+    public Task ApplyProfileImageAsync(Guid userId, string? pictureUrl, string providerId)
+        => _profileImageService.ApplyProfileImageAsync(userId, pictureUrl, providerId);
 }

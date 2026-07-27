@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Reflection;
 using System.Threading.Tasks;
 using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Plugin.OIDC.Configuration;
 using Jellyfin.Plugin.OIDC.Services;
 using Jellyfin.Plugin.OIDC.Tests.Fixtures;
 using MediaBrowser.Controller;
@@ -17,15 +18,31 @@ using Xunit;
 
 namespace Jellyfin.Plugin.OIDC.Tests.Services;
 
+[Xunit.Collection("OidcPlugin")]
 public class ProfileImageServiceTests
 {
     private const string OidcAuthProviderId = "Jellyfin.Plugin.OIDC.Auth.OidcAuthProvider";
+
+    // A public IP literal — AuthorityGuard.ValidateAsync passes it without a real DNS lookup,
+    // keeping these tests fast and network-independent (mirrors AuthorityGuardTests' convention).
+    private const string PublicPictureUrl = "https://8.8.8.8/avatar.png";
+    private const string LoopbackPictureUrl = "https://127.0.0.1/avatar.png";
+    private const string TestProviderId = "testprovider";
+
+    private readonly PluginTestFixture _fixture;
+
+    public ProfileImageServiceTests(PluginTestFixture fixture) => _fixture = fixture;
 
     private static (ProfileImageService Service, IUserManager UserManager, IProviderManager ProviderManager) MakeService(
         HttpMessageHandler handler)
     {
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
-        httpClientFactory.CreateClient("OidcPlugin").Returns(new HttpClient(handler));
+        httpClientFactory.CreateClient("OidcPluginImage").Returns(new HttpClient(handler));
+
+        // Test URLs are IP literals (see PublicPictureUrl/LoopbackPictureUrl), so
+        // AuthorityGuard always resolves a pinned address — route the pinned path through the
+        // same mock handler instead of a real socket connection.
+        HttpClient PinnedClientFactory(IPAddress _, bool __) => new(handler);
 
         var userManager = Substitute.For<IUserManager>();
         userManager.UpdateUserAsync(Arg.Any<User>()).Returns(Task.CompletedTask);
@@ -40,12 +57,27 @@ public class ProfileImageServiceTests
         serverConfigManager.ApplicationPaths.Returns(appPaths);
 
         var service = new ProfileImageService(
-            httpClientFactory, userManager, serverConfigManager, providerManager, NullLogger<ProfileImageService>.Instance);
+            httpClientFactory, PinnedClientFactory, userManager, serverConfigManager, providerManager, NullLogger<ProfileImageService>.Instance);
 
         return (service, userManager, providerManager);
     }
 
     private static User MakeUser(string username = "alice") => new(username, OidcAuthProviderId, "PasswordResetProviderId");
+
+    private void SetProviderConfig(bool allowLoopback = false, bool allowLinkLocal = false, bool blockPrivateNetworks = false) =>
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers =
+            [
+                new OidcProviderConfig
+                {
+                    ProviderId = TestProviderId,
+                    AllowLoopbackAuthority = allowLoopback,
+                    AllowLinkLocalAuthority = allowLinkLocal
+                }
+            ],
+            BlockPrivateNetworkAuthorities = blockPrivateNetworks
+        });
 
     // ── no-op guard clauses ────────────────────────────────────────────────────
 
@@ -56,7 +88,7 @@ public class ProfileImageServiceTests
         var (service, userManager, _) = MakeService(new ThrowingHttpMessageHandler(new HttpRequestException("should never be called")));
 
         // Act
-        await service.ApplyProfileImageAsync(Guid.NewGuid(), null);
+        await service.ApplyProfileImageAsync(Guid.NewGuid(), null, TestProviderId);
 
         // Assert
         userManager.DidNotReceive().GetUserById(Arg.Any<Guid>());
@@ -67,7 +99,7 @@ public class ProfileImageServiceTests
     {
         var (service, userManager, _) = MakeService(new ThrowingHttpMessageHandler(new HttpRequestException("should never be called")));
 
-        await service.ApplyProfileImageAsync(Guid.NewGuid(), string.Empty);
+        await service.ApplyProfileImageAsync(Guid.NewGuid(), string.Empty, TestProviderId);
 
         userManager.DidNotReceive().GetUserById(Arg.Any<Guid>());
     }
@@ -77,9 +109,66 @@ public class ProfileImageServiceTests
     {
         var (service, userManager, _) = MakeService(new ThrowingHttpMessageHandler(new HttpRequestException("should never be called")));
 
-        await service.ApplyProfileImageAsync(Guid.NewGuid(), "   ");
+        await service.ApplyProfileImageAsync(Guid.NewGuid(), "   ", TestProviderId);
 
         userManager.DidNotReceive().GetUserById(Arg.Any<Guid>());
+    }
+
+    // ── SSRF guard ──────────────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("ftp://8.8.8.8/avatar.png")]
+    [InlineData("file:///etc/passwd")]
+    public async Task DisallowedScheme_DoesNotSaveImage(string url)
+    {
+        SetProviderConfig();
+        var (service, userManager, providerManager) =
+            MakeService(new ThrowingHttpMessageHandler(new HttpRequestException("should never be called")));
+        userManager.GetUserById(Arg.Any<Guid>()).Returns(MakeUser());
+
+        await service.ApplyProfileImageAsync(Guid.NewGuid(), url, TestProviderId);
+
+        await providerManager.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task LoopbackUrl_ProviderDoesNotAllowLoopback_DoesNotSaveImage()
+    {
+        SetProviderConfig(allowLoopback: false);
+        var (service, userManager, providerManager) =
+            MakeService(new ThrowingHttpMessageHandler(new HttpRequestException("should never be called")));
+        userManager.GetUserById(Arg.Any<Guid>()).Returns(MakeUser());
+
+        await service.ApplyProfileImageAsync(Guid.NewGuid(), LoopbackPictureUrl, TestProviderId);
+
+        await providerManager.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task LoopbackUrl_ProviderAllowsLoopback_Proceeds()
+    {
+        SetProviderConfig(allowLoopback: true);
+        var (service, userManager, providerManager) =
+            MakeService(new MockHttpMessageHandler(HttpStatusCode.OK, "binary-data", "image/png"));
+        userManager.GetUserById(Arg.Any<Guid>()).Returns(MakeUser());
+
+        await service.ApplyProfileImageAsync(Guid.NewGuid(), LoopbackPictureUrl, TestProviderId);
+
+        await providerManager.Received(1).SaveImage(Arg.Any<Stream>(), "image/png", Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task UnknownProviderId_TreatedAsNoOptOuts_LoopbackBlocked()
+    {
+        // No provider config matches this ID — the guard must fail closed (no opt-outs), not throw.
+        SetProviderConfig();
+        var (service, userManager, providerManager) =
+            MakeService(new ThrowingHttpMessageHandler(new HttpRequestException("should never be called")));
+        userManager.GetUserById(Arg.Any<Guid>()).Returns(MakeUser());
+
+        await service.ApplyProfileImageAsync(Guid.NewGuid(), LoopbackPictureUrl, "unknown-provider");
+
+        await providerManager.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
     }
 
     // ── download / validation failures never save, never throw ────────────────
@@ -87,11 +176,12 @@ public class ProfileImageServiceTests
     [Fact]
     public async Task NonSuccessStatusCode_DoesNotSaveImage()
     {
+        SetProviderConfig();
         var (service, userManager, providerManager) =
             MakeService(new MockHttpMessageHandler(HttpStatusCode.NotFound, "not found", "text/plain"));
         userManager.GetUserById(Arg.Any<Guid>()).Returns(MakeUser());
 
-        await service.ApplyProfileImageAsync(Guid.NewGuid(), "https://idp.example.com/avatar.png");
+        await service.ApplyProfileImageAsync(Guid.NewGuid(), PublicPictureUrl, TestProviderId);
 
         await providerManager.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
     }
@@ -99,11 +189,25 @@ public class ProfileImageServiceTests
     [Fact]
     public async Task NonImageContentType_DoesNotSaveImage()
     {
+        SetProviderConfig();
         var (service, userManager, providerManager) =
             MakeService(new MockHttpMessageHandler(HttpStatusCode.OK, "<html></html>", "text/html"));
         userManager.GetUserById(Arg.Any<Guid>()).Returns(MakeUser());
 
-        await service.ApplyProfileImageAsync(Guid.NewGuid(), "https://idp.example.com/avatar.png");
+        await service.ApplyProfileImageAsync(Guid.NewGuid(), PublicPictureUrl, TestProviderId);
+
+        await providerManager.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task OversizedContentLength_DoesNotSaveImage()
+    {
+        SetProviderConfig();
+        var (service, userManager, providerManager) =
+            MakeService(new MockHttpMessageHandler(HttpStatusCode.OK, new string('a', 100), "image/png", contentLengthOverride: 10L * 1024 * 1024));
+        userManager.GetUserById(Arg.Any<Guid>()).Returns(MakeUser());
+
+        await service.ApplyProfileImageAsync(Guid.NewGuid(), PublicPictureUrl, TestProviderId);
 
         await providerManager.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
     }
@@ -111,11 +215,12 @@ public class ProfileImageServiceTests
     [Fact]
     public async Task UserNotFound_DoesNotSaveImage()
     {
+        SetProviderConfig();
         var (service, userManager, providerManager) =
             MakeService(new MockHttpMessageHandler(HttpStatusCode.OK, "binary-data", "image/png"));
         userManager.GetUserById(Arg.Any<Guid>()).Returns((User?)null);
 
-        await service.ApplyProfileImageAsync(Guid.NewGuid(), "https://idp.example.com/avatar.png");
+        await service.ApplyProfileImageAsync(Guid.NewGuid(), PublicPictureUrl, TestProviderId);
 
         await providerManager.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
     }
@@ -124,16 +229,18 @@ public class ProfileImageServiceTests
     public async Task HttpTransportThrows_DoesNotThrow()
     {
         // Avatar sync must never break login — success is simply not throwing.
+        SetProviderConfig();
         var (service, userManager, _) =
             MakeService(new ThrowingHttpMessageHandler(new HttpRequestException("No route to host")));
         userManager.GetUserById(Arg.Any<Guid>()).Returns(MakeUser());
 
-        await service.ApplyProfileImageAsync(Guid.NewGuid(), "https://idp.example.com/avatar.png");
+        await service.ApplyProfileImageAsync(Guid.NewGuid(), PublicPictureUrl, TestProviderId);
     }
 
     [Fact]
     public async Task SaveImageThrows_DoesNotThrow()
     {
+        SetProviderConfig();
         var (service, userManager, providerManager) =
             MakeService(new MockHttpMessageHandler(HttpStatusCode.OK, "binary-data", "image/png"));
         var userId = Guid.NewGuid();
@@ -141,7 +248,7 @@ public class ProfileImageServiceTests
         providerManager.SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>())
             .Returns(_ => throw new IOException("disk full"));
 
-        await service.ApplyProfileImageAsync(userId, "https://idp.example.com/avatar.png");
+        await service.ApplyProfileImageAsync(userId, PublicPictureUrl, TestProviderId);
     }
 
     // ── success path ───────────────────────────────────────────────────────────
@@ -149,12 +256,13 @@ public class ProfileImageServiceTests
     [Fact]
     public async Task Success_SavesImageWithDownloadedMimeType()
     {
+        SetProviderConfig();
         var (service, userManager, providerManager) =
             MakeService(new MockHttpMessageHandler(HttpStatusCode.OK, "binary-data", "image/png"));
         var userId = Guid.NewGuid();
         userManager.GetUserById(userId).Returns(MakeUser());
 
-        await service.ApplyProfileImageAsync(userId, "https://idp.example.com/avatar.png");
+        await service.ApplyProfileImageAsync(userId, PublicPictureUrl, TestProviderId);
 
         await providerManager.Received(1).SaveImage(Arg.Any<Stream>(), "image/png", Arg.Any<string>());
     }
@@ -162,13 +270,14 @@ public class ProfileImageServiceTests
     [Fact]
     public async Task Success_UpdatesUser()
     {
+        SetProviderConfig();
         var (service, userManager, _) =
             MakeService(new MockHttpMessageHandler(HttpStatusCode.OK, "binary-data", "image/png"));
         var userId = Guid.NewGuid();
         var user = MakeUser();
         userManager.GetUserById(userId).Returns(user);
 
-        await service.ApplyProfileImageAsync(userId, "https://idp.example.com/avatar.png");
+        await service.ApplyProfileImageAsync(userId, PublicPictureUrl, TestProviderId);
 
         await userManager.Received(1).UpdateUserAsync(user);
     }
@@ -176,13 +285,14 @@ public class ProfileImageServiceTests
     [Fact]
     public async Task Success_SetsProfileImagePathWithMatchingExtension()
     {
+        SetProviderConfig();
         var (service, userManager, _) =
             MakeService(new MockHttpMessageHandler(HttpStatusCode.OK, "binary-data", "image/png"));
         var userId = Guid.NewGuid();
         var user = MakeUser();
         userManager.GetUserById(userId).Returns(user);
 
-        await service.ApplyProfileImageAsync(userId, "https://idp.example.com/avatar.png");
+        await service.ApplyProfileImageAsync(userId, PublicPictureUrl, TestProviderId);
 
         Assert.NotNull(user.ProfileImage);
         Assert.EndsWith(".png", user.ProfileImage!.Path);
@@ -191,6 +301,7 @@ public class ProfileImageServiceTests
     [Fact]
     public async Task ExistingProfileImage_IsClearedBeforeSettingNewOne()
     {
+        SetProviderConfig();
         var (service, userManager, _) =
             MakeService(new MockHttpMessageHandler(HttpStatusCode.OK, "binary-data", "image/png"));
         var userId = Guid.NewGuid();
@@ -198,7 +309,7 @@ public class ProfileImageServiceTests
         user.ProfileImage = new ImageInfo("/existing/old-avatar.jpg");
         userManager.GetUserById(userId).Returns(user);
 
-        await service.ApplyProfileImageAsync(userId, "https://idp.example.com/avatar.png");
+        await service.ApplyProfileImageAsync(userId, PublicPictureUrl, TestProviderId);
 
         await userManager.Received(1).ClearProfileImageAsync(user);
     }
@@ -206,13 +317,14 @@ public class ProfileImageServiceTests
     [Fact]
     public async Task NoExistingProfileImage_DoesNotCallClear()
     {
+        SetProviderConfig();
         var (service, userManager, _) =
             MakeService(new MockHttpMessageHandler(HttpStatusCode.OK, "binary-data", "image/png"));
         var userId = Guid.NewGuid();
         var user = MakeUser();
         userManager.GetUserById(userId).Returns(user);
 
-        await service.ApplyProfileImageAsync(userId, "https://idp.example.com/avatar.png");
+        await service.ApplyProfileImageAsync(userId, PublicPictureUrl, TestProviderId);
 
         await userManager.DidNotReceive().ClearProfileImageAsync(Arg.Any<User>());
     }

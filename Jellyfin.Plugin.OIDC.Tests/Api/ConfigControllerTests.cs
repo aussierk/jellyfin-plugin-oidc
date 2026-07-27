@@ -41,7 +41,12 @@ public class ConfigControllerTests
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient("OidcPlugin").Returns(new HttpClient(handler));
 
-        return new ConfigController(rbacService, httpClientFactory, NullLogger<ConfigController>.Instance);
+        // Tests use IP-literal Authorities, so AuthorityGuard always resolves a pinned address —
+        // route the "pinned" path through the same mock handler instead of a real socket
+        // connection, matching how the fallback ("OidcPlugin") path is already mocked above.
+        HttpClient PinnedClientFactory(IPAddress _, bool __) => new(handler);
+
+        return new ConfigController(rbacService, httpClientFactory, PinnedClientFactory, NullLogger<ConfigController>.Instance);
     }
 
     [Fact]

@@ -11,12 +11,19 @@ public sealed class MockHttpMessageHandler : HttpMessageHandler
 {
     private readonly HttpResponseMessage _response;
 
-    public MockHttpMessageHandler(HttpStatusCode statusCode, string content, string contentType = "application/json")
+    public MockHttpMessageHandler(
+        HttpStatusCode statusCode, string content, string contentType = "application/json", long? contentLengthOverride = null)
     {
         _response = new HttpResponseMessage(statusCode)
         {
             Content = new StringContent(content, System.Text.Encoding.UTF8, contentType)
         };
+
+        // Lets tests simulate a server advertising a large body without actually allocating it.
+        if (contentLengthOverride.HasValue)
+        {
+            _response.Content.Headers.ContentLength = contentLengthOverride.Value;
+        }
     }
 
     protected override Task<HttpResponseMessage> SendAsync(
