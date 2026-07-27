@@ -7,6 +7,13 @@
   "category": "Authentication",
   "versions": [
     {
+      "version": "1.0.6.0",
+      "changelog": "Fix: honor Jellyfin's Base URL setting in generated SSO links (login buttons, branding snippet, callback page) so they work behind a reverse-proxy base path. Feat: sign in native/mobile apps (Android, iOS/Swiftfin, Android TV) via a Quick Connect bridge, since the web login button doesn't reach them. Feat: sync the Jellyfin avatar from the IdP's picture claim on login, with a per-provider opt-out.",
+      "targetAbi": "10.11.0.0",
+      "sourceUrl": "",
+      "timestamp": "2026-07-26T00:00:00Z"
+    },
+    {
       "version": "1.0.5.3",
       "changelog": "Fix: bind OIDC login flow to the initiating browser to close a login-CSRF gap (#8). Fix: block loopback/link-local Authority URLs by default, with an opt-in plugin-wide setting to also block RFC1918/ULA ranges (#9).",
       "targetAbi": "10.11.0.0",
