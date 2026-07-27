@@ -29,6 +29,7 @@ public sealed class AuthorizedSession
     public required string ProviderId { get; init; }
     public required string Username { get; init; }
     public string? DisplayName { get; init; }
+    public string? PictureUrl { get; init; }
     public required string[] Roles { get; init; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }

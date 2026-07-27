@@ -97,6 +97,28 @@ public class StateManagerTests : IDisposable
     }
 
     [Fact]
+    public void ConsumeAuthorizedSession_PictureUrlSet_IsPreserved()
+    {
+        var token = _manager.StoreAuthorizedSession(MakeSession(pictureUrl: "https://idp.example.com/avatar.png"));
+
+        var session = _manager.ConsumeAuthorizedSession(token!);
+
+        Assert.NotNull(session);
+        Assert.Equal("https://idp.example.com/avatar.png", session!.PictureUrl);
+    }
+
+    [Fact]
+    public void ConsumeAuthorizedSession_PictureUrlNotSet_DefaultsToNull()
+    {
+        var token = _manager.StoreAuthorizedSession(MakeSession());
+
+        var session = _manager.ConsumeAuthorizedSession(token!);
+
+        Assert.NotNull(session);
+        Assert.Null(session!.PictureUrl);
+    }
+
+    [Fact]
     public void ConsumeAuthorizedSession_ExpiredSession_ReturnsNull()
     {
         var session = MakeSession();
@@ -221,11 +243,12 @@ public class StateManagerTests : IDisposable
     };
 
     private static AuthorizedSession MakeSession(
-        string username = "user", string providerId = "provider") => new()
+        string username = "user", string providerId = "provider", string? pictureUrl = null) => new()
     {
         ProviderId = providerId,
         Username = username,
         DisplayName = username,
+        PictureUrl = pictureUrl,
         Roles = []
     };
 }

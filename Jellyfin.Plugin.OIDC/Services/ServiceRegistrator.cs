@@ -13,6 +13,7 @@ public class ServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<StateManager>();
         serviceCollection.AddHostedService(sp => sp.GetRequiredService<StateManager>());
         serviceCollection.AddScoped<RbacService>();
+        serviceCollection.AddScoped<ProfileImageService>();
         serviceCollection.AddScoped<UserSyncService>();
     }
 }

@@ -73,6 +73,14 @@ public class OidcProviderConfig
 
     public string DisplayNameClaim { get; set; } = "name";
 
+    public string PictureClaim { get; set; } = "picture";
+
+    /// <summary>
+    /// When true, the user's Jellyfin avatar is synced from the picture claim on each login,
+    /// overwriting any existing avatar. Defaults to true, matching upstream.
+    /// </summary>
+    public bool SyncProfileImage { get; set; } = true;
+
     public bool Enabled { get; set; } = true;
 
     public string ButtonColor { get; set; } = "#4285F4";

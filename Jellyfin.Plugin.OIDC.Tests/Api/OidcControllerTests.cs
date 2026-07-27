@@ -7,8 +7,11 @@ using Jellyfin.Plugin.OIDC.Api;
 using Jellyfin.Plugin.OIDC.Configuration;
 using Jellyfin.Plugin.OIDC.Services;
 using Jellyfin.Plugin.OIDC.Tests.Fixtures;
+using System.Net.Http;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.QuickConnect;
 using MediaBrowser.Controller.Session;
 using Microsoft.AspNetCore.Http;
@@ -37,9 +40,15 @@ public class OidcControllerTests
         userManager ??= Substitute.For<IUserManager>();
         var libraryManager = Substitute.For<ILibraryManager>();
         var rbacService = new RbacService(userManager, libraryManager, NullLogger<RbacService>.Instance);
-        var userSyncService = new UserSyncService(userManager, rbacService, NullLogger<UserSyncService>.Instance);
-        var sessionManager = Substitute.For<ISessionManager>();
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
+        var profileImageService = new ProfileImageService(
+            httpClientFactory,
+            userManager,
+            Substitute.For<IServerConfigurationManager>(),
+            Substitute.For<IProviderManager>(),
+            NullLogger<ProfileImageService>.Instance);
+        var userSyncService = new UserSyncService(userManager, rbacService, profileImageService, NullLogger<UserSyncService>.Instance);
+        var sessionManager = Substitute.For<ISessionManager>();
         if (quickConnect == null)
         {
             quickConnect = Substitute.For<IQuickConnect>();
@@ -435,11 +444,12 @@ public class OidcControllerTests
     // ── QuickConnectAuthorize ──────────────────────────────────────────────────
 
     private static AuthorizedSession MakeQcSession(
-        string username = "alice", string providerId = "keycloak") => new()
+        string username = "alice", string providerId = "keycloak", string? pictureUrl = null) => new()
     {
         ProviderId = providerId,
         Username = username,
         DisplayName = username,
+        PictureUrl = pictureUrl,
         Roles = []
     };
 

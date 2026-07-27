@@ -57,9 +57,12 @@ function renderProviders(view) {
             fld('Role Claim Path', 'text', 'prov_roleclaim_' + idx, p.RoleClaim || 'groups', 'e.g. groups or realm_access.roles') +
             fld('Username Claim', 'text', 'prov_userclaim_' + idx, p.UsernameClaim || 'preferred_username', '') +
             fld('Display Name Claim', 'text', 'prov_displayclaim_' + idx, p.DisplayNameClaim || 'name', '') +
+            fld('Picture Claim', 'text', 'prov_pictureclaim_' + idx, p.PictureClaim || 'picture', 'e.g. picture') +
             fld('Button Color', 'color', 'prov_color_' + idx, p.ButtonColor || '#4285F4', '') +
             fld('Additional Params', 'text', 'prov_params_' + idx, p.AdditionalParameters || '', 'key=val&key2=val2', true) +
             fld('Server Base URL (override)', 'text', 'prov_baseurl_' + idx, p.ServerBaseUrl || '', 'Optional: https://jellyfin.example.com — overrides auto-detected redirect_uri host', true) +
+            '<div class="oidc-field"><label><input type="checkbox" id="prov_syncimage_' + idx + '"' +
+            (p.SyncProfileImage !== false ? ' checked' : '') + '/> Sync profile image</label></div>' +
             '<div class="oidc-field"><label><input type="checkbox" id="prov_enabled_' + idx + '"' +
             (p.Enabled !== false ? ' checked' : '') + '/> Enabled</label></div>' +
             '<div class="oidc-field full"><label><input type="checkbox" id="prov_strict_access_' + idx + '"' +
@@ -234,6 +237,8 @@ function collectProviders(view) {
             RoleClaim: gval(view, 'prov_roleclaim_' + idx),
             UsernameClaim: gval(view, 'prov_userclaim_' + idx),
             DisplayNameClaim: gval(view, 'prov_displayclaim_' + idx),
+            PictureClaim: gval(view, 'prov_pictureclaim_' + idx),
+            SyncProfileImage: gchk(view, 'prov_syncimage_' + idx),
             ButtonColor: gval(view, 'prov_color_' + idx),
             AdditionalParameters: gval(view, 'prov_params_' + idx),
             ServerBaseUrl: gval(view, 'prov_baseurl_' + idx),
@@ -338,7 +343,8 @@ export default function (view) {
             ProviderId: '', DisplayName: 'New Provider', Authority: '',
             ClientId: '', ClientSecret: '', Scopes: 'openid profile email',
             RoleClaim: 'groups', UsernameClaim: 'preferred_username',
-            DisplayNameClaim: 'name', Enabled: true, ButtonColor: '#4285F4',
+            DisplayNameClaim: 'name', PictureClaim: 'picture', SyncProfileImage: true,
+            Enabled: true, ButtonColor: '#4285F4',
             ButtonIcon: '', AdditionalParameters: '',
             StrictAccessTokenValidation: true,
             AllowLoopbackAuthority: false, AllowLinkLocalAuthority: false,
