@@ -39,6 +39,11 @@ public class ProfileImageServiceTests
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient("OidcPluginImage").Returns(new HttpClient(handler));
 
+        // Test URLs are IP literals (see PublicPictureUrl/LoopbackPictureUrl), so
+        // AuthorityGuard always resolves a pinned address — route the pinned path through the
+        // same mock handler instead of a real socket connection.
+        HttpClient PinnedClientFactory(IPAddress _, bool __) => new(handler);
+
         var userManager = Substitute.For<IUserManager>();
         userManager.UpdateUserAsync(Arg.Any<User>()).Returns(Task.CompletedTask);
         userManager.ClearProfileImageAsync(Arg.Any<User>()).Returns(Task.CompletedTask);
@@ -52,7 +57,7 @@ public class ProfileImageServiceTests
         serverConfigManager.ApplicationPaths.Returns(appPaths);
 
         var service = new ProfileImageService(
-            httpClientFactory, userManager, serverConfigManager, providerManager, NullLogger<ProfileImageService>.Instance);
+            httpClientFactory, PinnedClientFactory, userManager, serverConfigManager, providerManager, NullLogger<ProfileImageService>.Instance);
 
         return (service, userManager, providerManager);
     }

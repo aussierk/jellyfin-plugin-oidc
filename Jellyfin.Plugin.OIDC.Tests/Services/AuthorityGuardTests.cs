@@ -194,4 +194,85 @@ public class AuthorityGuardTests
 
         Assert.Null(result);
     }
+
+    // ── ValidateAndResolveAsync ──────────────────────────────────────────────────
+    // Mirrors ValidateAsync's cases, plus asserting the resolved address that a caller
+    // would pin the subsequent connection to.
+
+    [Fact]
+    public async Task ValidateAndResolveAsync_PublicIpLiteralAuthority_ReturnsAddressAndNoBlockReason()
+    {
+        var (blockReason, pinnedAddress) = await AuthorityGuard.ValidateAndResolveAsync(
+            "https://8.8.8.8/", allowLoopback: false, allowLinkLocal: false, blockPrivateNetworks: false);
+
+        Assert.Null(blockReason);
+        Assert.Equal(IPAddress.Parse("8.8.8.8"), pinnedAddress);
+    }
+
+    [Fact]
+    public async Task ValidateAndResolveAsync_LoopbackIpLiteralAuthority_ReturnsBlockReason()
+    {
+        var (blockReason, _) = await AuthorityGuard.ValidateAndResolveAsync(
+            "https://127.0.0.1/realms/test", allowLoopback: false, allowLinkLocal: false, blockPrivateNetworks: false);
+
+        Assert.NotNull(blockReason);
+        Assert.Contains("loopback address", blockReason);
+    }
+
+    [Fact]
+    public async Task ValidateAndResolveAsync_LoopbackAuthority_WithLoopbackOptOut_ReturnsAddress()
+    {
+        var (blockReason, pinnedAddress) = await AuthorityGuard.ValidateAndResolveAsync(
+            "https://127.0.0.1/realms/test", allowLoopback: true, allowLinkLocal: false, blockPrivateNetworks: false);
+
+        Assert.Null(blockReason);
+        Assert.Equal(IPAddress.Parse("127.0.0.1"), pinnedAddress);
+    }
+
+    [Fact]
+    public async Task ValidateAndResolveAsync_Rfc1918Authority_BlockPrivateNetworksTrue_ReturnsBlockReason()
+    {
+        var (blockReason, _) = await AuthorityGuard.ValidateAndResolveAsync(
+            "https://10.0.40.10/", allowLoopback: false, allowLinkLocal: false, blockPrivateNetworks: true);
+
+        Assert.NotNull(blockReason);
+        Assert.Contains("private-network address", blockReason);
+    }
+
+    [Fact]
+    public async Task ValidateAndResolveAsync_MalformedAuthority_ReturnsNullReasonAndNullAddress()
+    {
+        var (blockReason, pinnedAddress) = await AuthorityGuard.ValidateAndResolveAsync(
+            "not-a-valid-url", allowLoopback: false, allowLinkLocal: false, blockPrivateNetworks: false);
+
+        Assert.Null(blockReason);
+        Assert.Null(pinnedAddress);
+    }
+
+    // ── CreatePinnedHttpClient ────────────────────────────────────────────────────
+
+    [Fact]
+    public void CreatePinnedHttpClient_ReturnsUsableHttpClient()
+    {
+        // Socket-level pinning behavior needs a real network peer to verify end-to-end, so this
+        // only confirms the factory produces a valid, distinct HttpClient per call — the actual
+        // ConnectCallback wiring is the standard documented SocketsHttpHandler pinning pattern,
+        // verified by inspection rather than a unit test here.
+        using var client1 = AuthorityGuard.CreatePinnedHttpClient(IPAddress.Parse("8.8.8.8"));
+        using var client2 = AuthorityGuard.CreatePinnedHttpClient(IPAddress.Parse("8.8.8.8"));
+
+        Assert.NotNull(client1);
+        Assert.NotSame(client1, client2);
+    }
+
+    [Fact]
+    public void CreatePinnedHttpClient_AllowAutoRedirectFalse_ReturnsUsableHttpClient()
+    {
+        // Same rationale as above — the AllowAutoRedirect wiring is a single property
+        // assignment onto SocketsHttpHandler, verified by inspection rather than reflecting
+        // into BCL internals (fragile across .NET versions) to assert the flag directly.
+        using var client = AuthorityGuard.CreatePinnedHttpClient(IPAddress.Parse("8.8.8.8"), allowAutoRedirect: false);
+
+        Assert.NotNull(client);
+    }
 }

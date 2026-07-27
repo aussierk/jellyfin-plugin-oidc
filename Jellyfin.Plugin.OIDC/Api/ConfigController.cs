@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 using IdentityModel.Client;
@@ -21,12 +22,18 @@ public class ConfigController : ControllerBase
 
     private readonly RbacService _rbacService;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly Func<IPAddress, bool, HttpClient> _pinnedHttpClientFactory;
     private readonly ILogger<ConfigController> _logger;
 
-    public ConfigController(RbacService rbacService, IHttpClientFactory httpClientFactory, ILogger<ConfigController> logger)
+    public ConfigController(
+        RbacService rbacService,
+        IHttpClientFactory httpClientFactory,
+        Func<IPAddress, bool, HttpClient> pinnedHttpClientFactory,
+        ILogger<ConfigController> logger)
     {
         _rbacService = rbacService;
         _httpClientFactory = httpClientFactory;
+        _pinnedHttpClientFactory = pinnedHttpClientFactory;
         _logger = logger;
     }
 
@@ -59,7 +66,7 @@ public class ConfigController : ControllerBase
         }
 
         var blockPrivateNetworks = OidcPlugin.Instance?.Configuration?.BlockPrivateNetworkAuthorities ?? false;
-        var blockReason = await AuthorityGuard.ValidateAsync(
+        var (blockReason, pinnedAddress) = await AuthorityGuard.ValidateAndResolveAsync(
             request.Authority,
             request.AllowLoopbackAuthority,
             request.AllowLinkLocalAuthority,
@@ -70,7 +77,11 @@ public class ConfigController : ControllerBase
             return Ok(new { Success = false, Error = blockReason });
         }
 
-        var httpClient = _httpClientFactory.CreateClient("OidcPlugin");
+        // Pin to the exact address the guard just validated — see GetDiscoveryDocumentAsync in
+        // OidcController for why (DNS-rebinding TOCTOU).
+        using var httpClient = pinnedAddress != null
+            ? _pinnedHttpClientFactory(pinnedAddress, true)
+            : _httpClientFactory.CreateClient("OidcPlugin");
         var disco = await httpClient.GetDiscoveryDocumentAsync(new DiscoveryDocumentRequest
         {
             Address = request.Authority,
