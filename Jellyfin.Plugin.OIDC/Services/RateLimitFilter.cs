@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -16,6 +17,15 @@ public sealed class RateLimitAttribute : Attribute, IAsyncActionFilter
 {
     // Shared across all instances: key = "policyName:clientIP"
     private static readonly ConcurrentDictionary<string, RateLimitEntry> _counters = new();
+
+    // Kept well above the largest windowSeconds configured on any [RateLimit] usage (60s today),
+    // so cleanup never evicts an entry that's still relevant to active rate limiting.
+    private static readonly TimeSpan MaxStaleAge = TimeSpan.FromSeconds(600);
+    private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(5);
+
+    // Without this, every distinct "policyName:IP" that ever hits a rate-limited endpoint would
+    // leak permanently — unbounded memory growth over the life of the process.
+    private static readonly Timer _cleanupTimer = new(Cleanup, null, CleanupInterval, CleanupInterval);
 
     private readonly int _maxRequests;
     private readonly int _windowSeconds;
@@ -65,6 +75,18 @@ public sealed class RateLimitAttribute : Attribute, IAsyncActionFilter
         // Jellyfin honours X-Forwarded-For for trusted proxies, which updates
         // RemoteIpAddress via its own middleware. Use it directly.
         return context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    }
+
+    internal static void Cleanup(object? state)
+    {
+        var cutoff = DateTimeOffset.UtcNow - MaxStaleAge;
+        foreach (var (key, entry) in _counters)
+        {
+            if (entry.WindowStart < cutoff)
+            {
+                _counters.TryRemove(key, out _);
+            }
+        }
     }
 
     private sealed class RateLimitEntry
