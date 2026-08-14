@@ -705,10 +705,30 @@ public class OidcController : ControllerBase
         return $$"""
         <!DOCTYPE html>
         <html>
-        <head><title>Authenticating...</title></head>
+        <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Authenticating...</title>
+        <style nonce="{{nonce}}">
+            :root { color-scheme: dark; }
+            body { font-family: system-ui, -apple-system, sans-serif; background: #101010; color: #eee;
+                   display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+            .card { box-sizing: border-box; background: #1c1c1c; padding: 2em; border-radius: 8px;
+                    max-width: 360px; width: 90%; box-shadow: 0 4px 24px rgba(0,0,0,.5); text-align: center; }
+            .spinner { width: 2.5em; height: 2.5em; margin: 0 auto 1.25em; border: .3em solid #444;
+                       border-top-color: #386d4b; border-radius: 50%; animation: spin .8s linear infinite; }
+            h2 { margin: 0 0 .5em; }
+            p { min-height: 1.4em; margin: 0; color: #aaa; line-height: 1.5; }
+            @keyframes spin { to { transform: rotate(360deg); } }
+            @media (prefers-reduced-motion: reduce) { .spinner { animation: none; border-top-color: #444; } }
+        </style>
+        </head>
         <body>
-        <h3>Completing authentication...</h3>
-        <p id="status">Please wait...</p>
+        <main class="card">
+            <div class="spinner" aria-hidden="true"></div>
+            <h2>Completing authentication…</h2>
+            <p id="status" role="status">Please wait…</p>
+        </main>
         <script nonce="{{nonce}}">
         (function() {
             const token = {{tokenJson}};
