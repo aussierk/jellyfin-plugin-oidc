@@ -408,14 +408,14 @@ public class OidcController : ControllerBase
             return StatusCode(503, "Server is busy. Please try again in a moment.");
         }
 
-        // A per-response nonce lets the CSP require it on the inline script instead of
-        // 'unsafe-inline' — pure defense-in-depth, since the script's only dynamic content is
-        // already JSON-encoded below.
+        // A per-response nonce lets the CSP authorize the inline script and styles without
+        // falling back to 'unsafe-inline'. Dynamic script values are JSON-encoded below.
         var nonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));
 
         Response.Headers["X-Frame-Options"] = "DENY";
         Response.Headers["X-Content-Type-Options"] = "nosniff";
-        Response.Headers["Content-Security-Policy"] = $"default-src 'none'; script-src 'nonce-{nonce}'; connect-src 'self'; frame-ancestors 'none'";
+        Response.Headers["Content-Security-Policy"] =
+            $"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; connect-src 'self'; frame-ancestors 'none'";
 
         if (oidcState.QuickConnect)
         {
@@ -775,7 +775,7 @@ public class OidcController : ControllerBase
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Quick Connect</title>
-        <style>
+        <style nonce="{{nonce}}">
             body { font-family: system-ui, -apple-system, sans-serif; background: #101010; color: #eee;
                    display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
             .card { background: #1c1c1c; padding: 2em; border-radius: 8px; max-width: 360px; width: 90%;

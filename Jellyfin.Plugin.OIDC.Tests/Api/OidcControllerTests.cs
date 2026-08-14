@@ -464,13 +464,14 @@ public class OidcControllerTests
     }
 
     [Fact]
-    public void BuildQuickConnectHtml_IncludesNonceOnScriptTag()
+    public void BuildQuickConnectHtml_IncludesNonceOnScriptAndStyleTags()
     {
         // Act
         var html = (string)_buildQuickConnectHtml.Invoke(null, ["token123", "keycloak", "abc123=="])!;
 
         // Assert
         Assert.Contains("<script nonce=\"abc123==\">", html);
+        Assert.Contains("<style nonce=\"abc123==\">", html);
     }
 
     // ── Authenticate ───────────────────────────────────────────────────────────
