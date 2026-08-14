@@ -417,13 +417,24 @@ public class OidcControllerTests
     }
 
     [Fact]
-    public void BuildCallbackHtml_IncludesNonceOnScriptTag()
+    public void BuildCallbackHtml_IncludesNonceOnScriptAndStyleTags()
     {
         // Act
         var html = (string)_buildCallbackHtml.Invoke(null, ["token123", "keycloak", "abc123=="])!;
 
         // Assert
         Assert.Contains("<script nonce=\"abc123==\">", html);
+        Assert.Contains("<style nonce=\"abc123==\">", html);
+    }
+
+    [Fact]
+    public void BuildCallbackHtml_StatusElementIdIsPreserved()
+    {
+        // The inline script updates status text via document.getElementById('status') —
+        // the redesigned markup must keep that id even though the surrounding tag changed.
+        var html = (string)_buildCallbackHtml.Invoke(null, ["token123", "keycloak", "abc123=="])!;
+
+        Assert.Contains("id=\"status\"", html);
     }
 
     // ── BuildQuickConnectHtml ──────────────────────────────────────────────────
