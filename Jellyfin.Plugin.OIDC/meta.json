@@ -7,6 +7,13 @@
   "category": "Authentication",
   "versions": [
     {
+      "version": "1.0.7.0",
+      "changelog": "Security: deny OIDC login when no RBAC role mapping (and no valid Default Role) matches the user's IdP roles, instead of silently letting login through with stale or default permissions — an intentional, unconditional fail-closed behavior change. Fix: declare style-src in the callback page's CSP and nonce the Quick Connect page's inline styles, closing a gap where that page was already CSP-non-compliant. Also: cosmetic redesign of the OIDC callback page (spinner, card layout, dark theme).",
+      "targetAbi": "10.11.0.0",
+      "sourceUrl": "",
+      "timestamp": "2026-08-14T00:00:00Z"
+    },
+    {
       "version": "1.0.6.1",
       "changelog": "Security: evict stale entries from the rate limiter to prevent unbounded memory growth. Security: validate the OIDC picture-claim URL (scheme, host, redirects, size) before fetching it to prevent SSRF via a malicious/compromised IdP or self-service avatar. Security: block login/Quick Connect for a provider disabled mid-flow via an already-issued session token. Security: pin discovery and picture-fetch HTTP connections to the DNS-resolved address AuthorityGuard already validated, closing a DNS-rebinding TOCTOU gap. Also: OIDC callback page CSP now uses a per-response nonce instead of 'unsafe-inline'.",
       "targetAbi": "10.11.0.0",
