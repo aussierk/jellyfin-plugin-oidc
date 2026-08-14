@@ -105,7 +105,7 @@ public class RbacServiceTests
     // ── provider filter ────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task ProviderFilter_NonMatchingProvider_SkipsMapping()
+    public async Task ProviderFilter_NonMatchingProvider_LoginDenied()
     {
         // Arrange — mapping is scoped to "keycloak"; user comes from "okta"
         var userId = Guid.NewGuid();
@@ -120,8 +120,9 @@ public class RbacServiceTests
         });
 
         // Act
-        await MakeService(userManager, Substitute.For<ILibraryManager>())
-            .ApplyRoleMappingsAsync(userId, ["admins"], "okta");
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            MakeService(userManager, Substitute.For<ILibraryManager>())
+                .ApplyRoleMappingsAsync(userId, ["admins"], "okta"));
 
         // Assert
         await userManager.DidNotReceive().UpdatePolicyAsync(Arg.Any<Guid>(), Arg.Any<UserPolicy>());
@@ -209,7 +210,7 @@ public class RbacServiceTests
     }
 
     [Fact]
-    public async Task NoMatch_NoDefault_UpdatePolicyNotCalled()
+    public async Task NoMatch_NoDefault_LoginDeniedAndPolicyNotChanged()
     {
         // Arrange
         var userId = Guid.NewGuid();
@@ -222,10 +223,35 @@ public class RbacServiceTests
         });
 
         // Act
-        await MakeService(userManager, Substitute.For<ILibraryManager>())
-            .ApplyRoleMappingsAsync(userId, ["viewers"], "keycloak");
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            MakeService(userManager, Substitute.For<ILibraryManager>())
+                .ApplyRoleMappingsAsync(userId, ["viewers"], "keycloak"));
 
         // Assert
+        Assert.Contains("No role mapping matched", exception.Message);
+        await userManager.DidNotReceive().UpdatePolicyAsync(Arg.Any<Guid>(), Arg.Any<UserPolicy>());
+    }
+
+    [Fact]
+    public async Task NoMatch_DefaultRoleDoesNotExist_LoginDeniedAndPolicyNotChanged()
+    {
+        // Arrange
+        var userId = Guid.NewGuid();
+        var userManager = Substitute.For<IUserManager>();
+        userManager.GetUserById(userId).Returns(MakeUser());
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            DefaultRoleName = "missing-default",
+            RoleMappings = [new RoleMapping { RoleName = "admins", IsAdmin = true }]
+        });
+
+        // Act
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            MakeService(userManager, Substitute.For<ILibraryManager>())
+                .ApplyRoleMappingsAsync(userId, ["viewers"], "keycloak"));
+
+        // Assert
+        Assert.Contains("No role mapping matched", exception.Message);
         await userManager.DidNotReceive().UpdatePolicyAsync(Arg.Any<Guid>(), Arg.Any<UserPolicy>());
     }
 
