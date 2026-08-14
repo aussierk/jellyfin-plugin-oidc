@@ -65,9 +65,11 @@ public class RbacService
 
         if (matchedMappings.Count == 0)
         {
-            _logger.LogInformation("No role mappings matched for user {Username} with roles [{Roles}]",
+            _logger.LogWarning(
+                "Login denied: no role mappings matched for user {Username} with roles [{Roles}] and no valid default role was configured",
                 user.Username, string.Join(", ", userRoles));
-            return;
+            throw new InvalidOperationException(
+                $"No role mapping matched user '{user.Username}'. Configure a matching role or a non-privileged default role.");
         }
 
         var merged = MergeMappings(matchedMappings);

@@ -36,6 +36,7 @@ These changes are not present in the upstream plugin:
 - **Flexible claim parsing** — extract roles from nested JWT claims (e.g. `realm_access.roles`, `groups`)
 - **Merge semantics** — users with multiple roles get the union of all permissions (most permissive wins)
 - **Default role fallback** — assign a baseline role to users with no matching IdP roles
+- **Fail-closed RBAC** — deny login when no IdP role or configured default role matches, preventing stale permissions from surviving role removal
 - **Admin UI** — full configuration from the Jellyfin dashboard (Providers, Role Mappings, General settings)
 - **Login button injection** — paste one HTML snippet into Jellyfin's Login Disclaimer; buttons appear automatically
 - **Native/mobile app login** — sign in Android, iOS, and TV apps via Jellyfin [Quick Connect](#mobile--native-apps-quick-connect)
@@ -146,7 +147,7 @@ Go to **General tab** and configure:
 | Setting                           | Default | Description |
 |-----------------------------------|---------|-------------|
 | Auto-create users                 | On      | Create a Jellyfin account on first SSO login |
-| Default Role                      | —       | Fallback role when no IdP role matches a mapping |
+| Default Role                      | —       | Fallback role when no IdP role matches a mapping; login is denied if neither a role nor a valid default matches |
 | Migrate local users to SSO        | Off     | Switch existing password accounts to SSO auth on first SSO login |
 | Sync display name from OIDC token | Off     | Rename the Jellyfin account to match the IdP display name on each login |
 
@@ -256,7 +257,7 @@ Each role mapping has a priority field. Higher priority roles take precedence in
 
 ### Default Role
 
-If no role mappings match a user's IdP roles, the **Default Role** (configured in the General tab) is used as a fallback.
+If no role mappings match a user's IdP roles, the **Default Role** (configured in the General tab) is used as a fallback. If neither a role mapping nor a valid Default Role matches, login is denied — the plugin never falls back to Jellyfin's stock default permissions or lets a user keep a policy from a previous login. This is deliberate: it stops a role or role mapping removed at the IdP or in plugin config from silently leaving a user with access they should no longer have.
 
 ### Multi-provider role isolation
 
