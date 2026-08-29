@@ -8,33 +8,55 @@ namespace Jellyfin.Plugin.OIDC.Services;
 
 public static class ClaimParser
 {
-    /// <summary>
-    /// Extracts roles from a JWT using a dot-separated claim path.
-    /// Supports nested JSON objects (e.g. "realm_access.roles") and flat claim arrays.
-    /// </summary>
-    public static string[] ExtractRoles(JwtSecurityToken token, string roleClaim)
+    ///
+    /// Extracts every value of a claim addressed by a dot-separated path.
+    /// Supports nested JSON objects (e.g. "realm_access.roles"), repeated claims, and a single
+    /// claim whose value is a JSON string array (e.g. Entra's <c>emails</c>).
+    ///
+    public static string[] ExtractClaimValues(JwtSecurityToken token, string claimPath)
     {
-        if (string.IsNullOrWhiteSpace(roleClaim))
+        if (string.IsNullOrWhiteSpace(claimPath))
         {
             return Array.Empty<string>();
         }
 
-        var parts = roleClaim.Split('.');
-
-        // Try flat claim first (single segment like "roles" or "groups")
-        if (parts.Length == 1)
-        {
-            return ExtractFromFlatClaim(token, roleClaim);
-        }
-
-        // Nested path: walk the JSON payload
-        return ExtractFromNestedClaim(token, parts);
+        var parts = claimPath.Split('.');
+        return parts.Length == 1
+            ? ExtractFromFlatClaim(token, claimPath)
+            : ExtractFromNestedClaim(token, parts);
     }
+
+    /// Roles from a JWT using a dot-separated claim path - see <see cref="ExtractClaimValues"/>.
+    public static string[] ExtractRoles(JwtSecurityToken token, string roleClaim)
+        => ExtractClaimValues(token, roleClaim);
+
+    /// The first non-empty value of a claim path (see <see cref="ExtractClaimValues"/>), or <c>""</c>.
+    public static string ExtractFirstClaim(JwtSecurityToken token, string claimPath)
+        => Array.Find(ExtractClaimValues(token, claimPath), v => !string.IsNullOrEmpty(v)) ?? string.Empty;
+
+    /// Same path semantics as <see cref="ExtractRoles(JwtSecurityToken, string)"/>, applied to a raw JSON body (e.g. userinfo).
+    public static string[] ExtractRolesFromJson(string? json, string roleClaim)
+        => string.IsNullOrWhiteSpace(json) || string.IsNullOrWhiteSpace(roleClaim)
+            ? Array.Empty<string>()
+            : WalkJson(json, roleClaim.Split('.'));
 
     public static string ExtractClaim(JwtSecurityToken token, string claimType)
     {
         return token.Claims.FirstOrDefault(c => c.Type == claimType)?.Value ?? string.Empty;
     }
+
+    /// True when the claim is truthy - <c>true</c> (case-insensitive) or the integer <c>1</c>,
+    /// covering IdPs that emit e.g. <c>email_verified</c> as a JSON boolean or a number. Any
+    /// other value (including a missing claim) is false, so the gate fails closed.
+    public static bool ExtractBool(JwtSecurityToken token, string claimType)
+    {
+        var value = ExtractClaim(token, claimType);
+        return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) || value == "1";
+    }
+
+    /// Shortens a <c>sub</c> for audit logs - enough tail to correlate without logging the full identifier.
+    public static string RedactSubject(string? sub)
+        => string.IsNullOrEmpty(sub) ? "(none)" : (sub.Length <= 8 ? sub : "…" + sub[^6..]);
 
     private static string[] ExtractFromFlatClaim(JwtSecurityToken token, string claimType)
     {
@@ -45,53 +67,37 @@ public static class ClaimParser
             return Array.Empty<string>();
         }
 
-        // Multiple separate claim values (standard multi-value encoding) → return them all.
         if (claims.Length > 1)
         {
             return claims.Select(c => c.Value).ToArray();
         }
 
-        // Single claim: if its value is a JSON array, parse and expand it.
-        var singleValue = claims[0].Value;
-        if (singleValue.TrimStart().StartsWith('['))
-        {
-            var parsed = ParseJsonStringArray(singleValue);
-            if (parsed.Length > 0)
-            {
-                return parsed;
-            }
-        }
-
-        return [singleValue];
+        return ExpandJsonStringArray(claims[0].Value);
     }
 
     private static string[] ExtractFromNestedClaim(JwtSecurityToken token, string[] pathParts)
     {
-        // The root claim is the first segment
         var rootClaim = token.Claims.FirstOrDefault(c => c.Type == pathParts[0])?.Value;
-        if (string.IsNullOrEmpty(rootClaim))
+        if (!string.IsNullOrEmpty(rootClaim))
         {
-            // Try to reconstruct from the raw payload
-            try
-            {
-                using var doc = JsonDocument.Parse(
-                    Base64UrlDecode(token.RawPayload));
-                return WalkJsonPath(doc.RootElement, pathParts);
-            }
-            catch
-            {
-                return Array.Empty<string>();
-            }
+            // The first path segment is a claim whose value is itself a JSON object.
+            return WalkJson(rootClaim, pathParts.Skip(1).ToArray());
         }
 
-        // If root claim is JSON, parse and walk
+        // Path flattened differently or absent, so walk the whole payload as JSON. Payload round-trips
+        // nested structures for parsed and hand-built tokens alike, so no need to decode RawPayload.
+        return WalkJson(token.Payload.SerializeToJson(), pathParts);
+    }
+
+    /// Parses <paramref name="json"/> and walks <paramref name="path"/>; returns [] on any malformed input.
+    private static string[] WalkJson(string json, string[] path)
+    {
         try
         {
-            using var doc = JsonDocument.Parse(rootClaim);
-            var remaining = pathParts.Skip(1).ToArray();
-            return WalkJsonPath(doc.RootElement, remaining);
+            using var doc = JsonDocument.Parse(json);
+            return WalkJsonPath(doc.RootElement, path);
         }
-        catch
+        catch (JsonException)
         {
             return Array.Empty<string>();
         }
@@ -114,19 +120,30 @@ public static class ClaimParser
 
         if (current.ValueKind == JsonValueKind.Array)
         {
-            return current.EnumerateArray()
-                .Where(e => e.ValueKind == JsonValueKind.String)
-                .Select(e => e.GetString()!)
-                .ToArray();
+            return StringElements(current);
         }
 
         if (current.ValueKind == JsonValueKind.String)
         {
-            return new[] { current.GetString()! };
+            return ExpandJsonStringArray(current.GetString()!);
         }
 
         return Array.Empty<string>();
     }
+
+    /// The string elements of a JSON array, non-string entries skipped.
+    private static string[] StringElements(JsonElement array)
+        => array.EnumerateArray()
+            .Where(e => e.ValueKind == JsonValueKind.String)
+            .Select(e => e.GetString()!)
+            .ToArray();
+
+    /// <paramref name="value"/> expanded to its elements when it is a JSON array of strings
+    /// (e.g. Entra's stringified <c>emails</c>); otherwise the single value, unchanged.
+    private static string[] ExpandJsonStringArray(string value)
+        => value.TrimStart().StartsWith('[') && ParseJsonStringArray(value) is { Length: > 0 } arr
+            ? arr
+            : [value];
 
     private static string[] ParseJsonStringArray(string json)
     {
@@ -135,30 +152,14 @@ public static class ClaimParser
             using var doc = JsonDocument.Parse(json);
             if (doc.RootElement.ValueKind == JsonValueKind.Array)
             {
-                return doc.RootElement.EnumerateArray()
-                    .Where(e => e.ValueKind == JsonValueKind.String)
-                    .Select(e => e.GetString()!)
-                    .ToArray();
+                return StringElements(doc.RootElement);
             }
         }
-        catch
+        catch (JsonException)
         {
             // Not valid JSON
         }
 
         return Array.Empty<string>();
-    }
-
-    private static string Base64UrlDecode(string input)
-    {
-        var padded = input.Replace('-', '+').Replace('_', '/');
-        switch (padded.Length % 4)
-        {
-            case 2: padded += "=="; break;
-            case 3: padded += "="; break;
-        }
-
-        var bytes = Convert.FromBase64String(padded);
-        return System.Text.Encoding.UTF8.GetString(bytes);
     }
 }

@@ -9,14 +9,11 @@ public class ClaimParserTests
 {
     // ── helpers ────────────────────────────────────────────────────────────────
 
-    /// <summary>Builds a JwtSecurityToken with the given claims.</summary>
+    /// Builds a JwtSecurityToken with the given claims.
     private static JwtSecurityToken Token(params Claim[] claims)
         => new(claims: claims);
 
-    /// <summary>
-    /// Builds a token whose payload contains a nested JSON structure encoded
-    /// as a real Base64URL JWT payload (so ExtractFromNestedClaim works).
-    /// </summary>
+    /// Builds a token with a real Base64URL-encoded JSON payload (so ExtractFromNestedClaim works).
     private static JwtSecurityToken TokenWithPayload(object payloadObject)
     {
         var json = System.Text.Json.JsonSerializer.Serialize(payloadObject);
@@ -24,8 +21,6 @@ public class ClaimParserTests
         var b64 = Convert.ToBase64String(bytes)
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
-        // We only care about the payload segment; hand-craft a 3-part JWT
-        // with dummy header and signature so the handler can parse .RawPayload.
         var header = Convert.ToBase64String(
             System.Text.Encoding.UTF8.GetBytes("{\"alg\":\"none\",\"typ\":\"JWT\"}"))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
@@ -53,6 +48,58 @@ public class ClaimParserTests
         var token = Token(new Claim("sub", "user-123"));
         Assert.Equal(string.Empty, ClaimParser.ExtractClaim(token, "email"));
     }
+
+    // ── ExtractBool ───────────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("true", true)]
+    [InlineData("TRUE", true)]
+    [InlineData("True", true)]
+    [InlineData("1", true)]     // some IdPs emit email_verified as an integer
+    [InlineData("false", false)]
+    [InlineData("0", false)]
+    [InlineData("yes", false)]
+    [InlineData("", false)]
+    public void ExtractBool_TreatsTrueAndOneAsTruthy(string value, bool expected)
+        => Assert.Equal(expected, ClaimParser.ExtractBool(Token(new Claim("email_verified", value)), "email_verified"));
+
+    [Fact]
+    public void ExtractBool_MissingClaim_ReturnsFalse()
+        => Assert.False(ClaimParser.ExtractBool(Token(new Claim("sub", "u")), "email_verified"));
+
+    // ── ExtractClaimValues / ExtractFirstClaim (e.g. Entra "emails") ──────────
+
+    [Fact]
+    public void ExtractClaimValues_RepeatedClaims_ReturnsAll()
+        => Assert.Equal(
+            new[] { "a@x.com", "b@x.com" },
+            ClaimParser.ExtractClaimValues(Token(new Claim("emails", "a@x.com"), new Claim("emails", "b@x.com")), "emails"));
+
+    [Fact]
+    public void ExtractClaimValues_SingleStringifiedArray_IsExpanded()
+        => Assert.Equal(
+            new[] { "a@x.com", "b@x.com" },
+            ClaimParser.ExtractClaimValues(Token(new Claim("emails", "[\"a@x.com\",\"b@x.com\"]")), "emails"));
+
+    [Fact]
+    public void ExtractClaimValues_NestedPath_ReturnsValues()
+        => Assert.Equal(
+            new[] { "u@corp.com" },
+            ClaimParser.ExtractClaimValues(TokenWithPayload(new { user = new { emails = new[] { "u@corp.com" } } }), "user.emails"));
+
+    [Fact]
+    public void ExtractClaimValues_Missing_ReturnsEmpty()
+        => Assert.Empty(ClaimParser.ExtractClaimValues(Token(new Claim("sub", "x")), "emails"));
+
+    [Fact]
+    public void ExtractFirstClaim_ReturnsFirstNonEmpty()
+        => Assert.Equal(
+            "b@x.com",
+            ClaimParser.ExtractFirstClaim(Token(new Claim("emails", ""), new Claim("emails", "b@x.com")), "emails"));
+
+    [Fact]
+    public void ExtractFirstClaim_Missing_ReturnsEmptyString()
+        => Assert.Equal(string.Empty, ClaimParser.ExtractFirstClaim(Token(new Claim("sub", "x")), "emails"));
 
     // ── ExtractRoles – flat single claim ──────────────────────────────────────
 
@@ -153,11 +200,7 @@ public class ClaimParserTests
     [Fact]
     public void ExtractRoles_MalformedBase64Payload_ReturnsEmpty()
     {
-        // A token whose payload is not valid Base64 should not throw — just return empty.
-        var handler = new JwtSecurityTokenHandler();
-        handler.InboundClaimTypeMap.Clear();
-        var raw = "eyJhbGciOiJub25lIn0.!!!notvalidbase64!!!.";
-        // ReadJwtToken will fail; fall back to building a plain token with no claims.
+        // A token whose payload can't be read as claims should not throw - just return empty.
         var token = new JwtSecurityToken(claims: []);
         Assert.Empty(ClaimParser.ExtractRoles(token, "realm_access.roles"));
     }
@@ -165,8 +208,7 @@ public class ClaimParserTests
     [Fact]
     public void ExtractRoles_JsonArrayWithNonStringElements_SkipsNonStrings()
     {
-        // Array contains a number and null alongside a valid string.
-        // Non-string elements must be silently ignored; only the string is returned.
+        // Non-string array elements must be silently ignored.
         var token = TokenWithPayload(new
         {
             realm_access = new { roles = new object[] { "admin", 42 } }
@@ -177,4 +219,57 @@ public class ClaimParserTests
         Assert.Single(roles);
         Assert.Equal("admin", roles[0]);
     }
+
+    // ── ExtractRolesFromJson (userinfo endpoint body) ─────────────────────────
+
+    [Fact]
+    public void ExtractRolesFromJson_FlatArray_ReturnsAllRoles()
+        => Assert.Equal(
+            new[] { "admin", "user" },
+            ClaimParser.ExtractRolesFromJson("{\"groups\":[\"admin\",\"user\"]}", "groups"));
+
+    [Fact]
+    public void ExtractRolesFromJson_NestedPath_ReturnsRoles()
+        => Assert.Equal(
+            new[] { "admin" },
+            ClaimParser.ExtractRolesFromJson("{\"realm_access\":{\"roles\":[\"admin\"]}}", "realm_access.roles"));
+
+    [Fact]
+    public void ExtractRolesFromJson_SingleStringValue_ReturnsSingleRole()
+        => Assert.Equal(
+            new[] { "only-role" },
+            ClaimParser.ExtractRolesFromJson("{\"role\":\"only-role\"}", "role"));
+
+    [Fact]
+    public void ExtractRolesFromJson_StringifiedJsonArray_IsExpanded()
+        => Assert.Equal(
+            new[] { "a", "b" },
+            ClaimParser.ExtractRolesFromJson("{\"groups\":\"[\\\"a\\\",\\\"b\\\"]\"}", "groups"));
+
+    [Fact]
+    public void ExtractRolesFromJson_MissingPath_ReturnsEmpty()
+        => Assert.Empty(ClaimParser.ExtractRolesFromJson("{\"sub\":\"x\"}", "groups"));
+
+    [Fact]
+    public void ExtractRolesFromJson_MissingNestedSegment_ReturnsEmpty()
+        => Assert.Empty(ClaimParser.ExtractRolesFromJson("{\"realm_access\":{\"other\":1}}", "realm_access.roles"));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("not json")]
+    [InlineData("[\"array\",\"root\"]")]
+    public void ExtractRolesFromJson_UnusableBody_ReturnsEmpty(string? json)
+        => Assert.Empty(ClaimParser.ExtractRolesFromJson(json, "groups"));
+
+    [Fact]
+    public void ExtractRolesFromJson_EmptyRoleClaim_ReturnsEmpty()
+        => Assert.Empty(ClaimParser.ExtractRolesFromJson("{\"groups\":[\"a\"]}", ""));
+
+    [Fact]
+    public void ExtractRolesFromJson_ArrayWithNonStrings_SkipsThem()
+        => Assert.Equal(
+            new[] { "admin" },
+            ClaimParser.ExtractRolesFromJson("{\"groups\":[\"admin\",42,null]}", "groups"));
 }

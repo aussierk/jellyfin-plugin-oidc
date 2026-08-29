@@ -5,6 +5,7 @@ using Jellyfin.Plugin.OIDC.Configuration;
 using Jellyfin.Plugin.OIDC.Services;
 using Jellyfin.Plugin.OIDC.Tests.Fixtures;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Globalization;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
@@ -15,7 +16,7 @@ namespace Jellyfin.Plugin.OIDC.Tests.Api;
 public class ConfigControllerTests
 {
     // Authority values below deliberately use IP literals (never bare hostnames) so
-    // AuthorityGuard's DNS-resolution path is never exercised against real DNS in tests —
+    // AuthorityGuard's DNS-resolution path is never exercised against real DNS in tests -
     // it short-circuits on IPAddress.TryParse instead.
 
     private readonly PluginTestFixture _fixture;
@@ -33,20 +34,19 @@ public class ConfigControllerTests
         }
         """;
 
-    private static ConfigController MakeController(HttpMessageHandler handler)
+    private static ConfigController MakeController(HttpMessageHandler handler, ILocalizationManager? localization = null)
     {
         var userManager = Substitute.For<IUserManager>();
         var libraryManager = Substitute.For<ILibraryManager>();
-        var rbacService = new RbacService(userManager, libraryManager, NullLogger<RbacService>.Instance);
-        var httpClientFactory = Substitute.For<IHttpClientFactory>();
-        httpClientFactory.CreateClient("OidcPlugin").Returns(new HttpClient(handler));
+        localization ??= Substitute.For<ILocalizationManager>();
+        var rbacService = new RbacService(userManager, libraryManager, localization, NullLogger<RbacService>.Instance);
 
-        // Tests use IP-literal Authorities, so AuthorityGuard always resolves a pinned address —
-        // route the "pinned" path through the same mock handler instead of a real socket
-        // connection, matching how the fallback ("OidcPlugin") path is already mocked above.
-        HttpClient PinnedClientFactory(IPAddress _, bool __) => new(handler);
-
-        return new ConfigController(rbacService, httpClientFactory, PinnedClientFactory, NullLogger<ConfigController>.Instance);
+        var mapStore = new UserProviderMapStore(
+            new System.Collections.Generic.List<UserProviderEntry>(), NullLogger<UserProviderMapStore>.Instance);
+        var protocol = new OidcProtocolService(
+            TestHttp.GuardedFactory(handler), NullLogger<OidcProtocolService>.Instance);
+        return new ConfigController(
+            rbacService, localization, protocol, mapStore, NullLogger<ConfigController>.Instance);
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public class ConfigControllerTests
 
         var ok = Assert.IsType<Microsoft.AspNetCore.Mvc.OkObjectResult>(result);
         var json = System.Text.Json.JsonSerializer.Serialize(ok.Value);
-        Assert.Contains("Authority URL is required", json);
+        Assert.Contains("Issuer URL is required", json);
     }
 
     [Fact]
@@ -111,7 +111,7 @@ public class ConfigControllerTests
     public async System.Threading.Tasks.Task TestProvider_LoopbackAuthority_ReturnsBlockedMessageWithoutFetching()
     {
         _fixture.SetConfiguration(new PluginConfiguration());
-        // Handler would throw if the discovery fetch were ever attempted — proves the guard
+        // Handler would throw if the discovery fetch were ever attempted - proves the guard
         // short-circuits before any network call, not just that the fetch happened to fail.
         var controller = MakeController(new ThrowingHttpMessageHandler(new HttpRequestException("should never be called")));
 
@@ -175,7 +175,7 @@ public class ConfigControllerTests
     [Fact]
     public async System.Threading.Tasks.Task TestProvider_Rfc1918Authority_DefaultConfig_ProceedsToFetch()
     {
-        // RFC1918 is deliberately not blocked by default — no opt-out required.
+        // RFC1918 is deliberately not blocked by default - no opt-out required.
         _fixture.SetConfiguration(new PluginConfiguration());
         const string authority = "https://10.0.40.10";
         var controller = MakeController(new MockHttpMessageHandler(HttpStatusCode.OK, DiscoveryDocument(authority)));
@@ -214,5 +214,25 @@ public class ConfigControllerTests
         Assert.Contains("\"Success\":true", json);
         Assert.Contains("https://203.0.113.10/authorize", json);
         Assert.Contains("https://203.0.113.10/jwks", json);
+    }
+
+    [Fact]
+    public void GetRatings_ProjectsNameScoreSubScore_OrderedByScore_Deduped()
+    {
+        var localization = Substitute.For<MediaBrowser.Model.Globalization.ILocalizationManager>();
+        localization.GetParentalRatings().Returns(new List<MediaBrowser.Model.Entities.ParentalRating>
+        {
+            new("PG-13", new MediaBrowser.Model.Entities.ParentalRatingScore(9, null)),
+            new("G", new MediaBrowser.Model.Entities.ParentalRatingScore(1, null)),
+            new("pg-13", new MediaBrowser.Model.Entities.ParentalRatingScore(9, null)), // dup by name
+            new(string.Empty, new MediaBrowser.Model.Entities.ParentalRatingScore(0, null)), // dropped
+        });
+
+        var controller = MakeController(new MockHttpMessageHandler(HttpStatusCode.OK, "{}"), localization);
+
+        var ok = Assert.IsType<Microsoft.AspNetCore.Mvc.OkObjectResult>(controller.GetRatings());
+        var json = System.Text.Json.JsonSerializer.Serialize(ok.Value);
+
+        Assert.Equal("[{\"Name\":\"G\",\"Score\":1,\"SubScore\":null},{\"Name\":\"PG-13\",\"Score\":9,\"SubScore\":null}]", json);
     }
 }
