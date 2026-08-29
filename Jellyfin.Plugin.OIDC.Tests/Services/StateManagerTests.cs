@@ -40,7 +40,6 @@ public class StateManagerTests : IDisposable
     [Fact]
     public void ConsumeState_ExpiredState_ReturnsNull()
     {
-        // Create a state whose CreatedAt is already > 10 minutes ago
         var expired = new OidcState
         {
             ProviderId = "p",
@@ -48,9 +47,7 @@ public class StateManagerTests : IDisposable
             CodeVerifier = "cv",
             RedirectUri = "https://example.com/callback",
             CsrfToken = "csrf",
-            // Override the default CreatedAt to a past time
         };
-        // Use reflection to set CreatedAt to a stale time
         typeof(OidcState)
             .GetProperty(nameof(OidcState.CreatedAt))!
             .SetValue(expired, DateTimeOffset.UtcNow.AddMinutes(-11));
@@ -60,14 +57,26 @@ public class StateManagerTests : IDisposable
     }
 
     [Fact]
-    public void StoreState_AtCap_ReturnsNull()
+    public void StoreState_AtCap_EvictsOldestAndStillSucceeds()
     {
-        // Fill up to the 500-entry cap
-        for (var i = 0; i < 500; i++)
+        // Mirrors TrackSession/RegisterJti: at the cap, a real login must still get through by
+        // evicting the oldest (near-certainly-abandoned, given the 10-minute expiry) pending
+        // state rather than rejecting it outright.
+        var oldest = MakeState();
+        typeof(OidcState).GetProperty(nameof(OidcState.CreatedAt))!
+            .SetValue(oldest, DateTimeOffset.UtcNow.AddMinutes(-5));
+        var firstKey = _manager.StoreState(oldest);
+
+        for (var i = 0; i < 499; i++)
             _manager.StoreState(MakeState());
 
-        // The 501st should be rejected
-        Assert.Null(_manager.StoreState(MakeState()));
+        var newKey = _manager.StoreState(MakeState());
+
+        Assert.NotNull(newKey);
+        // The unambiguously-oldest entry was evicted to make room for the new one.
+        Assert.Null(_manager.ConsumeState(firstKey!));
+        // The just-stored state is still there.
+        Assert.NotNull(_manager.ConsumeState(newKey!));
     }
 
     // ── AuthorizedSession ──────────────────────────────────────────────────────
@@ -153,7 +162,7 @@ public class StateManagerTests : IDisposable
         Assert.NotNull(second);
         Assert.Equal("alice", first!.Username);
         Assert.Equal("alice", second!.Username);
-        // Peeking must not consume — a normal Consume should still find it afterwards.
+        // Peeking must not consume - a normal Consume should still find it afterwards.
         Assert.NotNull(_manager.ConsumeAuthorizedSession(token!));
     }
 
@@ -221,6 +230,117 @@ public class StateManagerTests : IDisposable
         Assert.False(consumed!.QuickConnect);
     }
 
+    // ── Back-channel logout: jti replay guard ─────────────────────────────────
+
+    [Fact]
+    public void RegisterJti_FirstUse_ReturnsTrue()
+        => Assert.True(_manager.RegisterJti("jti-1", DateTimeOffset.UtcNow.AddMinutes(10)));
+
+    [Fact]
+    public void RegisterJti_SameJti_ReturnsFalse()
+    {
+        var expiry = DateTimeOffset.UtcNow.AddMinutes(10);
+        Assert.True(_manager.RegisterJti("jti-replay", expiry));
+        Assert.False(_manager.RegisterJti("jti-replay", expiry));
+    }
+
+    [Fact]
+    public void RegisterJti_EmptyJti_ReturnsFalse()
+        => Assert.False(_manager.RegisterJti("", DateTimeOffset.UtcNow.AddMinutes(10)));
+
+    [Fact]
+    public void UnregisterJti_AllowsTheTokenToBeRegisteredAgain()
+    {
+        var expiry = DateTimeOffset.UtcNow.AddMinutes(10);
+        Assert.True(_manager.RegisterJti("jti-retry", expiry));
+
+        _manager.UnregisterJti("jti-retry");
+
+        // A back-channel logout whose revocation errored frees the jti so the IdP's retry works.
+        Assert.True(_manager.RegisterJti("jti-retry", expiry));
+    }
+
+    // ── Back-channel logout: session correlation table ────────────────────────
+
+    [Fact]
+    public void FindTracked_BySid_ReturnsMatchingSession()
+    {
+        _manager.TrackSession(MakeTracked(sessionId: "s1", sid: "sid-1", subject: "sub-1"));
+
+        var hits = _manager.FindTracked("https://idp.example.com", sub: null, sid: "sid-1");
+
+        Assert.Single(hits);
+        Assert.Equal("s1", hits[0].SessionId);
+    }
+
+    [Fact]
+    public void FindTracked_BySub_ReturnsAllOfThatSubjectsSessions()
+    {
+        _manager.TrackSession(MakeTracked(sessionId: "s1", sid: "sid-1", subject: "sub-1"));
+        _manager.TrackSession(MakeTracked(sessionId: "s2", sid: "sid-2", subject: "sub-1"));
+        _manager.TrackSession(MakeTracked(sessionId: "s3", sid: "sid-3", subject: "sub-2"));
+
+        var hits = _manager.FindTracked("https://idp.example.com", sub: "sub-1", sid: null);
+
+        Assert.Equal(2, hits.Count);
+    }
+
+    [Fact]
+    public void FindTracked_WrongIssuer_ReturnsEmpty()
+    {
+        _manager.TrackSession(MakeTracked(sessionId: "s1", sid: "sid-1", subject: "sub-1"));
+
+        Assert.Empty(_manager.FindTracked("https://other.example.com", sub: "sub-1", sid: "sid-1"));
+    }
+
+    [Fact]
+    public void FindTracked_NeitherSubNorSid_ReturnsEmpty()
+    {
+        _manager.TrackSession(MakeTracked(sessionId: "s1", sid: "sid-1", subject: "sub-1"));
+
+        Assert.Empty(_manager.FindTracked("https://idp.example.com", sub: null, sid: null));
+    }
+
+    [Fact]
+    public void UntrackBySessionId_RemovesEntry()
+    {
+        _manager.TrackSession(MakeTracked(sessionId: "s1", sid: "sid-1", subject: "sub-1"));
+
+        _manager.UntrackBySessionId("s1");
+
+        Assert.Empty(_manager.FindTracked("https://idp.example.com", sub: "sub-1", sid: "sid-1"));
+    }
+
+    [Fact]
+    public void UntrackBySessionId_LeavesOtherSessionsOnSameDeviceIntact()
+    {
+        // Regression: OidcSessionEndedConsumer used to also call a device-id field-scan removal
+        // that dropped every tracked entry sharing a device id - killing back-channel-logout
+        // correlation for a still-live second session on the same device. Precise key-based
+        // removal (what the consumer does now) must not have that effect.
+        _manager.TrackSession(MakeTracked(sessionId: "s1", sid: "sid-1", subject: "sub-1", deviceId: "dev-A"));
+        _manager.TrackSession(MakeTracked(sessionId: "s2", sid: "sid-2", subject: "sub-1", deviceId: "dev-A"));
+
+        _manager.UntrackBySessionId("s1");
+
+        var hits = _manager.FindTracked("https://idp.example.com", sub: "sub-1", sid: "sid-2");
+        Assert.Single(hits);
+        Assert.Equal("s2", hits[0].SessionId);
+    }
+
+    [Fact]
+    public void UntrackBySessionId_RemovesEntryKeyedByDeviceIdFallback()
+    {
+        // TrackMintedSession keys a TrackedSession by SessionId ?? DeviceId - when the real
+        // session id wasn't available, the entry is keyed by device id instead. The consumer
+        // relies on UntrackBySessionId(deviceId) to catch exactly that case.
+        _manager.TrackSession(MakeTracked(sessionId: "dev-A", sid: "sid-1", subject: "sub-1", deviceId: "dev-A"));
+
+        _manager.UntrackBySessionId("dev-A");
+
+        Assert.Empty(_manager.FindTracked("https://idp.example.com", sub: "sub-1", sid: "sid-1"));
+    }
+
     // ── Lifecycle ──────────────────────────────────────────────────────────────
 
     [Fact]
@@ -250,5 +370,21 @@ public class StateManagerTests : IDisposable
         DisplayName = username,
         PictureUrl = pictureUrl,
         Roles = []
+    };
+
+    private static TrackedSession MakeTracked(
+        string sessionId,
+        string sid,
+        string subject,
+        string issuer = "https://idp.example.com",
+        string deviceId = "device-1") => new()
+    {
+        ProviderId = "provider",
+        Issuer = issuer,
+        Subject = subject,
+        Sid = sid,
+        UserId = Guid.NewGuid(),
+        DeviceId = deviceId,
+        SessionId = sessionId
     };
 }

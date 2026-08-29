@@ -1,11 +1,10 @@
 using System.Collections.Generic;
 using System.Linq;
-using System.Net;
-using System.Net.Http;
 using System.Threading.Tasks;
-using IdentityModel.Client;
+using Duende.IdentityModel.Client;
 using Jellyfin.Plugin.OIDC.Services;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Model.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -18,22 +17,25 @@ namespace Jellyfin.Plugin.OIDC.Api;
 public class ConfigController : ControllerBase
 {
     private const string DiscoveryFailedMessage =
-        "Unable to retrieve a discovery document from the given Authority URL. Check the URL and try again; see the server log for details.";
+        "Unable to retrieve a discovery document from the given Issuer URL. Check the URL and try again; see the server log for details.";
 
     private readonly RbacService _rbacService;
-    private readonly IHttpClientFactory _httpClientFactory;
-    private readonly Func<IPAddress, bool, HttpClient> _pinnedHttpClientFactory;
+    private readonly ILocalizationManager _localization;
+    private readonly OidcProtocolService _protocol;
+    private readonly UserProviderMapStore _mapStore;
     private readonly ILogger<ConfigController> _logger;
 
     public ConfigController(
         RbacService rbacService,
-        IHttpClientFactory httpClientFactory,
-        Func<IPAddress, bool, HttpClient> pinnedHttpClientFactory,
+        ILocalizationManager localization,
+        OidcProtocolService protocol,
+        UserProviderMapStore mapStore,
         ILogger<ConfigController> logger)
     {
         _rbacService = rbacService;
-        _httpClientFactory = httpClientFactory;
-        _pinnedHttpClientFactory = pinnedHttpClientFactory;
+        _localization = localization;
+        _protocol = protocol;
+        _mapStore = mapStore;
         _logger = logger;
     }
 
@@ -43,17 +45,40 @@ public class ConfigController : ControllerBase
         return Ok(_rbacService.GetAvailableLibraries());
     }
 
+    /// The parental ratings this server knows (from its configured metadata country), for the
+    /// role-mapping "Max Parental Rating" dropdown. Name is what the mapping stores; Score/SubScore
+    /// are informational (ordering + display).
+    [HttpGet("Ratings")]
+    public ActionResult GetRatings()
+    {
+        var ratings = _localization.GetParentalRatings()
+            .Where(r => !string.IsNullOrWhiteSpace(r.Name))
+            .GroupBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .Select(r => new
+            {
+                r.Name,
+                Score = r.RatingScore?.Score,
+                SubScore = r.RatingScore?.SubScore
+            })
+            .OrderBy(r => r.Score ?? int.MaxValue)
+            .ThenBy(r => r.SubScore ?? int.MaxValue)
+            .ToList();
+
+        return Ok(ratings);
+    }
+
     [HttpGet("Status")]
     public ActionResult GetStatus()
     {
-        var config = OidcPlugin.Instance?.Configuration;
+        var config = OidcPlugin.CurrentConfig;
         return Ok(new
         {
             PluginVersion = OidcPlugin.Instance?.Version?.ToString() ?? "unknown",
-            ProviderCount = config?.Providers.Count ?? 0,
-            RoleMappingCount = config?.RoleMappings.Count ?? 0,
-            EnabledProviders = config?.Providers.Where(p => p.Enabled).Select(p => p.DisplayName).ToList()
-                               ?? new List<string>()
+            ProviderCount = config.Providers.Count,
+            RoleMappingCount = config.RoleMappings.Count,
+            IdentityMapCount = _mapStore.Count,
+            EnabledProviders = config.Providers.Where(p => p.Enabled).Select(p => p.DisplayName).ToList()
         });
     }
 
@@ -62,37 +87,18 @@ public class ConfigController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(request.Authority))
         {
-            return Ok(new { Success = false, Error = "Authority URL is required" });
+            return Ok(new { Success = false, Error = "Issuer URL is required" });
         }
 
-        var blockPrivateNetworks = OidcPlugin.Instance?.Configuration?.BlockPrivateNetworkAuthorities ?? false;
-        var (blockReason, pinnedAddress) = await AuthorityGuard.ValidateAndResolveAsync(
-            request.Authority,
-            request.AllowLoopbackAuthority,
-            request.AllowLinkLocalAuthority,
-            blockPrivateNetworks).ConfigureAwait(false);
+        var (disco, blockReason) = await _protocol.FetchDiscoveryAsync(
+            request.Authority, request.AllowLoopbackAuthority, request.AllowLinkLocalAuthority).ConfigureAwait(false);
         if (blockReason != null)
         {
             _logger.LogWarning("TestProvider blocked Authority {Authority}: {Reason}", request.Authority, blockReason);
             return Ok(new { Success = false, Error = blockReason });
         }
 
-        // Pin to the exact address the guard just validated — see GetDiscoveryDocumentAsync in
-        // OidcController for why (DNS-rebinding TOCTOU).
-        using var httpClient = pinnedAddress != null
-            ? _pinnedHttpClientFactory(pinnedAddress, true)
-            : _httpClientFactory.CreateClient("OidcPlugin");
-        var disco = await httpClient.GetDiscoveryDocumentAsync(new DiscoveryDocumentRequest
-        {
-            Address = request.Authority,
-            Policy = new DiscoveryPolicy
-            {
-                ValidateIssuerName = true,
-                ValidateEndpoints = false
-            }
-        }).ConfigureAwait(false);
-
-        if (disco.IsError)
+        if (disco!.IsError)
         {
             _logger.LogError(
                 "TestProvider discovery failed for {Authority}: {ErrorType} - {Error}",
@@ -106,13 +112,6 @@ public class ConfigController : ControllerBase
             });
         }
 
-        var requestedScopes = (request.Scopes ?? string.Empty)
-            .Split(' ', System.StringSplitOptions.RemoveEmptyEntries);
-        var supportedScopes = disco.ScopesSupported?.ToList() ?? new List<string>();
-        var unsupportedScopes = supportedScopes.Count == 0
-            ? new List<string>()
-            : requestedScopes.Where(s => !supportedScopes.Contains(s)).ToList();
-
         return Ok(new
         {
             Success = true,
@@ -121,8 +120,8 @@ public class ConfigController : ControllerBase
             TokenEndpoint = disco.TokenEndpoint,
             UserInfoEndpoint = disco.UserInfoEndpoint,
             JwksUri = disco.JwksUri,
-            ScopesSupported = supportedScopes,
-            UnsupportedRequestedScopes = unsupportedScopes
+            ScopesSupported = disco.ScopesSupported?.ToList() ?? new List<string>(),
+            UnsupportedRequestedScopes = OidcProtocolService.MissingScopes(disco, request.Scopes)
         });
     }
 }

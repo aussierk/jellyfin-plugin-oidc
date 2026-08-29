@@ -1,7 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Jellyfin.Database.Implementations.Entities;
@@ -14,38 +14,40 @@ namespace Jellyfin.Plugin.OIDC.Services;
 
 public class ProfileImageService
 {
-    // Cap the download so a malicious/compromised picture-claim host can't exhaust memory or
-    // disk via an oversized response. Partial mitigation: a host that omits Content-Length
-    // isn't caught by this check, only by whatever limits the underlying HttpClient applies.
+    // Checked against Content-Length and again while streaming, so a chunked response can't bypass it.
     private const long MaxProfileImageBytes = 5 * 1024 * 1024;
 
-    private readonly IHttpClientFactory _httpClientFactory;
-    private readonly Func<IPAddress, bool, HttpClient> _pinnedHttpClientFactory;
+    // Raster only, SVG excluded: the user-influenced picture claim gets the narrowest allowlist,
+    // and an avatar is never consumed as a CSS url() value the way a provider button icon is.
+    private static readonly HashSet<string> _allowedImageMimeTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp"
+    };
+
+    private readonly GuardedHttpClientFactory _guardedHttp;
     private readonly IUserManager _userManager;
     private readonly IServerConfigurationManager _serverConfigurationManager;
     private readonly IProviderManager _providerManager;
     private readonly ILogger<ProfileImageService> _logger;
 
     public ProfileImageService(
-        IHttpClientFactory httpClientFactory,
-        Func<IPAddress, bool, HttpClient> pinnedHttpClientFactory,
+        GuardedHttpClientFactory guardedHttp,
         IUserManager userManager,
         IServerConfigurationManager serverConfigurationManager,
         IProviderManager providerManager,
         ILogger<ProfileImageService> logger)
     {
-        _httpClientFactory = httpClientFactory;
-        _pinnedHttpClientFactory = pinnedHttpClientFactory;
+        _guardedHttp = guardedHttp;
         _userManager = userManager;
         _serverConfigurationManager = serverConfigurationManager;
         _providerManager = providerManager;
         _logger = logger;
     }
 
-    /// <summary>
+    /// 
     /// Downloads the image at <paramref name="pictureUrl"/> and sets it as the user's profile
     /// image, overwriting any existing one. Never throws: avatar sync must not break login.
-    /// </summary>
+    /// 
     public async Task ApplyProfileImageAsync(Guid userId, string? pictureUrl, string providerId)
     {
         if (string.IsNullOrWhiteSpace(pictureUrl))
@@ -60,34 +62,24 @@ public class ProfileImageService
             return;
         }
 
-        // The picture claim can come from the IdP's userinfo/token payload — and on some IdPs
-        // (e.g. Keycloak, Authentik) end users can set it themselves — so it gets the same
-        // SSRF guard as Authority, using that provider's own loopback/link-local trust settings.
-        var provider = OidcPlugin.Instance?.Configuration?.Providers
-            .FirstOrDefault(p => string.Equals(p.ProviderId, providerId, StringComparison.OrdinalIgnoreCase));
-        var blockPrivateNetworks = OidcPlugin.Instance?.Configuration?.BlockPrivateNetworkAuthorities ?? false;
-        var (blockReason, pinnedAddress) = await AuthorityGuard.ValidateAndResolveAsync(
-            pictureUrl,
-            provider?.AllowLoopbackAuthority ?? false,
-            provider?.AllowLinkLocalAuthority ?? false,
-            blockPrivateNetworks).ConfigureAwait(false);
-        if (blockReason != null)
+        // The picture claim is user-influenced, so it must NOT inherit the provider's loopback/
+        // link-local trust flags (those cover the admin-fixed Authority URL). Loopback and link-local
+        // (which includes the 169.254.169.254 cloud-metadata endpoint) are always blocked here;
+        // only the global BlockPrivateNetworkAuthorities still applies.
+        var guarded = await _guardedHttp.CreateAsync(
+            pictureUrl, allowLoopback: false, allowLinkLocal: false).ConfigureAwait(false);
+        if (guarded.Blocked)
         {
-            _logger.LogWarning("Blocked profile image fetch for {Url}: {Reason}", pictureUrl, blockReason);
+            _logger.LogWarning("Blocked profile image fetch for {Url}: {Reason}", pictureUrl, guarded.BlockReason);
             return;
         }
 
         try
         {
-            // Pin to the exact address the guard just validated — closes the same DNS-rebinding
-            // TOCTOU window as the discovery fetch (see AuthorityGuard.ValidateAndResolveAsync).
-            // Redirects stay disabled either way: a redirect target is unvalidated, and this
-            // path's trust boundary is stricter than discovery's (picture claims can be
-            // end-user-influenced on some IdPs).
-            using var httpClient = pinnedAddress != null
-                ? _pinnedHttpClientFactory(pinnedAddress, false)
-                : _httpClientFactory.CreateClient("OidcPluginImage");
-            using var response = await httpClient.GetAsync(pictureUrl).ConfigureAwait(false);
+            using var httpClient = guarded.Client!;
+
+            // ResponseHeadersRead so a chunked/no-Content-Length body can't bypass the size cap below.
+            using var response = await httpClient.GetAsync(pictureUrl, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning(
@@ -106,11 +98,20 @@ public class ProfileImageService
             }
 
             var mimeType = response.Content.Headers.ContentType?.MediaType;
-            if (string.IsNullOrEmpty(mimeType) || !mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrEmpty(mimeType) || !_allowedImageMimeTypes.Contains(mimeType))
             {
                 _logger.LogWarning(
-                    "Profile image URL {Url} returned non-image content type '{ContentType}'",
+                    "Profile image URL {Url} returned unsupported content type '{ContentType}'",
                     pictureUrl, mimeType ?? "(none)");
+                return;
+            }
+
+            using var imageBuffer = await ReadCappedAsync(response, MaxProfileImageBytes).ConfigureAwait(false);
+            if (imageBuffer == null)
+            {
+                _logger.LogWarning(
+                    "Profile image at {Url} exceeded the {MaxBytes}-byte limit while streaming",
+                    pictureUrl, MaxProfileImageBytes);
                 return;
             }
 
@@ -135,20 +136,41 @@ public class ProfileImageService
 
             user.ProfileImage = new ImageInfo(imagePath);
 
-            var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-            await using (stream.ConfigureAwait(false))
-            {
-                await _providerManager.SaveImage(stream, mimeType, user.ProfileImage.Path).ConfigureAwait(false);
-            }
+            await _providerManager.SaveImage(imageBuffer, mimeType, user.ProfileImage.Path).ConfigureAwait(false);
 
             await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
 
             _logger.LogInformation("Applied OIDC profile image for user {Username}", user.Username);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Failed to apply profile image from {Url}", pictureUrl);
         }
+    }
+
+    /// Copies the response body into memory, stopping and returning null if it exceeds <paramref name="maxBytes"/>.
+    private static async Task<MemoryStream?> ReadCappedAsync(HttpResponseMessage response, long maxBytes)
+    {
+        var buffer = new MemoryStream();
+        var source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        await using (source.ConfigureAwait(false))
+        {
+            var chunk = new byte[81920];
+            int read;
+            while ((read = await source.ReadAsync(chunk).ConfigureAwait(false)) > 0)
+            {
+                if (buffer.Length + read > maxBytes)
+                {
+                    buffer.Dispose();
+                    return null;
+                }
+
+                buffer.Write(chunk, 0, read);
+            }
+        }
+
+        buffer.Position = 0;
+        return buffer;
     }
 
     private static string GetExtensionForMimeType(string mimeType)

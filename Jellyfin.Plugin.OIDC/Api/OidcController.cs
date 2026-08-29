@@ -1,16 +1,11 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
-using System.Net;
-using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
-using IdentityModel;
-using IdentityModel.Client;
+using Duende.IdentityModel;
+using Duende.IdentityModel.Client;
 using Jellyfin.Plugin.OIDC.Configuration;
 using Jellyfin.Plugin.OIDC.Services;
 using MediaBrowser.Controller;
@@ -19,8 +14,6 @@ using MediaBrowser.Controller.Session;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
-using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Jellyfin.Plugin.OIDC.Api;
@@ -29,15 +22,20 @@ namespace Jellyfin.Plugin.OIDC.Api;
 [Route("sso/OIDC")]
 public class OidcController : ControllerBase
 {
-    // Per-provider semaphores guard the TOFU endpoint pin read-modify-write against races.
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> _pinLocks = new(StringComparer.OrdinalIgnoreCase);
+    // BuildCallbackHtml's inline script writes these jellyfin-web localStorage keys directly; there's
+    // no public "adopt this token" API. Undocumented internals; verified against jellyfin-web 12.0
+    // (this plugin's targetAbi). Re-check both keys and AppVersion on the next Jellyfin bump.
+    private const string JellyfinWebDeviceIdStorageKey = "_deviceId2";
+    private const string JellyfinWebCredentialsStorageKey = "jellyfin_credentials";
+    private const string JellyfinWebAppName = "Jellyfin Web";
+    private const string JellyfinWebAppVersion = "12.0.0";
 
     private readonly StateManager _stateManager;
     private readonly UserSyncService _userSyncService;
     private readonly ISessionManager _sessionManager;
     private readonly IQuickConnect _quickConnect;
-    private readonly IHttpClientFactory _httpClientFactory;
-    private readonly Func<IPAddress, bool, HttpClient> _pinnedHttpClientFactory;
+    private readonly OidcProtocolService _protocol;
+    private readonly LoginFlowService _loginFlow;
     private readonly IServerApplicationHost _appHost;
     private readonly ILogger<OidcController> _logger;
 
@@ -46,8 +44,8 @@ public class OidcController : ControllerBase
         UserSyncService userSyncService,
         ISessionManager sessionManager,
         IQuickConnect quickConnect,
-        IHttpClientFactory httpClientFactory,
-        Func<IPAddress, bool, HttpClient> pinnedHttpClientFactory,
+        OidcProtocolService protocol,
+        LoginFlowService loginFlow,
         IServerApplicationHost appHost,
         ILogger<OidcController> logger)
     {
@@ -55,8 +53,8 @@ public class OidcController : ControllerBase
         _userSyncService = userSyncService;
         _sessionManager = sessionManager;
         _quickConnect = quickConnect;
-        _httpClientFactory = httpClientFactory;
-        _pinnedHttpClientFactory = pinnedHttpClientFactory;
+        _protocol = protocol;
+        _loginFlow = loginFlow;
         _appHost = appHost;
         _logger = logger;
     }
@@ -68,10 +66,7 @@ public class OidcController : ControllerBase
         return BeginAuthorizeAsync(providerId, quickConnect: false);
     }
 
-    /// <summary>
-    /// Entry point for logging in a native/mobile app via Jellyfin Quick Connect. The user opens
-    /// this in a browser, authenticates at the IdP, then enters the code shown by their app.
-    /// </summary>
+    /// Entry point for a native/mobile app: user authenticates here, then enters the code shown by their app.
     [HttpGet("QuickConnect/{providerId}")]
     [RateLimit("oidc-start", maxRequests: 20, windowSeconds: 60)]
     public Task<ActionResult> QuickConnectStart(string providerId)
@@ -87,38 +82,18 @@ public class OidcController : ControllerBase
             return NotFound($"Provider '{providerId}' not found or disabled");
         }
 
-        var blockPrivateNetworks = OidcPlugin.Instance?.Configuration?.BlockPrivateNetworkAuthorities ?? false;
-        var (blockReason, pinnedAddress) = await AuthorityGuard.ValidateAndResolveAsync(
-            provider.Authority,
-            provider.AllowLoopbackAuthority,
-            provider.AllowLinkLocalAuthority,
-            blockPrivateNetworks).ConfigureAwait(false);
-        if (blockReason != null)
+        var (disco, failure) = await _protocol.ResolveAndPinDiscoveryAsync(provider, providerId).ConfigureAwait(false);
+        if (failure == DiscoveryPinFailure.PinMismatch)
         {
-            _logger.LogError("OIDC discovery blocked for {Provider}: {Reason}", providerId, blockReason);
+            return StatusCode(502, "Identity provider endpoint mismatch detected. Re-run Test Connection in the plugin admin UI.");
+        }
+
+        if (disco == null)
+        {
             return StatusCode(502, "Failed to contact identity provider");
         }
 
-        var disco = await GetDiscoveryDocumentAsync(provider, pinnedAddress).ConfigureAwait(false);
-        if (disco.IsError)
-        {
-            _logger.LogError("OIDC discovery failed for {Provider}: {Error}", providerId, disco.Error);
-            return StatusCode(502, "Failed to contact identity provider");
-        }
-
-        var pinLock = _pinLocks.GetOrAdd(provider.ProviderId, _ => new SemaphoreSlim(1, 1));
-        await pinLock.WaitAsync().ConfigureAwait(false);
-        try
-        {
-            if (!ValidateOrPinEndpoints(provider, disco))
-            {
-                return StatusCode(502, "Identity provider endpoint mismatch detected. Re-run Test Connection in the plugin admin UI.");
-            }
-        }
-        finally
-        {
-            pinLock.Release();
-        }
+        LogDiscoveryPreflightWarnings(disco, provider, providerId);
 
         var codeVerifier = CryptoRandom.CreateUniqueId(64);
         var codeChallenge = CreateCodeChallenge(codeVerifier);
@@ -164,7 +139,7 @@ public class OidcController : ControllerBase
             nonce: nonce,
             codeChallenge: codeChallenge,
             codeChallengeMethod: OidcConstants.CodeChallengeMethods.Sha256,
-            extra: ParseAdditionalParameters(provider.AdditionalParameters));
+            extra: ParseAdditionalParameters(provider.AdditionalParameters, providerId));
 
         return Redirect(url);
     }
@@ -208,221 +183,29 @@ public class OidcController : ControllerBase
             return NotFound($"Provider '{providerId}' not found");
         }
 
-        var blockPrivateNetworks = OidcPlugin.Instance?.Configuration?.BlockPrivateNetworkAuthorities ?? false;
-        var (blockReason, pinnedAddress) = await AuthorityGuard.ValidateAndResolveAsync(
-            provider.Authority,
-            provider.AllowLoopbackAuthority,
-            provider.AllowLinkLocalAuthority,
-            blockPrivateNetworks).ConfigureAwait(false);
-        if (blockReason != null)
+        var outcome = await _loginFlow.CompleteCallbackAsync(provider, providerId, oidcState, code).ConfigureAwait(false);
+        if (outcome.IsFailure)
         {
-            _logger.LogError("OIDC discovery blocked for {Provider}: {Reason}", providerId, blockReason);
-            return StatusCode(502, "Failed to contact identity provider");
+            return outcome.FailureStatusCode == 400
+                ? BadRequest(outcome.FailureMessage)
+                : StatusCode(outcome.FailureStatusCode, outcome.FailureMessage);
         }
 
-        var disco = await GetDiscoveryDocumentAsync(provider, pinnedAddress).ConfigureAwait(false);
-        if (disco.IsError)
-        {
-            _logger.LogError("OIDC discovery failed for {Provider}: {Error}", providerId, disco.Error);
-            return StatusCode(502, "Failed to contact identity provider");
-        }
-
-        var pinLockCallback = _pinLocks.GetOrAdd(provider.ProviderId, _ => new SemaphoreSlim(1, 1));
-        await pinLockCallback.WaitAsync().ConfigureAwait(false);
-        try
-        {
-            if (!ValidateOrPinEndpoints(provider, disco))
-            {
-                return StatusCode(502, "Identity provider endpoint mismatch detected. Re-run Test Connection in the plugin admin UI.");
-            }
-        }
-        finally
-        {
-            pinLockCallback.Release();
-        }
-
-        var httpClient = _httpClientFactory.CreateClient("OidcPlugin");
-        var tokenResponse = await httpClient.RequestAuthorizationCodeTokenAsync(new AuthorizationCodeTokenRequest
-        {
-            Address = disco.TokenEndpoint,
-            ClientId = provider.ClientId,
-            ClientSecret = provider.ClientSecret,
-            Code = code,
-            RedirectUri = oidcState.RedirectUri,
-            CodeVerifier = oidcState.CodeVerifier
-        }).ConfigureAwait(false);
-
-        if (tokenResponse.IsError)
-        {
-            _logger.LogError("Token exchange failed for {Provider}: {Error}", providerId, tokenResponse.Error);
-            _logger.LogDebug("Token exchange error detail for {Provider}: {Description}", providerId, tokenResponse.ErrorDescription);
-            return BadRequest("Token exchange failed. Check plugin logs for details.");
-        }
-
-        // Fetch JWKS signing keys and validate token signatures
-        var keysResponse = await httpClient.GetJsonWebKeySetAsync(disco.JwksUri).ConfigureAwait(false);
-        if (keysResponse.IsError)
-        {
-            _logger.LogError("JWKS fetch failed for {Provider}: {Error}", providerId, keysResponse.Error);
-            return StatusCode(502, "Failed to fetch identity provider signing keys");
-        }
-
-        var keySet = new Microsoft.IdentityModel.Tokens.JsonWebKeySet(keysResponse.Raw);
-        var signingKeys = keySet.GetSigningKeys();
-
-        var handler = new JwtSecurityTokenHandler();
-        handler.InboundClaimTypeMap.Clear();
-
-        var rawIdToken = tokenResponse.IdentityToken ?? tokenResponse.AccessToken;
-        if (string.IsNullOrEmpty(rawIdToken))
-        {
-            return BadRequest("No token in IdP response");
-        }
-
-        JwtSecurityToken idToken;
-        try
-        {
-            var idTokenValidation = new TokenValidationParameters
-            {
-                ValidIssuer = disco.Issuer,
-                ValidAudience = provider.ClientId,
-                IssuerSigningKeys = signingKeys,
-                ValidateIssuer = true,
-                ValidateAudience = true,
-                ValidateLifetime = true,
-                ValidateIssuerSigningKey = true,
-                ClockSkew = TimeSpan.FromMinutes(5)
-            };
-            handler.ValidateToken(rawIdToken, idTokenValidation, out var validated);
-            idToken = (JwtSecurityToken)validated;
-        }
-        catch (SecurityTokenException ex)
-        {
-            _logger.LogWarning("Token validation failed for provider {Provider}: {Message}", providerId, ex.Message);
-            return BadRequest("Token validation failed");
-        }
-
-        var nonceClaim = idToken.Claims.FirstOrDefault(c => c.Type == "nonce")?.Value;
-        if (string.IsNullOrEmpty(nonceClaim) || nonceClaim != oidcState.Nonce)
-        {
-            _logger.LogWarning("Nonce mismatch in OIDC callback for provider {Provider}", providerId);
-            return BadRequest("Token validation failed: nonce mismatch");
-        }
-
-        var username = ClaimParser.ExtractClaim(idToken, provider.UsernameClaim);
-        if (string.IsNullOrEmpty(username))
-        {
-            username = ClaimParser.ExtractClaim(idToken, "sub");
-        }
-
-        if (string.IsNullOrEmpty(username))
-        {
-            return BadRequest("Could not determine username from token");
-        }
-
-        var displayName = ClaimParser.ExtractClaim(idToken, provider.DisplayNameClaim);
-
-        // Extract roles from both ID token and access token
-        var roles = ClaimParser.ExtractRoles(idToken, provider.RoleClaim);
-        if (roles.Length == 0 && !string.IsNullOrEmpty(tokenResponse.AccessToken) && handler.CanReadToken(tokenResponse.AccessToken))
-        {
-            try
-            {
-                var accessTokenValidation = new TokenValidationParameters
-                {
-                    ValidIssuer = disco.Issuer,
-                    IssuerSigningKeys = signingKeys,
-                    ValidateIssuer = true,
-                    ValidateAudience = false,
-                    ValidateLifetime = true,
-                    ValidateIssuerSigningKey = true,
-                    ClockSkew = TimeSpan.FromMinutes(5)
-                };
-                handler.ValidateToken(tokenResponse.AccessToken, accessTokenValidation, out var validatedAccess);
-                var accessToken = (JwtSecurityToken)validatedAccess;
-                roles = ClaimParser.ExtractRoles(accessToken, provider.RoleClaim);
-            }
-            catch (SecurityTokenException ex)
-            {
-                if (provider.StrictAccessTokenValidation)
-                {
-                    _logger.LogWarning("Access token validation failed for provider {Provider}: {Message}", providerId, ex.Message);
-                    return BadRequest("Access token validation failed");
-                }
-
-                _logger.LogWarning("Access token signature validation failed for {Provider}; roles from access token skipped", providerId);
-            }
-        }
-
-        // Optionally extract the profile-image URL (standard OIDC "picture" claim). Like roles,
-        // check the ID token first and fall back to the access token, since providers differ
-        // in which token carries the claim.
-        string? pictureUrl = null;
-        if (provider.SyncProfileImage && !string.IsNullOrWhiteSpace(provider.PictureClaim))
-        {
-            pictureUrl = ClaimParser.ExtractClaim(idToken, provider.PictureClaim);
-            if (string.IsNullOrEmpty(pictureUrl) && !string.IsNullOrEmpty(tokenResponse.AccessToken) && handler.CanReadToken(tokenResponse.AccessToken))
-            {
-                pictureUrl = ClaimParser.ExtractClaim(
-                    handler.ReadJwtToken(tokenResponse.AccessToken), provider.PictureClaim);
-            }
-
-            // Many providers (e.g. Authentik) expose the picture only via the userinfo
-            // endpoint, not in the tokens. Fall back to userinfo when it's in neither token.
-            if (string.IsNullOrEmpty(pictureUrl)
-                && !string.IsNullOrEmpty(disco.UserInfoEndpoint)
-                && !string.IsNullOrEmpty(tokenResponse.AccessToken))
-            {
-                var userInfo = await httpClient.GetUserInfoAsync(new UserInfoRequest
-                {
-                    Address = disco.UserInfoEndpoint,
-                    Token = tokenResponse.AccessToken
-                }).ConfigureAwait(false);
-
-                if (userInfo.IsError)
-                {
-                    _logger.LogWarning("OIDC userinfo request failed for {Provider}: {Error}", providerId, userInfo.Error);
-                }
-                else
-                {
-                    pictureUrl = userInfo.Claims
-                        .FirstOrDefault(c => c.Type == provider.PictureClaim)?.Value;
-                }
-            }
-        }
-
-        _logger.LogInformation("OIDC auth successful: user={Username}, roles=[{Roles}], provider={Provider}",
-            username, string.Join(", ", roles), providerId);
-
-        var sessionToken = _stateManager.StoreAuthorizedSession(new AuthorizedSession
-        {
-            ProviderId = providerId,
-            Username = username,
-            DisplayName = displayName,
-            PictureUrl = string.IsNullOrEmpty(pictureUrl) ? null : pictureUrl,
-            Roles = roles
-        });
-
-        if (sessionToken == null)
-        {
-            return StatusCode(503, "Server is busy. Please try again in a moment.");
-        }
-
-        // A per-response nonce lets the CSP authorize the inline script and styles without
-        // falling back to 'unsafe-inline'. Dynamic script values are JSON-encoded below.
-        var nonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));
+        // Lets the CSP authorize the inline script/styles below without 'unsafe-inline'.
+        var cspNonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));
 
         Response.Headers["X-Frame-Options"] = "DENY";
         Response.Headers["X-Content-Type-Options"] = "nosniff";
+        // The page body carries the one-time session token - never cache it anywhere.
+        Response.Headers["Cache-Control"] = "no-store";
         Response.Headers["Content-Security-Policy"] =
-            $"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; connect-src 'self'; frame-ancestors 'none'";
+            $"default-src 'none'; script-src 'nonce-{cspNonce}'; style-src 'nonce-{cspNonce}'; connect-src 'self'; frame-ancestors 'none'";
 
-        if (oidcState.QuickConnect)
-        {
-            return Content(BuildQuickConnectHtml(sessionToken, providerId, nonce), "text/html");
-        }
-
-        return Content(BuildCallbackHtml(sessionToken, providerId, nonce), "text/html");
+        return Content(
+            outcome.QuickConnect
+                ? BuildQuickConnectHtml(outcome.SessionToken!, providerId, cspNonce)
+                : BuildCallbackHtml(outcome.SessionToken!, providerId, cspNonce),
+            "text/html");
     }
 
     [HttpPost("Auth/{providerId}")]
@@ -449,10 +232,10 @@ public class OidcController : ControllerBase
 
         try
         {
-            var userId = await _userSyncService.SyncUserAsync(session.Username, session.DisplayName, session.ProviderId).ConfigureAwait(false);
+            var userId = await _userSyncService.SyncUserAsync(
+                session.Username, session.DisplayName, session.Subject, session.Email, session.EmailVerified, session.ProviderId).ConfigureAwait(false);
 
-            // Apply RBAC via UpdatePolicyAsync BEFORE AuthenticateDirect so that
-            // Jellyfin's runtime user state is correct when the session token is minted.
+            // RBAC must apply before AuthenticateDirect mints the session token.
             await _userSyncService.ApplyRolesAsync(userId, session.Roles, session.ProviderId).ConfigureAwait(false);
             await _userSyncService.ApplyProfileImageAsync(userId, session.PictureUrl, session.ProviderId).ConfigureAwait(false);
 
@@ -467,25 +250,27 @@ public class OidcController : ControllerBase
 
             var authResult = await _sessionManager.AuthenticateDirect(authRequest).ConfigureAwait(false);
 
+            _logger.LogInformation(
+                "OIDC audit: decision=login provider={Provider} subject={Subject} user={User} device={Device}",
+                session.ProviderId, ClaimParser.RedactSubject(session.Subject), session.Username, authRequest.DeviceId);
+
             return Ok(authResult);
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning("User sync failed: {Message}", ex.Message);
+            _logger.LogWarning(
+                "OIDC audit: decision=deny provider={Provider} subject={Subject} user={User} reason=sync-{Reason}",
+                session.ProviderId, ClaimParser.RedactSubject(session.Subject), session.Username, ex.Message);
             return Forbid();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Authentication failed for user {Username}", session.Username);
             return StatusCode(500, "Authentication failed");
         }
     }
 
-    /// <summary>
-    /// Authorizes a pending Quick Connect request using the identity established by the OIDC login.
-    /// The user is provisioned/synced (same as web login) and then the code shown by their native
-    /// app is authorized on their behalf — no pre-existing Jellyfin session required.
-    /// </summary>
+    /// Provisions/syncs the user from the OIDC login, then authorizes their device's Quick Connect code.
     [HttpPost("QuickConnect/Authorize/{providerId}")]
     [RateLimit("oidc-auth", maxRequests: 10, windowSeconds: 60)]
     public async Task<ActionResult> QuickConnectAuthorize(
@@ -520,17 +305,33 @@ public class OidcController : ControllerBase
             return BadRequest("Missing Quick Connect code");
         }
 
+        // Provision + apply RBAC once per session; a mistyped-code retry peeks the same object and skips it.
         Guid userId;
-        try
+        if (session.SyncedUserId is { } alreadySynced)
         {
-            userId = await _userSyncService.SyncUserAsync(session.Username, session.DisplayName, session.ProviderId).ConfigureAwait(false);
-            await _userSyncService.ApplyRolesAsync(userId, session.Roles, session.ProviderId).ConfigureAwait(false);
-            await _userSyncService.ApplyProfileImageAsync(userId, session.PictureUrl, session.ProviderId).ConfigureAwait(false);
+            userId = alreadySynced;
         }
-        catch (InvalidOperationException ex)
+        else
         {
-            _logger.LogWarning("User sync failed during Quick Connect: {Message}", ex.Message);
-            return Forbid();
+            try
+            {
+                userId = await _userSyncService.SyncUserAsync(
+                    session.Username, session.DisplayName, session.Subject, session.Email, session.EmailVerified, session.ProviderId).ConfigureAwait(false);
+                await _userSyncService.ApplyRolesAsync(userId, session.Roles, session.ProviderId).ConfigureAwait(false);
+                await _userSyncService.ApplyProfileImageAsync(userId, session.PictureUrl, session.ProviderId).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning("User sync failed during Quick Connect: {Message}", ex.Message);
+                return Forbid();
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogError(ex, "Quick Connect user sync failed for {Username}", session.Username);
+                return StatusCode(500, "Quick Connect authorization failed");
+            }
+
+            session.SyncedUserId = userId;
         }
 
         try
@@ -541,118 +342,52 @@ public class OidcController : ControllerBase
                 return BadRequest("Quick Connect authorization was rejected.");
             }
         }
-        catch (Exception ex) when (ex.GetType().Name == "ResourceNotFoundException")
+        catch (MediaBrowser.Common.Extensions.ResourceNotFoundException)
         {
-            // Unknown / expired code — keep the session valid so the user can retry.
+            // Unknown / expired code - keep the session valid so the user can retry.
             return BadRequest("That code wasn't recognized. Check the code on your device and try again.");
         }
-        catch (Exception ex) when (ex.GetType().Name == "AuthenticationException")
+        catch (MediaBrowser.Controller.Authentication.AuthenticationException)
         {
             return BadRequest("Quick Connect is not active on this server.");
         }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Safety net for anything Quick Connect throws that the two filters above don't name.
+            _logger.LogError(ex, "Quick Connect authorization failed for user {Username}", session.Username);
+            return StatusCode(500, "Quick Connect authorization failed");
+        }
 
-        // Success — invalidate the one-time session so the token can't be replayed.
+        // Success - invalidate the one-time session so the token can't be replayed.
         _stateManager.InvalidateAuthorizedSession(request.Token);
         _logger.LogInformation(
-            "Quick Connect authorized for user {Username} via provider {Provider}",
-            session.Username, providerId);
+            "OIDC audit: decision=login provider={Provider} subject={Subject} user={User} channel=quickconnect",
+            providerId, ClaimParser.RedactSubject(session.Subject), session.Username);
 
         return Ok(new { success = true });
     }
 
     [HttpGet("Providers")]
+    [RateLimit("oidc-providers", maxRequests: 60, windowSeconds: 60)]
     public ActionResult GetProviders()
     {
-        var config = OidcPlugin.Instance?.Configuration;
-        if (config == null)
-        {
-            return Ok(Array.Empty<object>());
-        }
+        var config = OidcPlugin.CurrentConfig;
 
-        // GetSmartApiUrl does not include a reverse-proxy base path, so append PathBase
-        // (Jellyfin Dashboard > Networking > Base URL) explicitly.
+        // GetSmartApiUrl omits a reverse-proxy base path (Networking > Base URL), so append it.
         var baseUrl = _appHost.GetSmartApiUrl(Request).TrimEnd('/') + Request.PathBase;
-        var providers = config.Providers
-            .Where(p => p.Enabled)
+        var providers = config.EnabledProviders
             .Select(p => new
             {
                 p.ProviderId,
                 p.DisplayName,
-                p.ButtonColor,
-                p.ButtonIcon,
                 StartUrl = $"{baseUrl}/sso/OIDC/Start/{p.ProviderId}"
             });
 
         return Ok(providers);
     }
 
-    private OidcProviderConfig? GetProvider(string providerId)
-    {
-        return OidcPlugin.Instance?.Configuration.Providers
-            .FirstOrDefault(p => string.Equals(p.ProviderId, providerId, StringComparison.OrdinalIgnoreCase)
-                                 && p.Enabled);
-    }
-
-    private bool ValidateOrPinEndpoints(OidcProviderConfig provider, DiscoveryDocumentResponse disco)
-    {
-        // Treat as unpinned only when all three endpoint fields are empty.
-        // Admin-pre-filled pins (PinnedAuthority empty, but Issuer/Token/Jwks set) are respected.
-        var unpinned = string.IsNullOrEmpty(provider.PinnedIssuer)
-                       && string.IsNullOrEmpty(provider.PinnedTokenEndpoint)
-                       && string.IsNullOrEmpty(provider.PinnedJwksUri);
-
-        // Only treat the authority as having changed when there was a previous pinned authority.
-        // This prevents overwriting admin-pre-set pins when PinnedAuthority hasn't been written yet.
-        var authorityChanged = !string.IsNullOrEmpty(provider.PinnedAuthority)
-                               && !string.Equals(provider.Authority, provider.PinnedAuthority, StringComparison.OrdinalIgnoreCase);
-
-        if (unpinned || authorityChanged)
-        {
-            provider.PinnedAuthority = provider.Authority;
-            provider.PinnedIssuer = disco.Issuer ?? string.Empty;
-            provider.PinnedTokenEndpoint = disco.TokenEndpoint ?? string.Empty;
-            provider.PinnedJwksUri = disco.JwksUri ?? string.Empty;
-            OidcPlugin.Instance?.SaveConfiguration();
-            _logger.LogInformation("Pinned discovery endpoints for provider {Provider}", provider.ProviderId);
-            return true;
-        }
-
-        var issuerMatch = string.Equals(disco.Issuer, provider.PinnedIssuer, StringComparison.Ordinal);
-        var tokenMatch = string.Equals(disco.TokenEndpoint, provider.PinnedTokenEndpoint, StringComparison.Ordinal);
-        var jwksMatch = string.Equals(disco.JwksUri, provider.PinnedJwksUri, StringComparison.Ordinal);
-
-        if (!issuerMatch || !tokenMatch || !jwksMatch)
-        {
-            _logger.LogError(
-                "Discovery endpoint mismatch for {Provider} — expected issuer={Issuer} token={Token} jwks={Jwks}; got issuer={ActualIssuer} token={ActualToken} jwks={ActualJwks}. Pins retained — re-run Test Connection in the admin UI to update them.",
-                provider.ProviderId,
-                provider.PinnedIssuer, provider.PinnedTokenEndpoint, provider.PinnedJwksUri,
-                disco.Issuer, disco.TokenEndpoint, disco.JwksUri);
-            return false;
-        }
-
-        return true;
-    }
-
-    private async Task<DiscoveryDocumentResponse> GetDiscoveryDocumentAsync(OidcProviderConfig provider, IPAddress? pinnedAddress)
-    {
-        // Pin the connection to the exact address AuthorityGuard already validated, so a
-        // DNS-rebinding attacker can't swap in a different (internal) address between the
-        // guard check and this request. Falls back to the shared client only when resolution
-        // failed naturally (malformed URL/DNS failure) — the fetch is left to fail on its own.
-        using var httpClient = pinnedAddress != null
-            ? _pinnedHttpClientFactory(pinnedAddress, true)
-            : _httpClientFactory.CreateClient("OidcPlugin");
-        return await httpClient.GetDiscoveryDocumentAsync(new DiscoveryDocumentRequest
-        {
-            Address = provider.Authority,
-            Policy = new DiscoveryPolicy
-            {
-                ValidateIssuerName = true,
-                ValidateEndpoints = false
-            }
-        }).ConfigureAwait(false);
-    }
+    private static OidcProviderConfig? GetProvider(string providerId)
+        => OidcPlugin.CurrentConfig.FindProvider(providerId) is { Enabled: true } p ? p : null;
 
     private string BuildRedirectUri(OidcProviderConfig provider)
     {
@@ -670,6 +405,34 @@ public class OidcController : ControllerBase
         return Base64UrlEncoder.Encode(hash);
     }
 
+    /// <summary>
+    /// Best-effort sanity check on the discovery document before the authorize redirect: warns
+    /// (never blocks) when the IdP advertises a PKCE method set without <c>S256</c>, or omits a
+    /// requested scope from <c>scopes_supported</c>. An incomplete discovery document is common
+    /// and must not lock out a working setup, so this only logs. Mirrors the scope check in
+    /// <see cref="ConfigController.TestProvider"/>.
+    /// </summary>
+    private void LogDiscoveryPreflightWarnings(DiscoveryDocumentResponse disco, OidcProviderConfig provider, string providerId)
+    {
+        var pkceMethods = disco.CodeChallengeMethodsSupported?.ToList();
+        if (pkceMethods is { Count: > 0 }
+            && !pkceMethods.Contains(OidcConstants.CodeChallengeMethods.Sha256, StringComparer.Ordinal))
+        {
+            _logger.LogWarning(
+                "OIDC preflight: provider {Provider} advertises code_challenge_methods_supported [{Methods}] without \"S256\"; "
+                + "the plugin only sends S256, so the authorization request may be rejected.",
+                providerId, string.Join(", ", pkceMethods));
+        }
+
+        var missing = OidcProtocolService.MissingScopes(disco, provider.Scopes);
+        if (missing.Count > 0)
+        {
+            _logger.LogWarning(
+                "OIDC preflight: provider {Provider} requests scope(s) not in scopes_supported: {Missing}",
+                providerId, string.Join(", ", missing));
+        }
+    }
+
     private static string BuildCsrfCookieName(string stateKey) => $"oidc_csrf.{stateKey}";
 
     private static bool VerifyCsrfToken(string? cookieValue, string expectedToken) =>
@@ -678,205 +441,72 @@ public class OidcController : ControllerBase
             Encoding.UTF8.GetBytes(cookieValue),
             Encoding.UTF8.GetBytes(expectedToken));
 
-    private static Parameters? ParseAdditionalParameters(string? raw)
+    private Parameters? ParseAdditionalParameters(string? raw, string providerId)
     {
         if (string.IsNullOrWhiteSpace(raw))
         {
             return null;
         }
 
-        var pairs = raw.Split('&', StringSplitOptions.RemoveEmptyEntries)
-            .Select(p => p.Split('=', 2))
-            .Where(p => p.Length == 2)
-            .Select(p => new KeyValuePair<string, string>(
-                Uri.UnescapeDataString(p[0].Trim()),
-                Uri.UnescapeDataString(p[1].Trim())));
+        var kept = new List<KeyValuePair<string, string>>();
+        var dropped = new List<string>();
 
-        return new Parameters(pairs);
-    }
-
-    private static string BuildCallbackHtml(string sessionToken, string providerId, string nonce)
-    {
-        // JSON-encode both values so single quotes, backslashes, or other JS metacharacters
-        // in admin-configured provider IDs cannot break out of the string literal.
-        var tokenJson = System.Text.Json.JsonSerializer.Serialize(sessionToken);
-        var providerIdJson = System.Text.Json.JsonSerializer.Serialize(providerId);
-
-        return $$"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Authenticating...</title>
-        <style nonce="{{nonce}}">
-            :root { color-scheme: dark; }
-            body { font-family: system-ui, -apple-system, sans-serif; background: #101010; color: #eee;
-                   display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
-            .card { box-sizing: border-box; background: #1c1c1c; padding: 2em; border-radius: 8px;
-                    max-width: 360px; width: 90%; box-shadow: 0 4px 24px rgba(0,0,0,.5); text-align: center; }
-            .spinner { width: 2.5em; height: 2.5em; margin: 0 auto 1.25em; border: .3em solid #444;
-                       border-top-color: #386d4b; border-radius: 50%; animation: spin .8s linear infinite; }
-            h2 { margin: 0 0 .5em; }
-            p { min-height: 1.4em; margin: 0; color: #aaa; line-height: 1.5; }
-            @keyframes spin { to { transform: rotate(360deg); } }
-            @media (prefers-reduced-motion: reduce) { .spinner { animation: none; border-top-color: #444; } }
-        </style>
-        </head>
-        <body>
-        <main class="card">
-            <div class="spinner" aria-hidden="true"></div>
-            <h2>Completing authentication…</h2>
-            <p id="status" role="status">Please wait…</p>
-        </main>
-        <script nonce="{{nonce}}">
-        (function() {
-            const token = {{tokenJson}};
-            const providerId = {{providerIdJson}};
-
-            // Jellyfin may run under a base path (Networking > Base URL). Derive it from the URL
-            // this callback was served at, so every link below keeps the prefix. Empty when unset.
-            const basePath = window.location.pathname.replace(/\/sso\/OIDC\/Callback\/[^/]+\/?$/i, '');
-
-            // '_deviceId2' and 'jellyfin_credentials' below are jellyfin-web internals with no
-            // public "adopt this token" API. Verified against jellyfin-web 12.0 (apphost.js,
-            // lib/jellyfin-apiclient) — re-check on the next Jellyfin major.
-            const deviceId = localStorage.getItem('_deviceId2') || crypto.randomUUID();
-            localStorage.setItem('_deviceId2', deviceId);
-
-            fetch(basePath + '/sso/OIDC/Auth/' + providerId, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    Token: token,
-                    DeviceId: deviceId,
-                    DeviceName: navigator.userAgent.substring(0, 50),
-                    App: 'Jellyfin Web',
-                    AppVersion: '12.0.0'
-                })
-            })
-            .then(function(r) {
-                if (!r.ok) throw new Error('Auth failed: ' + r.status);
-                return r.json();
-            })
-            .then(function(auth) {
-                var credentials = {
-                    Servers: [{
-                        Id: auth.ServerId,
-                        ManualAddress: window.location.origin + basePath,
-                        AccessToken: auth.AccessToken,
-                        UserId: auth.User.Id,
-                        DateLastAccessed: Date.now()
-                    }]
-                };
-                localStorage.setItem('jellyfin_credentials', JSON.stringify(credentials));
-
-                document.getElementById('status').textContent = 'Success! Redirecting...';
-                window.location.href = basePath + '/';
-            })
-            .catch(function(err) {
-                document.getElementById('status').textContent = 'Error: ' + err.message;
-            });
-        })();
-        </script>
-        </body>
-        </html>
-        """;
-    }
-
-    private static string BuildQuickConnectHtml(string sessionToken, string providerId, string nonce)
-    {
-        // JSON-encode both values so single quotes, backslashes, or other JS metacharacters
-        // in admin-configured provider IDs cannot break out of the string literal.
-        var tokenJson = System.Text.Json.JsonSerializer.Serialize(sessionToken);
-        var providerIdJson = System.Text.Json.JsonSerializer.Serialize(providerId);
-
-        return $$"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Quick Connect</title>
-        <style nonce="{{nonce}}">
-            body { font-family: system-ui, -apple-system, sans-serif; background: #101010; color: #eee;
-                   display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
-            .card { background: #1c1c1c; padding: 2em; border-radius: 8px; max-width: 360px; width: 90%;
-                    box-shadow: 0 4px 24px rgba(0,0,0,.5); text-align: center; }
-            h2 { margin-top: 0; }
-            p { color: #aaa; line-height: 1.5; }
-            input { width: 100%; box-sizing: border-box; font-size: 1.6em; letter-spacing: .3em;
-                    text-align: center; padding: .5em; margin: .5em 0 1em; border-radius: 4px;
-                    border: 1px solid #444; background: #111; color: #fff; }
-            button { width: 100%; padding: .8em; font-size: 1em; border: 0; border-radius: 4px;
-                     background: #00a4dc; color: #fff; cursor: pointer; }
-            button:disabled { opacity: .6; cursor: default; }
-            #msg { min-height: 1.4em; margin-top: 1em; }
-            .ok { color: #4caf50; }
-            .err { color: #f44336; }
-        </style>
-        </head>
-        <body>
-        <div class="card">
-            <h2>Quick Connect</h2>
-            <p>Enter the code shown on your device to finish signing in.</p>
-            <input id="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off"
-                   placeholder="000000" aria-label="Quick Connect code">
-            <button id="submit">Authorize</button>
-            <div id="msg"></div>
-        </div>
-        <script nonce="{{nonce}}">
-        (function() {
-            const token = {{tokenJson}};
-            const providerId = {{providerIdJson}};
-            // Preserve Jellyfin's base path (Networking > Base URL); empty when unset.
-            const basePath = window.location.pathname.replace(/\/sso\/OIDC\/Callback\/[^/]+\/?$/i, '');
-            const codeInput = document.getElementById('code');
-            const button = document.getElementById('submit');
-            const msg = document.getElementById('msg');
-
-            codeInput.focus();
-
-            function submit() {
-                const code = (codeInput.value || '').trim();
-                if (!code) { return; }
-                button.disabled = true;
-                msg.className = '';
-                msg.textContent = 'Authorizing...';
-
-                fetch(basePath + '/sso/OIDC/QuickConnect/Authorize/' + encodeURIComponent(providerId), {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ Token: token, Code: code })
-                })
-                .then(function(r) {
-                    return r.text().then(function(body) {
-                        if (!r.ok) { throw new Error(body || ('Error ' + r.status)); }
-                    });
-                })
-                .then(function() {
-                    msg.className = 'ok';
-                    msg.textContent = 'Approved! Return to your device — it should sign in shortly.';
-                    codeInput.disabled = true;
-                    button.disabled = true;
-                })
-                .catch(function(err) {
-                    msg.className = 'err';
-                    msg.textContent = err.message;
-                    button.disabled = false;
-                    codeInput.focus();
-                    codeInput.select();
-                });
+        foreach (var token in raw.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = token.Split('=', 2);
+            var key = parts[0].Trim();
+            if (parts.Length != 2 || key.Length == 0)
+            {
+                dropped.Add(token);
+                continue;
             }
 
-            button.addEventListener('click', submit);
-            codeInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') { submit(); } });
-        })();
-        </script>
-        </body>
-        </html>
-        """;
+            kept.Add(new KeyValuePair<string, string>(
+                Uri.UnescapeDataString(key),
+                Uri.UnescapeDataString(parts[1].Trim())));
+        }
+
+        if (dropped.Count > 0)
+        {
+            _logger.LogWarning(
+                "OIDC provider {Provider}: ignored malformed Additional Parameters (expected '&'-separated key=value): {Dropped}",
+                providerId, string.Join(", ", dropped));
+        }
+
+        return kept.Count > 0 ? new Parameters(kept) : null;
     }
+
+    /// <summary>
+    /// The interactive-login landing page: its inline script trades the one-time
+    /// <paramref name="sessionToken"/> for a Jellyfin session and writes jellyfin-web's
+    /// localStorage credentials. Markup lives in <c>Configuration/CallbackPage.html</c>;
+    /// every injected value is JSON-encoded here so an admin-configured provider ID can't
+    /// break out of the script literal.
+    /// </summary>
+    private static string BuildCallbackHtml(string sessionToken, string providerId, string cspNonce)
+        => EmbeddedPage.Render("CallbackPage.html", new Dictionary<string, string>
+        {
+            ["__CSP_NONCE__"] = cspNonce,
+            ["__TOKEN_JSON__"] = System.Text.Json.JsonSerializer.Serialize(sessionToken),
+            ["__PROVIDER_ID_JSON__"] = System.Text.Json.JsonSerializer.Serialize(providerId),
+            ["__DEVICE_ID_KEY_JSON__"] = System.Text.Json.JsonSerializer.Serialize(JellyfinWebDeviceIdStorageKey),
+            ["__CREDENTIALS_KEY_JSON__"] = System.Text.Json.JsonSerializer.Serialize(JellyfinWebCredentialsStorageKey),
+            ["__APP_NAME_JSON__"] = System.Text.Json.JsonSerializer.Serialize(JellyfinWebAppName),
+            ["__APP_VERSION_JSON__"] = System.Text.Json.JsonSerializer.Serialize(JellyfinWebAppVersion)
+        });
+
+    /// <summary>
+    /// The Quick Connect landing page: prompts for the device's code and POSTs it with the
+    /// one-time <paramref name="sessionToken"/>. Markup lives in
+    /// <c>Configuration/QuickConnectPage.html</c>; injected values are JSON-encoded here.
+    /// </summary>
+    private static string BuildQuickConnectHtml(string sessionToken, string providerId, string cspNonce)
+        => EmbeddedPage.Render("QuickConnectPage.html", new Dictionary<string, string>
+        {
+            ["__CSP_NONCE__"] = cspNonce,
+            ["__TOKEN_JSON__"] = System.Text.Json.JsonSerializer.Serialize(sessionToken),
+            ["__PROVIDER_ID_JSON__"] = System.Text.Json.JsonSerializer.Serialize(providerId)
+        });
 }
 
 public class AuthenticateRequest

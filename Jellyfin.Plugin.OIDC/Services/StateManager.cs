@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -15,10 +17,7 @@ public sealed class OidcState
     public required string RedirectUri { get; init; }
     public required string CsrfToken { get; init; }
 
-    /// <summary>
-    /// When true, the callback drives Jellyfin Quick Connect (for logging in a native/mobile
-    /// app) instead of storing web-client credentials in the browser's localStorage.
-    /// </summary>
+    /// When true, the callback drives Quick Connect instead of a web-client localStorage login.
     public bool QuickConnect { get; init; }
 
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
@@ -31,6 +30,51 @@ public sealed class AuthorizedSession
     public string? DisplayName { get; init; }
     public string? PictureUrl { get; init; }
     public required string[] Roles { get; init; }
+
+    /// The OIDC <c>sub</c> claim - the stable identity key.
+    public string? Subject { get; init; }
+
+    /// The OIDC <c>sid</c> (session id) claim, when the IdP issues one. Used to target back-channel logout.
+    public string? Sid { get; init; }
+
+    /// The token issuer, carried so a back-channel logout token can be correlated to the right provider.
+    public string? Issuer { get; init; }
+
+    /// The <c>email</c> claim value, when present.
+    public string? Email { get; init; }
+
+    /// True when the token asserted <c>email_verified</c>.
+    public bool EmailVerified { get; init; }
+
+    /// <summary>
+    /// Set once the Jellyfin user has been provisioned/synced for this session (Quick Connect
+    /// peeks the session and retries on a mistyped code - this lets the retry skip re-running
+    /// SyncUser + RBAC). Mutable because the session object is reused across peeks.
+    /// </summary>
+    public Guid? SyncedUserId { get; set; }
+
+    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
+}
+
+/// 
+/// A minted session correlated to its OIDC identity for back-channel logout targeting.
+/// In-memory only, so a Jellyfin restart drops every entry here. That's fine for a bare
+/// <c>sub</c> logout (resolved straight from <see cref="Configuration.PluginConfiguration.UserProviderMap"/>,
+/// which is persisted), but a <c>sid</c>-only <c>logout_token</c> has no <c>sub</c> to fall
+/// back to - see <see cref="Configuration.UserProviderEntry.LogoutSid"/>, which is what
+/// actually keeps a sid-scoped logout resolvable across a restart, independently of this table.
+/// 
+public sealed class TrackedSession
+{
+    public required string ProviderId { get; init; }
+    public required string Issuer { get; init; }
+    public required string Subject { get; init; }
+
+    /// The OIDC <c>sid</c> claim for this in-memory record - not the persisted one; see <see cref="Configuration.UserProviderEntry.LogoutSid"/>.
+    public string? Sid { get; init; }
+    public required Guid UserId { get; init; }
+    public required string DeviceId { get; init; }
+    public required string SessionId { get; init; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 
@@ -39,13 +83,20 @@ public sealed class StateManager : IHostedService, IDisposable
     internal static readonly TimeSpan StateExpiry = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan SessionExpiry = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan TrackedSessionMaxAge = TimeSpan.FromDays(90);
 
     // Hard caps prevent unbounded memory growth from unauthenticated flood attacks.
     private const int MaxPendingStates = 500;
     private const int MaxAuthorizedSessions = 200;
+    private const int MaxTrackedSessions = 5000;
+    private const int MaxSeenJti = 5000;
 
     private readonly ConcurrentDictionary<string, OidcState> _pendingStates = new();
     private readonly ConcurrentDictionary<string, AuthorizedSession> _authorizedSessions = new();
+    private readonly ConcurrentDictionary<string, TrackedSession> _trackedSessions = new();
+
+    // logout-token jti -> when it's safe to forget (token expiry + skew), so replay stays blocked for its full validity window.
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _seenJti = new();
     private readonly ILogger<StateManager> _logger;
     private Timer? _cleanupTimer;
 
@@ -54,12 +105,36 @@ public sealed class StateManager : IHostedService, IDisposable
         _logger = logger;
     }
 
+    /// <summary>
+    /// Removes the one entry whose <paramref name="timestamp"/> is earliest, in a single pass
+    /// (no per-insert sort). Used by every capped table here to make room under a flood.
+    /// Returns whether an entry was actually removed.
+    /// </summary>
+    private static bool EvictLowest<TValue>(
+        ConcurrentDictionary<string, TValue> map, Func<TValue, DateTimeOffset> timestamp)
+    {
+        string? lowestKey = null;
+        var lowest = DateTimeOffset.MaxValue;
+        foreach (var (key, value) in map)
+        {
+            var candidate = timestamp(value);
+            if (candidate < lowest)
+            {
+                lowest = candidate;
+                lowestKey = key;
+            }
+        }
+
+        return lowestKey != null && map.TryRemove(lowestKey, out _);
+    }
+
     public string? StoreState(OidcState state)
     {
-        if (_pendingStates.Count >= MaxPendingStates)
+        if (_pendingStates.Count >= MaxPendingStates
+            && EvictLowest(_pendingStates, s => s.CreatedAt))
         {
-            _logger.LogWarning("Pending OIDC state cap ({Max}) reached — rejecting new auth request", MaxPendingStates);
-            return null;
+            // Oldest pending state is past StateExpiry anyway; evicting it beats rejecting a real login.
+            _logger.LogWarning("Pending OIDC state cap ({Max}) reached - evicted oldest pending state", MaxPendingStates);
         }
 
         var key = Guid.NewGuid().ToString("N");
@@ -87,7 +162,7 @@ public sealed class StateManager : IHostedService, IDisposable
     {
         if (_authorizedSessions.Count >= MaxAuthorizedSessions)
         {
-            _logger.LogWarning("Authorized session cap ({Max}) reached — rejecting new session", MaxAuthorizedSessions);
+            _logger.LogWarning("Authorized session cap ({Max}) reached - rejecting new session", MaxAuthorizedSessions);
             return null;
         }
 
@@ -112,11 +187,7 @@ public sealed class StateManager : IHostedService, IDisposable
         return session;
     }
 
-    /// <summary>
-    /// Returns the authorized session without removing it, so a caller can validate it across
-    /// multiple attempts (e.g. a mistyped Quick Connect code). Expired sessions are evicted and
-    /// return null. Invalidate explicitly with <see cref="InvalidateAuthorizedSession"/> once done.
-    /// </summary>
+    /// Reads without removing, so a caller can retry (e.g. a mistyped Quick Connect code). Invalidate explicitly when done.
     public AuthorizedSession? PeekAuthorizedSession(string token)
     {
         if (!_authorizedSessions.TryGetValue(token, out var session))
@@ -137,6 +208,53 @@ public sealed class StateManager : IHostedService, IDisposable
     public void InvalidateAuthorizedSession(string token)
     {
         _authorizedSessions.TryRemove(token, out _);
+    }
+
+    public void TrackSession(TrackedSession session)
+    {
+        if (_trackedSessions.Count >= MaxTrackedSessions)
+        {
+            EvictLowest(_trackedSessions, s => s.CreatedAt);
+        }
+
+        _trackedSessions[session.SessionId] = session;
+    }
+
+    // Callers pass whichever id might be the key (session id, or the device-id fallback); a miss is a no-op.
+    public void UntrackBySessionId(string sessionId) => _trackedSessions.TryRemove(sessionId, out _);
+
+    public IReadOnlyList<TrackedSession> FindTracked(string issuer, string? sub, string? sid)
+        => _trackedSessions.Values.Where(s =>
+                string.Equals(s.Issuer, issuer, StringComparison.Ordinal)
+                && ((!string.IsNullOrEmpty(sid) && string.Equals(s.Sid, sid, StringComparison.Ordinal))
+                    || (!string.IsNullOrEmpty(sub) && string.Equals(s.Subject, sub, StringComparison.Ordinal))))
+            .ToList();
+
+    /// Records a logout-token <c>jti</c>; returns false if already seen (replay).
+    public bool RegisterJti(string jti, DateTimeOffset forgetAfter)
+    {
+        if (string.IsNullOrEmpty(jti))
+        {
+            return false;
+        }
+
+        if (_seenJti.Count >= MaxSeenJti)
+        {
+            // Evict the entry expiring soonest - it was about to be cleaned up anyway.
+            EvictLowest(_seenJti, forgetAt => forgetAt);
+        }
+
+        return _seenJti.TryAdd(jti, forgetAfter);
+    }
+
+    /// Undoes <see cref="RegisterJti"/> so the token can be retried - for when the logout that
+    /// consumed it revoked nothing because every attempt errored.
+    public void UnregisterJti(string jti)
+    {
+        if (!string.IsNullOrEmpty(jti))
+        {
+            _seenJti.TryRemove(jti, out _);
+        }
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -173,6 +291,22 @@ public sealed class StateManager : IHostedService, IDisposable
             if (now - session.CreatedAt > SessionExpiry)
             {
                 _authorizedSessions.TryRemove(key, out _);
+            }
+        }
+
+        foreach (var (key, tracked) in _trackedSessions)
+        {
+            if (now - tracked.CreatedAt > TrackedSessionMaxAge)
+            {
+                _trackedSessions.TryRemove(key, out _);
+            }
+        }
+
+        foreach (var (jti, forgetAfter) in _seenJti)
+        {
+            if (now > forgetAfter)
+            {
+                _seenJti.TryRemove(jti, out _);
             }
         }
     }

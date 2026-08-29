@@ -23,8 +23,7 @@ public class ProfileImageServiceTests
 {
     private const string OidcAuthProviderId = "Jellyfin.Plugin.OIDC.Auth.OidcAuthProvider";
 
-    // A public IP literal — AuthorityGuard.ValidateAsync passes it without a real DNS lookup,
-    // keeping these tests fast and network-independent (mirrors AuthorityGuardTests' convention).
+    // A public IP literal skips a real DNS lookup, keeping these tests fast and network-independent.
     private const string PublicPictureUrl = "https://8.8.8.8/avatar.png";
     private const string LoopbackPictureUrl = "https://127.0.0.1/avatar.png";
     private const string TestProviderId = "testprovider";
@@ -36,14 +35,6 @@ public class ProfileImageServiceTests
     private static (ProfileImageService Service, IUserManager UserManager, IProviderManager ProviderManager) MakeService(
         HttpMessageHandler handler)
     {
-        var httpClientFactory = Substitute.For<IHttpClientFactory>();
-        httpClientFactory.CreateClient("OidcPluginImage").Returns(new HttpClient(handler));
-
-        // Test URLs are IP literals (see PublicPictureUrl/LoopbackPictureUrl), so
-        // AuthorityGuard always resolves a pinned address — route the pinned path through the
-        // same mock handler instead of a real socket connection.
-        HttpClient PinnedClientFactory(IPAddress _, bool __) => new(handler);
-
         var userManager = Substitute.For<IUserManager>();
         userManager.UpdateUserAsync(Arg.Any<User>()).Returns(Task.CompletedTask);
         userManager.ClearProfileImageAsync(Arg.Any<User>()).Returns(Task.CompletedTask);
@@ -57,7 +48,7 @@ public class ProfileImageServiceTests
         serverConfigManager.ApplicationPaths.Returns(appPaths);
 
         var service = new ProfileImageService(
-            httpClientFactory, PinnedClientFactory, userManager, serverConfigManager, providerManager, NullLogger<ProfileImageService>.Instance);
+            TestHttp.GuardedFactory(handler), userManager, serverConfigManager, providerManager, NullLogger<ProfileImageService>.Instance);
 
         return (service, userManager, providerManager);
     }
@@ -84,13 +75,11 @@ public class ProfileImageServiceTests
     [Fact]
     public async Task NullUrl_DoesNotTouchUserManager()
     {
-        // Arrange — a throwing handler proves the method returns before making any HTTP call.
+        // A throwing handler proves the method returns before making any HTTP call.
         var (service, userManager, _) = MakeService(new ThrowingHttpMessageHandler(new HttpRequestException("should never be called")));
 
-        // Act
         await service.ApplyProfileImageAsync(Guid.NewGuid(), null, TestProviderId);
 
-        // Assert
         userManager.DidNotReceive().GetUserById(Arg.Any<Guid>());
     }
 
@@ -145,22 +134,27 @@ public class ProfileImageServiceTests
     }
 
     [Fact]
-    public async Task LoopbackUrl_ProviderAllowsLoopback_Proceeds()
+    public async Task LoopbackUrl_ProviderAllowsLoopbackAuthority_PictureStillBlocked()
     {
+        // AllowLoopbackAuthority/AllowLinkLocalAuthority express trust in the admin-configured,
+        // fixed Authority URL - they must NOT extend to the end-user-controlled picture claim,
+        // or a user could point their own avatar at loopback/link-local (SSRF) once an admin
+        // enables either flag for a legitimately loopback/link-local-hosted IdP.
         SetProviderConfig(allowLoopback: true);
         var (service, userManager, providerManager) =
-            MakeService(new MockHttpMessageHandler(HttpStatusCode.OK, "binary-data", "image/png"));
+            MakeService(new ThrowingHttpMessageHandler(new HttpRequestException("should never be called")));
         userManager.GetUserById(Arg.Any<Guid>()).Returns(MakeUser());
 
         await service.ApplyProfileImageAsync(Guid.NewGuid(), LoopbackPictureUrl, TestProviderId);
 
-        await providerManager.Received(1).SaveImage(Arg.Any<Stream>(), "image/png", Arg.Any<string>());
+        await providerManager.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
     }
 
     [Fact]
-    public async Task UnknownProviderId_TreatedAsNoOptOuts_LoopbackBlocked()
+    public async Task UnknownProviderId_LoopbackStillBlocked()
     {
-        // No provider config matches this ID — the guard must fail closed (no opt-outs), not throw.
+        // providerId no longer affects the guard at all (picture fetches never get loopback/link-local
+        // opt-outs), but an unknown id must still be handled without throwing.
         SetProviderConfig();
         var (service, userManager, providerManager) =
             MakeService(new ThrowingHttpMessageHandler(new HttpRequestException("should never be called")));
@@ -200,6 +194,21 @@ public class ProfileImageServiceTests
     }
 
     [Fact]
+    public async Task SvgContentType_DoesNotSaveImage()
+    {
+        // SVG is a scriptable vector format with no legitimate reason to be a profile avatar -
+        // rejected even though it technically satisfies a bare "image/*" check.
+        SetProviderConfig();
+        var (service, userManager, providerManager) =
+            MakeService(new MockHttpMessageHandler(HttpStatusCode.OK, "<svg onload=\"alert(1)\"></svg>", "image/svg+xml"));
+        userManager.GetUserById(Arg.Any<Guid>()).Returns(MakeUser());
+
+        await service.ApplyProfileImageAsync(Guid.NewGuid(), PublicPictureUrl, TestProviderId);
+
+        await providerManager.DidNotReceive().SaveImage(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
     public async Task OversizedContentLength_DoesNotSaveImage()
     {
         SetProviderConfig();
@@ -228,7 +237,7 @@ public class ProfileImageServiceTests
     [Fact]
     public async Task HttpTransportThrows_DoesNotThrow()
     {
-        // Avatar sync must never break login — success is simply not throwing.
+        // Avatar sync must never break login - success is simply not throwing.
         SetProviderConfig();
         var (service, userManager, _) =
             MakeService(new ThrowingHttpMessageHandler(new HttpRequestException("No route to host")));
