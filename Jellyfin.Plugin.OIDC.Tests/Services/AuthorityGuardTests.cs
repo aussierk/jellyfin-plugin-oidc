@@ -77,127 +77,80 @@ public class AuthorityGuardTests
         Assert.False(AuthorityGuard.IsPrivateNetworkOrUla(IPAddress.Parse(ip)));
     }
 
-    // ── ValidateAsync ────────────────────────────────────────────────────────
+    // ── ValidateAndResolveAsync ────────────────────────────────────────────────
+    // ValidateAsync (a resolve-and-discard-address wrapper with no production caller) was
+    // removed; only the cases below that weren't already covered were migrated here.
 
     [Fact]
-    public async Task ValidateAsync_LoopbackIpLiteralAuthority_ReturnsBlockReason()
+    public async Task ValidateAndResolveAsync_LinkLocalIpLiteralAuthority_ReturnsBlockReason()
     {
-        var result = await AuthorityGuard.ValidateAsync(
-            "https://127.0.0.1/realms/test", allowLoopback: false, allowLinkLocal: false, blockPrivateNetworks: false);
-
-        Assert.NotNull(result);
-        Assert.Contains("loopback address", result);
-    }
-
-    [Fact]
-    public async Task ValidateAsync_LinkLocalIpLiteralAuthority_ReturnsBlockReason()
-    {
-        var result = await AuthorityGuard.ValidateAsync(
+        var (blockReason, _) = await AuthorityGuard.ValidateAndResolveAsync(
             "https://169.254.169.254/", allowLoopback: false, allowLinkLocal: false, blockPrivateNetworks: false);
 
-        Assert.NotNull(result);
-        Assert.Contains("link-local address", result);
+        Assert.NotNull(blockReason);
+        Assert.Contains("link-local address", blockReason);
     }
 
     [Fact]
-    public async Task ValidateAsync_LoopbackAuthority_WithLoopbackOptOut_ReturnsNull()
+    public async Task ValidateAndResolveAsync_LinkLocalAuthority_WithLinkLocalOptOut_ReturnsNull()
     {
-        var result = await AuthorityGuard.ValidateAsync(
-            "https://127.0.0.1/realms/test", allowLoopback: true, allowLinkLocal: false, blockPrivateNetworks: false);
-
-        Assert.Null(result);
-    }
-
-    [Fact]
-    public async Task ValidateAsync_LinkLocalAuthority_WithLinkLocalOptOut_ReturnsNull()
-    {
-        var result = await AuthorityGuard.ValidateAsync(
+        var (blockReason, _) = await AuthorityGuard.ValidateAndResolveAsync(
             "https://169.254.169.254/", allowLoopback: false, allowLinkLocal: true, blockPrivateNetworks: false);
 
-        Assert.Null(result);
+        Assert.Null(blockReason);
     }
 
     [Fact]
-    public async Task ValidateAsync_LinkLocalAuthority_WithOnlyLoopbackOptOut_StillBlocked()
+    public async Task ValidateAndResolveAsync_LinkLocalAuthority_WithOnlyLoopbackOptOut_StillBlocked()
     {
-        // Opt-outs are independent — allowing loopback must not also allow link-local.
-        var result = await AuthorityGuard.ValidateAsync(
+        // Opt-outs are independent - allowing loopback must not also allow link-local.
+        var (blockReason, _) = await AuthorityGuard.ValidateAndResolveAsync(
             "https://169.254.169.254/", allowLoopback: true, allowLinkLocal: false, blockPrivateNetworks: false);
 
-        Assert.NotNull(result);
-        Assert.Contains("link-local address", result);
+        Assert.NotNull(blockReason);
+        Assert.Contains("link-local address", blockReason);
     }
 
     [Fact]
-    public async Task ValidateAsync_LoopbackAuthority_WithOnlyLinkLocalOptOut_StillBlocked()
+    public async Task ValidateAndResolveAsync_LoopbackAuthority_WithOnlyLinkLocalOptOut_StillBlocked()
     {
-        var result = await AuthorityGuard.ValidateAsync(
+        var (blockReason, _) = await AuthorityGuard.ValidateAndResolveAsync(
             "https://127.0.0.1/", allowLoopback: false, allowLinkLocal: true, blockPrivateNetworks: false);
 
-        Assert.NotNull(result);
-        Assert.Contains("loopback address", result);
+        Assert.NotNull(blockReason);
+        Assert.Contains("loopback address", blockReason);
     }
 
     [Fact]
-    public async Task ValidateAsync_PublicIpLiteralAuthority_ReturnsNull()
+    public async Task ValidateAndResolveAsync_Rfc1918Authority_BlockPrivateNetworksFalse_ReturnsNull()
     {
-        var result = await AuthorityGuard.ValidateAsync(
-            "https://8.8.8.8/", allowLoopback: false, allowLinkLocal: false, blockPrivateNetworks: false);
-
-        Assert.Null(result);
-    }
-
-    [Fact]
-    public async Task ValidateAsync_Rfc1918Authority_BlockPrivateNetworksFalse_ReturnsNull()
-    {
-        // RFC1918 is allowed by default (blockPrivateNetworks off) — no opt-out needed.
-        var result = await AuthorityGuard.ValidateAsync(
+        // RFC1918 is allowed by default (blockPrivateNetworks off) - no opt-out needed.
+        var (blockReason, _) = await AuthorityGuard.ValidateAndResolveAsync(
             "https://10.0.40.10/", allowLoopback: false, allowLinkLocal: false, blockPrivateNetworks: false);
 
-        Assert.Null(result);
+        Assert.Null(blockReason);
     }
 
     [Fact]
-    public async Task ValidateAsync_Rfc1918Authority_BlockPrivateNetworksTrue_ReturnsBlockReason()
+    public async Task ValidateAndResolveAsync_UlaAuthority_BlockPrivateNetworksTrue_ReturnsBlockReason()
     {
-        var result = await AuthorityGuard.ValidateAsync(
-            "https://10.0.40.10/", allowLoopback: false, allowLinkLocal: false, blockPrivateNetworks: true);
-
-        Assert.NotNull(result);
-        Assert.Contains("private-network address", result);
-    }
-
-    [Fact]
-    public async Task ValidateAsync_UlaAuthority_BlockPrivateNetworksTrue_ReturnsBlockReason()
-    {
-        var result = await AuthorityGuard.ValidateAsync(
+        var (blockReason, _) = await AuthorityGuard.ValidateAndResolveAsync(
             "https://[fd00::1]/", allowLoopback: false, allowLinkLocal: false, blockPrivateNetworks: true);
 
-        Assert.NotNull(result);
-        Assert.Contains("private-network address", result);
+        Assert.NotNull(blockReason);
+        Assert.Contains("private-network address", blockReason);
     }
 
     [Fact]
-    public async Task ValidateAsync_PublicAuthority_BlockPrivateNetworksTrue_ReturnsNull()
+    public async Task ValidateAndResolveAsync_PublicAuthority_BlockPrivateNetworksTrue_ReturnsNull()
     {
-        var result = await AuthorityGuard.ValidateAsync(
+        var (blockReason, _) = await AuthorityGuard.ValidateAndResolveAsync(
             "https://8.8.8.8/", allowLoopback: false, allowLinkLocal: false, blockPrivateNetworks: true);
 
-        Assert.Null(result);
+        Assert.Null(blockReason);
     }
 
-    [Fact]
-    public async Task ValidateAsync_MalformedAuthority_ReturnsNullAndDoesNotThrow()
-    {
-        var result = await AuthorityGuard.ValidateAsync(
-            "not-a-valid-url", allowLoopback: false, allowLinkLocal: false, blockPrivateNetworks: false);
-
-        Assert.Null(result);
-    }
-
-    // ── ValidateAndResolveAsync ──────────────────────────────────────────────────
-    // Mirrors ValidateAsync's cases, plus asserting the resolved address that a caller
-    // would pin the subsequent connection to.
+    // ── ValidateAndResolveAsync - pinned-address behaviour ─────────────────────
 
     [Fact]
     public async Task ValidateAndResolveAsync_PublicIpLiteralAuthority_ReturnsAddressAndNoBlockReason()
@@ -240,24 +193,117 @@ public class AuthorityGuardTests
     }
 
     [Fact]
-    public async Task ValidateAndResolveAsync_MalformedAuthority_ReturnsNullReasonAndNullAddress()
+    public async Task ValidateAndResolveAsync_MalformedAuthority_ReturnsBlockReason()
     {
+        // Fail closed: an unparseable Authority must not fall through to an unguarded fetch.
         var (blockReason, pinnedAddress) = await AuthorityGuard.ValidateAndResolveAsync(
             "not-a-valid-url", allowLoopback: false, allowLinkLocal: false, blockPrivateNetworks: false);
 
-        Assert.Null(blockReason);
+        Assert.NotNull(blockReason);
         Assert.Null(pinnedAddress);
     }
+
+    [Fact]
+    public async Task ValidateAndResolveAsync_NonHttpScheme_ReturnsBlockReason()
+    {
+        var (blockReason, _) = await AuthorityGuard.ValidateAndResolveAsync(
+            "ftp://example.com/", allowLoopback: false, allowLinkLocal: false, blockPrivateNetworks: false);
+
+        Assert.NotNull(blockReason);
+        Assert.Contains("scheme", blockReason);
+    }
+
+    [Fact]
+    public async Task ValidateAndResolveAsync_UnresolvableHost_ReturnsBlockReason()
+    {
+        // .invalid is reserved (RFC 6761) and never resolves - exercises the fail-closed DNS path.
+        var (blockReason, pinnedAddress) = await AuthorityGuard.ValidateAndResolveAsync(
+            "https://oidc-guard-test.invalid/", allowLoopback: false, allowLinkLocal: false, blockPrivateNetworks: false);
+
+        Assert.NotNull(blockReason);
+        Assert.Null(pinnedAddress);
+    }
+
+    [Fact]
+    public async Task ValidateAndResolveAsync_UnspecifiedLiteralAuthority_ReturnsBlockReason()
+    {
+        var (blockReason, _) = await AuthorityGuard.ValidateAndResolveAsync(
+            "https://0.0.0.0/", allowLoopback: false, allowLinkLocal: false, blockPrivateNetworks: false);
+
+        Assert.NotNull(blockReason);
+        Assert.Contains("unspecified address", blockReason);
+    }
+
+    [Fact]
+    public async Task ValidateAndResolveAsync_IPv4MappedLinkLocalLiteral_ReturnsBlockReason()
+    {
+        // ::ffff:169.254.169.254 - the cloud-metadata address in IPv4-mapped form.
+        var (blockReason, _) = await AuthorityGuard.ValidateAndResolveAsync(
+            "https://[::ffff:169.254.169.254]/", allowLoopback: false, allowLinkLocal: false, blockPrivateNetworks: false);
+
+        Assert.NotNull(blockReason);
+        Assert.Contains("link-local address", blockReason);
+    }
+
+    [Fact]
+    public async Task ValidateAndResolveAsync_IPv4MappedRfc1918Literal_BlockPrivateNetworksTrue_ReturnsBlockReason()
+    {
+        var (blockReason, _) = await AuthorityGuard.ValidateAndResolveAsync(
+            "https://[::ffff:10.0.0.5]/", allowLoopback: false, allowLinkLocal: false, blockPrivateNetworks: true);
+
+        Assert.NotNull(blockReason);
+        Assert.Contains("private-network address", blockReason);
+    }
+
+    // ── IPv4-mapped IPv6 + CGNAT + unspecified classification ─────────────────────
+
+    [Theory]
+    [InlineData("::ffff:127.0.0.1")]
+    public void IsLoopback_IPv4MappedLoopback_ReturnsTrue(string ip)
+        => Assert.True(AuthorityGuard.IsLoopback(IPAddress.Parse(ip)));
+
+    [Theory]
+    [InlineData("::ffff:169.254.169.254")]
+    public void IsLinkLocal_IPv4MappedLinkLocal_ReturnsTrue(string ip)
+        => Assert.True(AuthorityGuard.IsLinkLocal(IPAddress.Parse(ip)));
+
+    [Theory]
+    [InlineData("::ffff:10.0.0.5")]
+    [InlineData("::ffff:192.168.1.1")]
+    public void IsPrivateNetworkOrUla_IPv4Mapped_ReturnsTrue(string ip)
+        => Assert.True(AuthorityGuard.IsPrivateNetworkOrUla(IPAddress.Parse(ip)));
+
+    [Theory]
+    [InlineData("100.64.0.1")]
+    [InlineData("100.127.255.255")]
+    public void IsPrivateNetworkOrUla_CgnatAddress_ReturnsTrue(string ip)
+        => Assert.True(AuthorityGuard.IsPrivateNetworkOrUla(IPAddress.Parse(ip)));
+
+    [Theory]
+    [InlineData("100.63.255.255")]
+    [InlineData("100.128.0.0")]
+    public void IsPrivateNetworkOrUla_JustOutsideCgnat_ReturnsFalse(string ip)
+        => Assert.False(AuthorityGuard.IsPrivateNetworkOrUla(IPAddress.Parse(ip)));
+
+    [Theory]
+    [InlineData("0.0.0.0")]
+    [InlineData("::")]
+    [InlineData("::ffff:0.0.0.0")]
+    public void IsUnspecified_AnyAddress_ReturnsTrue(string ip)
+        => Assert.True(AuthorityGuard.IsUnspecified(IPAddress.Parse(ip)));
+
+    [Theory]
+    [InlineData("8.8.8.8")]
+    [InlineData("127.0.0.1")]
+    public void IsUnspecified_RoutableOrLoopback_ReturnsFalse(string ip)
+        => Assert.False(AuthorityGuard.IsUnspecified(IPAddress.Parse(ip)));
 
     // ── CreatePinnedHttpClient ────────────────────────────────────────────────────
 
     [Fact]
     public void CreatePinnedHttpClient_ReturnsUsableHttpClient()
     {
-        // Socket-level pinning behavior needs a real network peer to verify end-to-end, so this
-        // only confirms the factory produces a valid, distinct HttpClient per call — the actual
-        // ConnectCallback wiring is the standard documented SocketsHttpHandler pinning pattern,
-        // verified by inspection rather than a unit test here.
+        // Socket-level pinning needs a real network peer; this only checks the factory shape.
         using var client1 = AuthorityGuard.CreatePinnedHttpClient(IPAddress.Parse("8.8.8.8"));
         using var client2 = AuthorityGuard.CreatePinnedHttpClient(IPAddress.Parse("8.8.8.8"));
 
@@ -268,9 +314,7 @@ public class AuthorityGuardTests
     [Fact]
     public void CreatePinnedHttpClient_AllowAutoRedirectFalse_ReturnsUsableHttpClient()
     {
-        // Same rationale as above — the AllowAutoRedirect wiring is a single property
-        // assignment onto SocketsHttpHandler, verified by inspection rather than reflecting
-        // into BCL internals (fragile across .NET versions) to assert the flag directly.
+        // Not reflecting into BCL internals to assert the flag directly (fragile across .NET versions).
         using var client = AuthorityGuard.CreatePinnedHttpClient(IPAddress.Parse("8.8.8.8"), allowAutoRedirect: false);
 
         Assert.NotNull(client);

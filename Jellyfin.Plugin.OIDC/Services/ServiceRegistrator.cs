@@ -1,6 +1,8 @@
 using System.Net;
+using Jellyfin.Data.Events.Users;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Authentication;
+using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -14,20 +16,20 @@ public class ServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<StateManager>();
         serviceCollection.AddHostedService(sp => sp.GetRequiredService<StateManager>());
 
-        // Fallback for profile-image downloads when AuthorityGuard can't resolve a pinned
-        // address (malformed URL / DNS failure) — redirects still disabled so a validated
-        // picture URL can't be used to bounce the request to an unvalidated internal host.
-        serviceCollection.AddHttpClient("OidcPluginImage")
-            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+        // Own JSON file, not plugin config; hosted so it migrates legacy in-config rows and flushes on shutdown.
+        serviceCollection.AddSingleton<UserProviderMapStore>();
+        serviceCollection.AddHostedService(sp => sp.GetRequiredService<UserProviderMapStore>());
 
-        // Injected (rather than called statically) so tests can substitute a mock-backed
-        // HttpClient in place of a real pinned socket connection. The bool selects whether
-        // redirects are followed — false for the profile-picture fetch (its trust boundary is
-        // stricter: a redirect target is unvalidated), true (the default) for discovery fetches.
+        // Injected (not static) so tests can substitute a mock-backed HttpClient.
         serviceCollection.AddSingleton<Func<IPAddress, bool, HttpClient>>(_ => AuthorityGuard.CreatePinnedHttpClient);
+        serviceCollection.AddSingleton<GuardedHttpClientFactory>();
+        serviceCollection.AddSingleton<OidcProtocolService>();
+        serviceCollection.AddSingleton<ClaimsResolver>();
+        serviceCollection.AddSingleton<LoginFlowService>();
 
         serviceCollection.AddScoped<RbacService>();
         serviceCollection.AddScoped<ProfileImageService>();
         serviceCollection.AddScoped<UserSyncService>();
+        serviceCollection.AddScoped<IEventConsumer<UserDeletedEventArgs>, OidcUserDeletedConsumer>();
     }
 }

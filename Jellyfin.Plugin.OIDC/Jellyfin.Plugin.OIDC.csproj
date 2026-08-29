@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <InternalsVisibleTo Include="Jellyfin.Plugin.OIDC.Tests" />
   </ItemGroup>
 
   <ItemGroup>
@@ -21,14 +22,18 @@
     <PackageReference Include="Jellyfin.Model" Version="12.0.0">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
-    <PackageReference Include="IdentityModel" Version="7.0.0" />
-    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.3.0" />
-    <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.3.0" />
+    <!-- Duende.IdentityModel is the current package id for the old "IdentityModel" (OIDC client
+         helpers). The Microsoft.IdentityModel.* family ships in lockstep. -->
+    <PackageReference Include="Duende.IdentityModel" Version="8.1.0" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.22.0" />
   </ItemGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="Configuration\configPage.html" />
     <EmbeddedResource Include="Configuration\oidcrbac.js" />
+    <EmbeddedResource Include="Configuration\CallbackPage.html" />
+    <EmbeddedResource Include="Configuration\QuickConnectPage.html" />
   </ItemGroup>
 
   <ItemGroup>

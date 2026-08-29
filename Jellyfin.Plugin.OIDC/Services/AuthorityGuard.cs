@@ -7,33 +7,16 @@ using System.Threading.Tasks;
 
 namespace Jellyfin.Plugin.OIDC.Services;
 
-/// <summary>
-/// Rejects OIDC discovery fetches targeting loopback or link-local addresses by default
-/// (each independently opt-out-able per provider), and optionally RFC1918/ULA private-network
-/// addresses too, when the admin has turned on that stricter global setting.
-/// </summary>
+/// SSRF guard for outbound IdP URLs. Blocks non-http(s) schemes, unresolvable hosts, and the
+/// unspecified/loopback/link-local ranges by default (RFC1918/ULA/CGNAT when opted in), after
+/// normalising IPv4-mapped IPv6 so a mapped literal can't bypass the v4 checks.
 public static class AuthorityGuard
 {
-    /// <summary>
-    /// Returns null when the Authority is allowed, or a human-readable rejection reason otherwise.
-    /// </summary>
-    public static async Task<string?> ValidateAsync(
-        string authority,
-        bool allowLoopback,
-        bool allowLinkLocal,
-        bool blockPrivateNetworks)
-    {
-        var (blockReason, _) = await ResolveAndCheckAsync(authority, allowLoopback, allowLinkLocal, blockPrivateNetworks)
-            .ConfigureAwait(false);
-        return blockReason;
-    }
-
-    /// <summary>
-    /// Same guard as <see cref="ValidateAsync"/>, but also returns the exact address that was
-    /// resolved and checked, so a caller can pin the subsequent HTTP connection to it instead of
-    /// re-resolving DNS — closing the TOCTOU window a DNS-rebinding attacker could otherwise use
-    /// to pass the guard with one address and connect to a different (internal) one.
-    /// </summary>
+    /// 
+    /// Returns null when the Authority is allowed (with the resolved address to pin the HTTP
+    /// connection to), or a rejection reason otherwise. Pinning the address closes the
+    /// DNS-rebinding TOCTOU window between this check and the connection that follows it.
+    /// 
     public static async Task<(string? BlockReason, IPAddress? PinnedAddress)> ValidateAndResolveAsync(
         string authority,
         bool allowLoopback,
@@ -45,21 +28,14 @@ public static class AuthorityGuard
         return (blockReason, addresses.Length > 0 ? addresses[0] : null);
     }
 
-    /// <summary>
-    /// Builds a one-off <see cref="HttpClient"/> whose connections are pinned to
-    /// <paramref name="pinnedAddress"/> instead of re-resolving the request's hostname via DNS.
-    /// TLS SNI/certificate hostname validation is unaffected — <see cref="SocketsHttpHandler"/>
-    /// negotiates TLS against the original request hostname regardless of the connect callback;
-    /// only the transport-level socket destination changes.
-    /// </summary>
-    /// <param name="pinnedAddress">The address to connect to, in place of a fresh DNS lookup.</param>
-    /// <param name="allowAutoRedirect">
-    /// A redirect target is a different, unvalidated destination — following it automatically
-    /// would silently defeat the pin. Discovery-document fetches keep the default (some real IdPs
-    /// legitimately redirect during discovery); callers with a stricter trust boundary, like the
-    /// profile-picture fetch, should pass <see langword="false"/>.
-    /// </param>
-    public static HttpClient CreatePinnedHttpClient(IPAddress pinnedAddress, bool allowAutoRedirect = true)
+    ///
+    /// Builds an <see cref="HttpClient"/> pinned to <paramref name="pinnedAddress"/> instead of
+    /// re-resolving DNS. TLS SNI/hostname validation is unaffected - only the socket destination
+    /// changes. Auto-redirect is OFF by default: a redirect target is never re-validated by the
+    /// guard, so following one would defeat the pin. A 15s timeout replaces HttpClient's 100s
+    /// default so a slow or hostile endpoint can't tie up the request.
+    ///
+    public static HttpClient CreatePinnedHttpClient(IPAddress pinnedAddress, bool allowAutoRedirect = false)
     {
         var handler = new SocketsHttpHandler
         {
@@ -81,7 +57,7 @@ public static class AuthorityGuard
             }
         };
 
-        return new HttpClient(handler);
+        return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
     }
 
     private static async Task<(string? BlockReason, IPAddress[] Addresses)> ResolveAndCheckAsync(
@@ -92,8 +68,12 @@ public static class AuthorityGuard
     {
         if (!Uri.TryCreate(authority, UriKind.Absolute, out var uri))
         {
-            // Malformed URL — let the discovery fetch fail naturally and report its own generic error.
-            return (null, Array.Empty<IPAddress>());
+            return ("URL is not a valid absolute URI.", Array.Empty<IPAddress>());
+        }
+
+        if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+        {
+            return ($"URL scheme '{uri.Scheme}' is not supported - use http or https.", Array.Empty<IPAddress>());
         }
 
         IPAddress[] addresses;
@@ -107,16 +87,25 @@ public static class AuthorityGuard
             {
                 addresses = await Dns.GetHostAddressesAsync(uri.Host).ConfigureAwait(false);
             }
-            catch
+            catch (Exception ex) when (ex is SocketException or ArgumentException)
             {
-                // DNS resolution failure isn't a guard concern — the discovery fetch will
-                // attempt (and normally fail) its own resolution and report it generically.
-                return (null, Array.Empty<IPAddress>());
+                // Fail closed: an unresolvable name must not fall through to an unpinned client.
+                return ($"Host '{uri.Host}' could not be resolved.", Array.Empty<IPAddress>());
+            }
+
+            if (addresses.Length == 0)
+            {
+                return ($"Host '{uri.Host}' did not resolve to any address.", Array.Empty<IPAddress>());
             }
         }
 
         foreach (var address in addresses)
         {
+            if (IsUnspecified(address))
+            {
+                return ($"Authority '{uri.Host}' resolves to the unspecified address ({address}), which is blocked.", addresses);
+            }
+
             if (!allowLoopback && IsLoopback(address))
             {
                 return ($"Authority '{uri.Host}' resolves to a loopback address ({address}), which is blocked by " +
@@ -139,29 +128,42 @@ public static class AuthorityGuard
         return (null, addresses);
     }
 
-    public static bool IsLoopback(IPAddress address) => IPAddress.IsLoopback(address);
+    // ::ffff:a.b.c.d - fold to the plain IPv4 form so a mapped literal can't slip past the v4 checks.
+    private static IPAddress Normalize(IPAddress address)
+        => address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
+
+    public static bool IsLoopback(IPAddress address) => IPAddress.IsLoopback(Normalize(address));
+
+    /// The IPv4/IPv6 "any" address (0.0.0.0 / ::), which routes to localhost on most stacks.
+    public static bool IsUnspecified(IPAddress address)
+    {
+        var a = Normalize(address);
+        return a.Equals(IPAddress.Any) || a.Equals(IPAddress.IPv6Any);
+    }
 
     public static bool IsLinkLocal(IPAddress address)
     {
-        if (address.AddressFamily == AddressFamily.InterNetworkV6)
+        var a = Normalize(address);
+        if (a.AddressFamily == AddressFamily.InterNetworkV6)
         {
-            return address.IsIPv6LinkLocal;
+            return a.IsIPv6LinkLocal;
         }
 
-        var bytes = address.GetAddressBytes();
+        var bytes = a.GetAddressBytes();
         return bytes.Length == 4 && bytes[0] == 169 && bytes[1] == 254;
     }
 
-    /// <summary>RFC1918 (10/8, 172.16/12, 192.168/16) or IPv6 ULA (fc00::/7).</summary>
+    /// RFC1918 (10/8, 172.16/12, 192.168/16), CGNAT (100.64/10, RFC 6598), or IPv6 ULA (fc00::/7).
     public static bool IsPrivateNetworkOrUla(IPAddress address)
     {
-        if (address.AddressFamily == AddressFamily.InterNetworkV6)
+        var a = Normalize(address);
+        if (a.AddressFamily == AddressFamily.InterNetworkV6)
         {
-            var v6Bytes = address.GetAddressBytes();
+            var v6Bytes = a.GetAddressBytes();
             return (v6Bytes[0] & 0xFE) == 0xFC;
         }
 
-        var bytes = address.GetAddressBytes();
+        var bytes = a.GetAddressBytes();
         if (bytes.Length != 4)
         {
             return false;
@@ -177,6 +179,12 @@ public static class AuthorityGuard
             return true;
         }
 
-        return bytes[0] == 192 && bytes[1] == 168;
+        if (bytes[0] == 192 && bytes[1] == 168)
+        {
+            return true;
+        }
+
+        // Carrier-grade NAT - not publicly routable.
+        return bytes[0] == 100 && bytes[1] >= 64 && bytes[1] <= 127;
     }
 }
