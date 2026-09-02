@@ -157,13 +157,16 @@ automatically** ticked (plugin config → **General** tab), clicking **Save** wi
 enabled provider writes a marked block into **Admin Dashboard → General → Branding** — the
 button markup into *Login disclaimer* and its styling into *Custom CSS*. Nothing else in those
 fields is touched, and unticking + saving offers to remove the block. The button renders
-full-width above the password form, matching the active theme/skin (dark and community themes
-included); a provider's **Button Color**, when changed from the default, colours just that
-button's background.
+full-width just below the native **Sign In** button (above Quick Connect / Forgot Password),
+matching the active theme/skin (dark and community themes included); a provider's
+**Button Color**, when changed from the default, colours just that button's background.
 
 > **Web client only.** `Login disclaimer` / `Custom CSS` are rendered solely by the Jellyfin
 > web UI. Android, Android TV, Swiftfin/iOS and Kodi show their own login screens — those
 > users sign in with [Quick Connect](#mobile--native-apps-quick-connect).
+>
+> Jellyfin's disclaimer sanitizer forces links to open in a new tab, so clicking an SSO
+> button may open the provider flow in a new tab; you end up signed in there.
 
 **Manual install.** If you turn the setting off (e.g. you inject buttons another way), grab
 the snippet yourself — plugin config → General → *Manual install (copy / paste)*, or:

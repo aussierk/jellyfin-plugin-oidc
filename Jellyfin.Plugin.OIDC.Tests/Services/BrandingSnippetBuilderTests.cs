@@ -28,6 +28,7 @@ public class BrandingSnippetBuilderTests
         Assert.Contains("<div id=\"oidc-sso-buttons\">", html);
         Assert.Contains("class=\"raised button-submit block emby-button oidc-sso-btn\"", html);
         Assert.Contains("data-provider=\"authentik\"", html);
+        Assert.Contains("target=\"_self\"", html);
         Assert.Contains(">Authentik</a>", html);
         Assert.Contains("oidc-sso-sep", html);
         Assert.DoesNotContain("style=", html);
@@ -40,9 +41,11 @@ public class BrandingSnippetBuilderTests
 
         Assert.StartsWith(BrandingSnippetBuilder.CssStart, css);
         Assert.EndsWith(BrandingSnippetBuilder.CssEnd, css);
-        Assert.Contains(":has(#oidc-sso-buttons)", css);
-        Assert.Contains("#oidc-sso-buttons{order:-1", css);
+        Assert.Contains(".readOnlyContent:has(#oidc-sso-buttons){display:flex;flex-direction:column}", css);
+        Assert.Contains(".readOnlyContent:has(#oidc-sso-buttons) .loginDisclaimerContainer{order:-1}", css);
+        Assert.Contains(".loginDisclaimerContainer:has(#oidc-sso-buttons) .loginDisclaimer{display:block;width:100%}", css);
         Assert.Contains("#oidc-sso-buttons a.oidc-sso-btn{", css);
+        Assert.Contains("width:100%", css);
         Assert.Contains("color:#fff", css);
         Assert.Contains("#oidc-sso-buttons .oidc-sso-sep{", css);
     }

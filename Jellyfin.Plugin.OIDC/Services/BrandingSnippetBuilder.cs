@@ -64,12 +64,17 @@ public static class BrandingSnippetBuilder
         var html = new StringBuilder();
         html.Append(HtmlStart).Append('\n');
         html.Append("<div id=\"oidc-sso-buttons\">\n");
+        // Separator first: the Login Disclaimer renders below the password form, so this reads
+        // as "[Sign In] — or — [Authentik]".
+        html.Append("  <div class=\"oidc-sso-sep\">— or —</div>\n");
         foreach (var p in providers)
         {
             var name = System.Net.WebUtility.HtmlEncode(p.DisplayName);
             var providerAttr = System.Net.WebUtility.HtmlEncode(p.ProviderId);
             var href = $"{prefix}/sso/OIDC/Start/{System.Net.WebUtility.UrlEncode(p.ProviderId)}";
-            html.Append("  <a class=\"raised button-submit block emby-button oidc-sso-btn\" data-provider=\"")
+            // target="_self" is a best effort — Jellyfin's disclaimer sanitizer may still force
+            // target="_blank" on all links, so the flow can open in a new tab.
+            html.Append("  <a class=\"raised button-submit block emby-button oidc-sso-btn\" target=\"_self\" data-provider=\"")
                 .Append(providerAttr)
                 .Append("\" href=\"")
                 .Append(href)
@@ -77,22 +82,25 @@ public static class BrandingSnippetBuilder
                 .Append(name)
                 .Append("</a>\n");
         }
-        html.Append("  <div class=\"oidc-sso-sep\">— or sign in with password —</div>\n");
         html.Append("</div>\n");
         html.Append(HtmlEnd);
 
         var css = new StringBuilder();
         css.Append(CssStart).Append('\n');
-        // Pull the buttons above the login form so "— or sign in with password —" reads
-        // correctly. The disclaimer's container varies between Jellyfin versions, so target the
-        // likely candidates; :has scopes each rule to pages that actually carry our block.
-        css.Append(".loginPage .padded-left:has(#oidc-sso-buttons),\n");
-        css.Append(".disclaimerContainer:has(#oidc-sso-buttons){display:flex;flex-direction:column}\n");
-        css.Append("#oidc-sso-buttons{order:-1;margin:1em 0}\n");
+        // Jellyfin 10.11 login page: .readOnlyContent (after <form>) holds the Quick Connect /
+        // Forgot Password buttons and .loginDisclaimerContainer. Make it a flex column and pull
+        // the disclaimer to the top so the SSO buttons sit directly under "Sign In" (still
+        // inside .readOnlyContent — CSS can't lift them out to above the <form>).
+        css.Append(".readOnlyContent:has(#oidc-sso-buttons){display:flex;flex-direction:column}\n");
+        css.Append(".readOnlyContent:has(#oidc-sso-buttons) .loginDisclaimerContainer{order:-1}\n");
+        // The disclaimer wrapper/inner collapse the button to content width; force full-width block.
+        css.Append(".loginDisclaimerContainer:has(#oidc-sso-buttons),\n");
+        css.Append(".loginDisclaimerContainer:has(#oidc-sso-buttons) .loginDisclaimer{display:block;width:100%}\n");
+        css.Append("#oidc-sso-buttons{width:100%;margin:.5em 0}\n");
         // Full width + white label to match the native submit button; #id beats theme rules
         // without !important. Shape/height/radius/hover still come from the native classes.
         css.Append("#oidc-sso-buttons a.oidc-sso-btn{display:block;width:100%;margin:.5em 0;");
-        css.Append("color:#fff;text-decoration:none;text-align:center}\n");
+        css.Append("box-sizing:border-box;color:#fff;text-decoration:none;text-align:center}\n");
         foreach (var p in providers)
         {
             var brand = CustomBrandColor(p.ButtonColor);
@@ -108,7 +116,7 @@ public static class BrandingSnippetBuilder
                 .Append(brand)
                 .Append(";background-image:none}\n");
         }
-        css.Append("#oidc-sso-buttons .oidc-sso-sep{margin:1em 0;opacity:.7;text-align:center}\n");
+        css.Append("#oidc-sso-buttons .oidc-sso-sep{margin:.75em 0 .25em;opacity:.7;text-align:center}\n");
         css.Append(CssEnd);
 
         return (html.ToString(), css.ToString());
