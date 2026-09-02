@@ -123,6 +123,51 @@ public class LoginButtonControllerTests
     }
 
     [Fact]
+    public void GetLoginButtonsScript_UsesNativeButtonClasses()
+    {
+        // Arrange
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers =
+            [
+                new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", Enabled = true }
+            ]
+        });
+
+        // Act
+        var content = Assert.IsType<ContentResult>(
+            MakeController().GetLoginButtonsScript()).Content;
+
+        // Assert — the button is styled by Jellyfin's own theme classes, not a hardcoded
+        // inline background/padding/border-radius blob.
+        Assert.Contains("raised button-submit block emby-button", content);
+        Assert.DoesNotContain("border-radius", content);
+        Assert.DoesNotContain("padding:0.7em", content);
+    }
+
+    [Fact]
+    public void GetLoginButtonsScript_DefaultColor_NoOverride()
+    {
+        // Arrange — provider left at the config default color.
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers =
+            [
+                new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", ButtonColor = "#4285F4", Enabled = true }
+            ]
+        });
+
+        // Act
+        var content = Assert.IsType<ContentResult>(
+            MakeController().GetLoginButtonsScript()).Content;
+
+        // Assert — the provider carries no brand color, so the runtime override is skipped
+        // and the theme supplies the button color.
+        Assert.Contains("\"brand\":null", content);
+        Assert.DoesNotContain("#4285F4", content);
+    }
+
+    [Fact]
     public void GetLoginButtonsScript_ContainsQuickConnectLink()
     {
         // Arrange
@@ -186,7 +231,7 @@ public class LoginButtonControllerTests
     }
 
     [Fact]
-    public void GetBrandingSnippet_BadButtonColor_FallsBackToDefault()
+    public void GetBrandingSnippet_BadButtonColor_NoOverride()
     {
         // Arrange
         _fixture.SetConfiguration(new PluginConfiguration
@@ -206,13 +251,34 @@ public class LoginButtonControllerTests
         // Act
         var html = GetBrandingHtml(MakeController().GetBrandingSnippet());
 
-        // Assert
+        // Assert — an unsafe value is dropped entirely; the button inherits the theme color
+        // rather than falling back to a hardcoded inline default.
         Assert.DoesNotContain("javascript:alert(1)", html);
-        Assert.Contains("#4285F4", html);
+        Assert.DoesNotContain("background-color", html);
     }
 
     [Fact]
-    public void GetBrandingSnippet_ValidColor_UsedAsIs()
+    public void GetBrandingSnippet_DefaultColor_NoOverride()
+    {
+        // Arrange — provider left at the config default color.
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers =
+            [
+                new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", ButtonColor = "#4285F4", Enabled = true }
+            ]
+        });
+
+        // Act
+        var html = GetBrandingHtml(MakeController().GetBrandingSnippet());
+
+        // Assert — no per-provider override; the native button classes carry the theme color.
+        Assert.DoesNotContain("background-color", html);
+        Assert.DoesNotContain("#4285F4", html);
+    }
+
+    [Fact]
+    public void GetBrandingSnippet_CustomColor_ScopedOverride()
     {
         // Arrange
         _fixture.SetConfiguration(new PluginConfiguration
@@ -226,8 +292,29 @@ public class LoginButtonControllerTests
         // Act
         var html = GetBrandingHtml(MakeController().GetBrandingSnippet());
 
-        // Assert
-        Assert.Contains("#1A2B3C", html);
+        // Assert — a customized color is layered on as a scoped background-color override.
+        Assert.Contains("background-color:#1A2B3C !important;", html);
+    }
+
+    [Fact]
+    public void GetBrandingSnippet_UsesNativeButtonClasses()
+    {
+        // Arrange
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers =
+            [
+                new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", Enabled = true }
+            ]
+        });
+
+        // Act
+        var html = GetBrandingHtml(MakeController().GetBrandingSnippet());
+
+        // Assert — links are styled by Jellyfin's own theme classes, not a hardcoded blob.
+        Assert.Contains("class=\"raised button-submit block emby-button\"", html);
+        Assert.DoesNotContain("border-radius", html);
+        Assert.DoesNotContain("padding:0.7em", html);
     }
 
     // ── Base URL / PathBase handling ──────────────────────────────────────────

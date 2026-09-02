@@ -4,7 +4,7 @@
     <TargetFramework>net9.0</TargetFramework>
     <RootNamespace>Jellyfin.Plugin.OIDC</RootNamespace>
     <AssemblyName>Jellyfin.Plugin.OIDC</AssemblyName>
-    <Version>1.0.7.0</Version>
+    <Version>1.0.7.1</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>

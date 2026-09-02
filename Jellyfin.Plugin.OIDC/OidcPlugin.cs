@@ -32,7 +32,9 @@ public class OidcPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
             new PluginPageInfo
             {
                 Name = Name,
-                EmbeddedResourcePath = $"{ns}.Configuration.configPage.html"
+                EmbeddedResourcePath = $"{ns}.Configuration.configPage.html",
+                EnableInMainMenu = true,
+                MenuIcon = "login"
             },
             new PluginPageInfo
             {

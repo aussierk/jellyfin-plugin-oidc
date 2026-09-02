@@ -15,10 +15,23 @@ public class LoginButtonController : ControllerBase
         @"^(#[0-9a-fA-F]{3,8}|[a-zA-Z\-]+)$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    private static string SanitizeColor(string? color, string fallback = "#4285F4")
-        => !string.IsNullOrWhiteSpace(color) && _safeCssColor.IsMatch(color.Trim())
-            ? color.Trim()
-            : fallback;
+    private const string DefaultButtonColor = "#4285F4";
+
+    // Returns the provider's brand color only when the admin has set a valid, non-default
+    // value. When null, the button keeps the active Jellyfin theme's own button background.
+    private static string? CustomBrandColor(string? color)
+    {
+        if (string.IsNullOrWhiteSpace(color))
+        {
+            return null;
+        }
+
+        var trimmed = color.Trim();
+        return _safeCssColor.IsMatch(trimmed)
+               && !string.Equals(trimmed, DefaultButtonColor, System.StringComparison.OrdinalIgnoreCase)
+            ? trimmed
+            : null;
+    }
 
     [HttpGet("LoginButtons")]
     public ActionResult GetLoginButtonsScript()
@@ -39,7 +52,8 @@ public class LoginButtonController : ControllerBase
         {
             id = p.ProviderId,
             name = p.DisplayName,
-            color = SanitizeColor(p.ButtonColor)
+            // Only a customized brand color; null means "use the active theme's button color".
+            brand = CustomBrandColor(p.ButtonColor)
         });
         var providersJson = JsonSerializer.Serialize(providerData);
 
@@ -60,16 +74,17 @@ public class LoginButtonController : ControllerBase
         sb.AppendLine("      var btn = document.createElement('a');");
         sb.AppendLine("      btn.href = basePath + '/sso/OIDC/Start/' + encodeURIComponent(p.id);");
         sb.AppendLine("      btn.textContent = 'Sign in with ' + p.name;");
-        sb.AppendLine("      btn.style.cssText = 'display:block;margin:0.5em auto;padding:0.7em 1.5em;background:' + p.color + ';color:#fff;text-decoration:none;border-radius:4px;font-size:1em;max-width:300px;';");
+        sb.AppendLine("      btn.className = 'raised button-submit block emby-button';");
+        sb.AppendLine("      btn.style.cssText = 'margin:0.5em auto;max-width:300px;' + (p.brand ? 'background-color:' + p.brand + ' !important;' : '');");
         sb.AppendLine("      container.appendChild(btn);");
         sb.AppendLine("      var qc = document.createElement('a');");
         sb.AppendLine("      qc.href = basePath + '/sso/OIDC/QuickConnect/' + encodeURIComponent(p.id);");
         sb.AppendLine("      qc.textContent = 'Sign in a device with ' + p.name + ' (Quick Connect)';");
-        sb.AppendLine("      qc.style.cssText = 'display:block;margin:0.2em auto 0.8em;color:#888;text-decoration:none;font-size:0.8em;max-width:300px;';");
+        sb.AppendLine("      qc.style.cssText = 'display:block;margin:0.2em auto 0.8em;text-decoration:none;font-size:0.8em;max-width:300px;opacity:0.7;';");
         sb.AppendLine("      container.appendChild(qc);");
         sb.AppendLine("    });");
         sb.AppendLine("    var sep = document.createElement('div');");
-        sb.AppendLine("    sep.style.cssText = 'margin:1em 0;text-align:center;color:#888;';");
+        sb.AppendLine("    sep.style.cssText = 'margin:1em 0;text-align:center;opacity:0.7;';");
         sb.AppendLine("    sep.textContent = '— or sign in with password —';");
         sb.AppendLine("    container.appendChild(sep);");
         sb.AppendLine("    form.parentNode.insertBefore(container, form);");
@@ -103,11 +118,16 @@ public class LoginButtonController : ControllerBase
         foreach (var p in providers)
         {
             var name = System.Net.WebUtility.HtmlEncode(p.DisplayName);
-            var color = System.Net.WebUtility.HtmlEncode(SanitizeColor(p.ButtonColor));
             var encodedId = System.Net.WebUtility.UrlEncode(p.ProviderId);
-            sb.Append($"<a href=\"{basePath}/sso/OIDC/Start/{encodedId}\" style=\"display:block;margin:0.5em auto;padding:0.7em 1.5em;background:{color};color:#fff;text-decoration:none;border-radius:4px;font-size:1em;max-width:300px;\">{name}</a>");
+
+            var brand = CustomBrandColor(p.ButtonColor);
+            var brandStyle = brand != null
+                ? $"background-color:{System.Net.WebUtility.HtmlEncode(brand)} !important;"
+                : string.Empty;
+
+            sb.Append($"<a href=\"{basePath}/sso/OIDC/Start/{encodedId}\" class=\"raised button-submit block emby-button\" style=\"margin:0.5em auto;max-width:300px;{brandStyle}\">{name}</a>");
         }
-        sb.Append("<div style=\"margin:1em 0;color:#888;\">— or sign in with password —</div>");
+        sb.Append("<div style=\"margin:1em 0;opacity:0.7;\">— or sign in with password —</div>");
         sb.Append("</div>");
 
         return Ok(new { Html = sb.ToString(), Instructions = "Paste the Html value into Jellyfin Dashboard > General > Branding > Login Disclaimer and save." });
