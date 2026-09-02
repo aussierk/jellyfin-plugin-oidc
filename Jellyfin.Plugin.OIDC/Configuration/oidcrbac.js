@@ -127,6 +127,34 @@ function chk(id, label, checked) {
     return '<label><input type="checkbox" id="' + id + '"' + (checked ? ' checked' : '') + ' /> ' + esc(label) + '</label>';
 }
 
+// Bundled Button Icon keys — must match Services/KnownProviderIcons.Keys on the server.
+var ICON_KEYS = ['authentik', 'keycloak', 'google', 'microsoft', 'okta', 'auth0', 'discord', 'github'];
+
+function iconIsCustom(v) {
+    return !!v && ICON_KEYS.indexOf(v) === -1;
+}
+
+var ICON_LABELS = { auth0: 'Auth0', github: 'GitHub' };
+
+function iconField(idx, cur) {
+    var custom = iconIsCustom(cur);
+    var hidden = custom ? '' : 'display:none;';
+    var opts = '<option value="none"' + (!cur ? ' selected' : '') + '>None</option>';
+    ICON_KEYS.forEach(function (k) {
+        var label = ICON_LABELS[k] || (k.charAt(0).toUpperCase() + k.slice(1));
+        opts += '<option value="' + k + '"' + (cur === k ? ' selected' : '') + '>' + label + '</option>';
+    });
+    opts += '<option value="custom"' + (custom ? ' selected' : '') + '>Custom (SVG)</option>';
+    return '<div class="oidc-field full">' +
+        '<label for="prov_icon_' + idx + '">Button Icon</label>' +
+        '<select id="prov_icon_' + idx + '">' + opts + '</select>' +
+        '<textarea id="prov_icon_svg_' + idx + '" placeholder="Paste &lt;svg&gt;…&lt;/svg&gt; or a data:image/svg+xml URI" ' +
+        'style="margin-top:0.3em;width:100%;font-family:monospace;font-size:0.8em;' + hidden + '">' +
+        esc(custom ? cur : '') + '</textarea>' +
+        '<input type="file" id="prov_icon_file_' + idx + '" accept=".svg,image/svg+xml" style="margin-top:0.3em;' + hidden + '" />' +
+        '</div>';
+}
+
 function addLibChip(container, libId) {
     var chip = document.createElement('span');
     chip.className = 'oidc-library-chip';
@@ -156,6 +184,7 @@ function renderProviders(view) {
             fld('Display Name Claim', 'text', 'prov_displayclaim_' + idx, p.DisplayNameClaim || 'name', '') +
             fld('Picture Claim', 'text', 'prov_pictureclaim_' + idx, p.PictureClaim || 'picture', 'e.g. picture') +
             fld('Button Color', 'color', 'prov_color_' + idx, p.ButtonColor || '#4285F4', '') +
+            iconField(idx, p.ButtonIcon || '') +
             fld('Additional Params', 'text', 'prov_params_' + idx, p.AdditionalParameters || '', 'key=val&key2=val2', true) +
             fld('Server Base URL (override)', 'text', 'prov_baseurl_' + idx, p.ServerBaseUrl || '', 'Optional: https://jellyfin.example.com — overrides auto-detected redirect_uri host', true) +
             '<div class="oidc-field"><label><input type="checkbox" id="prov_syncimage_' + idx + '"' +
@@ -321,6 +350,13 @@ function testProvider(view, idx) {
     });
 }
 
+function collectIcon(view, idx) {
+    var kind = gval(view, 'prov_icon_' + idx);
+    if (kind === 'custom') return (gval(view, 'prov_icon_svg_' + idx) || '').trim();
+    if (!kind || kind === 'none') return '';
+    return kind;
+}
+
 function collectProviders(view) {
     var result = [];
     view.querySelectorAll('#providerList .oidc-card').forEach(function (card, idx) {
@@ -353,7 +389,7 @@ function collectProviders(view) {
                               gval(view, 'prov_pinnedjwks_'   + idx))
                              ? gval(view, 'prov_authority_' + idx)
                              : '',
-            ButtonIcon: ''
+            ButtonIcon: collectIcon(view, idx)
         });
     });
     return result;
@@ -410,6 +446,8 @@ export default function (view) {
             view.querySelector('#syncDisplayName').checked = cfg.SyncDisplayName === true;
             view.querySelector('#blockPrivateNetworkAuthorities').checked = cfg.BlockPrivateNetworkAuthorities === true;
             view.querySelector('#manageLoginButtonBranding').checked = cfg.ManageLoginButtonBranding !== false;
+            view.querySelector('#hideManualLogin').checked = cfg.HideManualLogin === true;
+            view.querySelector('#loginTitle').value = cfg.LoginTitle || 'Please sign in';
             loadBrandingSnippet(view);
             Dashboard.hideLoadingMsg();
         }).catch(function (err) {
@@ -507,6 +545,8 @@ export default function (view) {
         cfg.SyncDisplayName = gchk(view, 'syncDisplayName');
         cfg.BlockPrivateNetworkAuthorities = gchk(view, 'blockPrivateNetworkAuthorities');
         cfg.ManageLoginButtonBranding = gchk(view, 'manageLoginButtonBranding');
+        cfg.HideManualLogin = gchk(view, 'hideManualLogin');
+        cfg.LoginTitle = gval(view, 'loginTitle') || 'Please sign in';
         ApiClient.updatePluginConfiguration(pluginId, cfg).then(function (result) {
             Dashboard.processPluginConfigurationUpdateResult(result);
             return syncBranding(view);
@@ -530,6 +570,28 @@ export default function (view) {
             renderProviders(view);
         } else if (btn.getAttribute('data-action') === 'test-provider') {
             testProvider(view, idx);
+        }
+    });
+
+    // Button Icon: toggle the custom SVG inputs; load a picked .svg file into the textarea.
+    view.querySelector('#providerList').addEventListener('change', function (e) {
+        var t = e.target;
+        if (!t || !t.id) return;
+        if (t.id.indexOf('prov_icon_') === 0 && t.tagName === 'SELECT') {
+            var idx = t.id.slice('prov_icon_'.length);
+            var custom = t.value === 'custom';
+            var svg = view.querySelector('#prov_icon_svg_' + idx);
+            var file = view.querySelector('#prov_icon_file_' + idx);
+            if (svg) svg.style.display = custom ? '' : 'none';
+            if (file) file.style.display = custom ? '' : 'none';
+        } else if (t.id.indexOf('prov_icon_file_') === 0 && t.files && t.files[0]) {
+            var fidx = t.id.slice('prov_icon_file_'.length);
+            var reader = new FileReader();
+            reader.onload = function () {
+                var ta = view.querySelector('#prov_icon_svg_' + fidx);
+                if (ta) ta.value = String(reader.result || '').trim();
+            };
+            reader.readAsText(t.files[0]);
         }
     });
 

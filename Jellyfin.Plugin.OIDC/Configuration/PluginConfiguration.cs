@@ -47,6 +47,17 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool ManageLoginButtonBranding { get; set; } = true;
 
     /// <summary>
+    /// When true, the managed Branding block also hides the web login's username/password
+    /// form and the Forgot Password button (Quick Connect stays) and shows <see cref="LoginTitle"/>
+    /// as a heading above the SSO button(s). Web client only. Requires
+    /// <see cref="ManageLoginButtonBranding"/> (or a manual paste of the snippet).
+    /// </summary>
+    public bool HideManualLogin { get; set; } = false;
+
+    /// <summary>Heading shown above the SSO button(s) when <see cref="HideManualLogin"/> is set.</summary>
+    public string LoginTitle { get; set; } = "Please sign in";
+
+    /// <summary>
     /// Maps Jellyfin usernames to the OIDC provider that owns each account.
     /// Used to detect cross-provider username collisions.
     /// List of UserProviderEntry is used instead of Dictionary to remain XML-serializable.

@@ -17,6 +17,10 @@ public class LoginButtonController : ControllerBase
         => OidcPlugin.Instance?.Configuration?.Providers.Where(p => p.Enabled).ToList()
            ?? new System.Collections.Generic.List<Configuration.OidcProviderConfig>();
 
+    private static bool HideManualLogin => OidcPlugin.Instance?.Configuration?.HideManualLogin ?? false;
+
+    private static string LoginTitle => OidcPlugin.Instance?.Configuration?.LoginTitle ?? "Please sign in";
+
     [HttpGet("LoginButtons")]
     public ActionResult GetLoginButtonsScript()
     {
@@ -29,16 +33,21 @@ public class LoginButtonController : ControllerBase
         // Reuse the same markup/CSS the Branding snippet uses so both injection paths render
         // identically. The script inserts the container above the form itself, so the CSS's
         // reorder rules are simply a no-op here.
-        var (_, css) = BrandingSnippetBuilder.Build(providers, basePath: string.Empty);
+        var (_, css) = BrandingSnippetBuilder.Build(providers, string.Empty, HideManualLogin, LoginTitle);
 
         var providerData = providers.Select(p => new { id = p.ProviderId, name = p.DisplayName });
         var providersJson = System.Text.Json.JsonSerializer.Serialize(providerData);
         var cssJson = System.Text.Json.JsonSerializer.Serialize(css);
+        var hideJson = System.Text.Json.JsonSerializer.Serialize(HideManualLogin);
+        var titleJson = System.Text.Json.JsonSerializer.Serialize(
+            string.IsNullOrWhiteSpace(LoginTitle) ? "Please sign in" : LoginTitle.Trim());
 
         var sb = new StringBuilder();
         sb.AppendLine("(function() {");
         sb.AppendLine($"  var providers = {providersJson};");
         sb.AppendLine($"  var css = {cssJson};");
+        sb.AppendLine($"  var hideManual = {hideJson};");
+        sb.AppendLine($"  var loginTitle = {titleJson};");
         // The web client is served under '<basePath>/web/', so derive the prefix from the
         // login page URL. Empty when no base path is configured.
         sb.AppendLine("  var _p = window.location.pathname.split('/web/');");
@@ -54,6 +63,12 @@ public class LoginButtonController : ControllerBase
         sb.AppendLine("    }");
         sb.AppendLine("    var container = document.createElement('div');");
         sb.AppendLine("    container.id = 'oidc-sso-buttons';");
+        sb.AppendLine("    if (hideManual) {");
+        sb.AppendLine("      var title = document.createElement('div');");
+        sb.AppendLine("      title.className = 'oidc-sso-title';");
+        sb.AppendLine("      title.textContent = loginTitle;");
+        sb.AppendLine("      container.appendChild(title);");
+        sb.AppendLine("    }");
         sb.AppendLine("    providers.forEach(function(p) {");
         sb.AppendLine("      var btn = document.createElement('a');");
         sb.AppendLine("      btn.href = basePath + '/sso/OIDC/Start/' + encodeURIComponent(p.id);");
@@ -68,10 +83,6 @@ public class LoginButtonController : ControllerBase
         sb.AppendLine("      qc.style.cssText = 'display:block;margin:0.2em auto 0.8em;text-decoration:none;font-size:0.8em;opacity:0.7;';");
         sb.AppendLine("      container.appendChild(qc);");
         sb.AppendLine("    });");
-        sb.AppendLine("    var sep = document.createElement('div');");
-        sb.AppendLine("    sep.className = 'oidc-sso-sep';");
-        sb.AppendLine("    sep.textContent = '— or sign in with password —';");
-        sb.AppendLine("    container.appendChild(sep);");
         sb.AppendLine("    form.parentNode.insertBefore(container, form);");
         sb.AppendLine("  }");
         sb.AppendLine("  var observer = new MutationObserver(addButtons);");
@@ -91,7 +102,7 @@ public class LoginButtonController : ControllerBase
             return Ok(new { Html = "", Css = "", Instructions = "No enabled providers configured." });
         }
 
-        var (html, css) = BrandingSnippetBuilder.Build(providers, BasePath);
+        var (html, css) = BrandingSnippetBuilder.Build(providers, BasePath, HideManualLogin, LoginTitle);
 
         return Ok(new
         {

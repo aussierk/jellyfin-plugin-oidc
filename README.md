@@ -161,6 +161,13 @@ full-width just below the native **Sign In** button (above Quick Connect / Forgo
 matching the active theme/skin (dark and community themes included); a provider's
 **Button Color**, when changed from the default, colours just that button's background.
 
+Per provider you can also set a **Button Icon** — a bundled glyph (Authentik, Keycloak,
+Google, Microsoft, Okta, Auth0, Discord, GitHub) or a **Custom (SVG)** you paste or pick from
+a `.svg` file (use this for any provider not in the list).
+And **Hide the username/password form** (General tab) hides the web password form and Forgot
+Password (Quick Connect stays) and shows a configurable **Login page heading** above the SSO
+button(s).
+
 > **Web client only.** `Login disclaimer` / `Custom CSS` are rendered solely by the Jellyfin
 > web UI. Android, Android TV, Swiftfin/iOS and Kodi show their own login screens — those
 > users sign in with [Quick Connect](#mobile--native-apps-quick-connect).

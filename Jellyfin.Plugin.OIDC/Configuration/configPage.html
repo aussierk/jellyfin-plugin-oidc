@@ -94,6 +94,19 @@
                                 <button type="button" class="oidc-btn-secondary" data-copy="brandingCss" style="margin:0.3em 0;">Copy CSS</button>
                             </details>
                         </div>
+                        <div style="grid-column:1/-1;">
+                            <label>
+                                <input type="checkbox" id="hideManualLogin" is="emby-checkbox" />
+                                <span>Hide the username/password form on the web login page</span>
+                            </label>
+                            <p class="fieldDescription" style="margin:0.3em 0 0 1.5em;font-size:0.85em;color:#aaa;">
+                                Hides the password form and <strong>Forgot Password</strong> on the <strong>web</strong> login page (Quick Connect stays) and shows the heading below above the SSO button(s). Needs <em>Manage the login button in Branding automatically</em> (or a manual snippet paste).
+                            </p>
+                            <div style="margin:0.4em 0 0 1.5em;">
+                                <label for="loginTitle" class="fieldDescription">Login page heading</label>
+                                <input id="loginTitle" type="text" is="emby-input" placeholder="Please sign in" />
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

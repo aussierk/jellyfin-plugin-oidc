@@ -51,7 +51,16 @@ public static class BrandingSnippetBuilder
     /// Builds the marker-fenced (Html, Css) pair for the given enabled providers.
     /// Returns empty strings when there are no providers.
     /// </summary>
-    public static (string Html, string Css) Build(IEnumerable<OidcProviderConfig> enabledProviders, string basePath)
+    /// <param name="hideManualLogin">
+    /// When true, the CSS hides the web login's username/password form and the Forgot
+    /// Password button (Quick Connect stays) and the HTML adds a heading back.
+    /// </param>
+    /// <param name="loginTitle">Heading text used when <paramref name="hideManualLogin"/> is set.</param>
+    public static (string Html, string Css) Build(
+        IEnumerable<OidcProviderConfig> enabledProviders,
+        string basePath,
+        bool hideManualLogin = false,
+        string? loginTitle = null)
     {
         var providers = enabledProviders?.ToList() ?? new List<OidcProviderConfig>();
         if (providers.Count == 0)
@@ -64,9 +73,13 @@ public static class BrandingSnippetBuilder
         var html = new StringBuilder();
         html.Append(HtmlStart).Append('\n');
         html.Append("<div id=\"oidc-sso-buttons\">\n");
-        // Separator first: the Login Disclaimer renders below the password form, so this reads
-        // as "[Sign In] — or — [Authentik]".
-        html.Append("  <div class=\"oidc-sso-sep\">— or —</div>\n");
+        if (hideManualLogin)
+        {
+            var title = System.Net.WebUtility.HtmlEncode(
+                string.IsNullOrWhiteSpace(loginTitle) ? "Please sign in" : loginTitle.Trim());
+            html.Append("  <div class=\"oidc-sso-title\">").Append(title).Append("</div>\n");
+        }
+
         foreach (var p in providers)
         {
             var name = System.Net.WebUtility.HtmlEncode(p.DisplayName);
@@ -78,9 +91,9 @@ public static class BrandingSnippetBuilder
                 .Append(providerAttr)
                 .Append("\" href=\"")
                 .Append(href)
-                .Append("\">")
+                .Append("\"><span>")
                 .Append(name)
-                .Append("</a>\n");
+                .Append("</span></a>\n");
         }
         html.Append("</div>\n");
         html.Append(HtmlEnd);
@@ -93,30 +106,53 @@ public static class BrandingSnippetBuilder
         // inside .readOnlyContent — CSS can't lift them out to above the <form>).
         css.Append(".readOnlyContent:has(#oidc-sso-buttons){display:flex;flex-direction:column}\n");
         css.Append(".readOnlyContent:has(#oidc-sso-buttons) .loginDisclaimerContainer{order:-1}\n");
-        // The disclaimer wrapper/inner collapse the button to content width; force full-width block.
+        // Collapse the disclaimer wrapper/inner to a full-width block with no margin/padding of
+        // its own, so the button sits as tight under "Sign In" as the native buttons do.
         css.Append(".loginDisclaimerContainer:has(#oidc-sso-buttons),\n");
-        css.Append(".loginDisclaimerContainer:has(#oidc-sso-buttons) .loginDisclaimer{display:block;width:100%}\n");
-        css.Append("#oidc-sso-buttons{width:100%;margin:.5em 0}\n");
-        // Full width + white label to match the native submit button; #id beats theme rules
-        // without !important. Shape/height/radius/hover still come from the native classes.
-        css.Append("#oidc-sso-buttons a.oidc-sso-btn{display:block;width:100%;margin:.5em 0;");
-        css.Append("box-sizing:border-box;color:#fff;text-decoration:none;text-align:center}\n");
+        css.Append(".loginDisclaimerContainer:has(#oidc-sso-buttons) .loginDisclaimer{display:block;width:100%;margin:0;padding:0}\n");
+        css.Append("#oidc-sso-buttons{display:block;width:100%;margin:0;text-align:center}\n");
+        // Jellyfin upgrades the <a> to an emby-linkbutton and adds .button-link, which strips the
+        // padding/flex box and collapses the button to a text-link height. Re-assert the native
+        // submit-button box (full width, centred, real vertical padding) and white label. #id
+        // beats those class rules without !important; radius/colour/hover still track the theme.
+        css.Append("#oidc-sso-buttons a.oidc-sso-btn{display:flex;align-items:center;");
+        css.Append("justify-content:center;width:100%;box-sizing:border-box;margin:0 0 .25em;");
+        css.Append("padding:1.05em 1em;line-height:1;color:#fff;text-decoration:none;text-align:center}\n");
         foreach (var p in providers)
         {
             var brand = CustomBrandColor(p.ButtonColor);
-            if (brand == null)
+            if (brand != null)
             {
-                continue;
+                // background-image:none clears any theme gradient so the solid colour shows.
+                css.Append("#oidc-sso-buttons a[data-provider=\"")
+                    .Append(CssEscape(p.ProviderId))
+                    .Append("\"]{background-color:")
+                    .Append(brand)
+                    .Append(";background-image:none}\n");
             }
 
-            // background-image:none clears any theme gradient so the solid colour shows.
-            css.Append("#oidc-sso-buttons a[data-provider=\"")
-                .Append(CssEscape(p.ProviderId))
-                .Append("\"]{background-color:")
-                .Append(brand)
-                .Append(";background-image:none}\n");
+            var icon = IconDataUri(p.ButtonIcon);
+            if (icon != null)
+            {
+                css.Append("#oidc-sso-buttons a[data-provider=\"")
+                    .Append(CssEscape(p.ProviderId))
+                    .Append("\"]::before{content:\"\";display:inline-block;flex:0 0 auto;")
+                    .Append("width:1.25em;height:1.25em;margin-right:.55em;")
+                    .Append("background:center/contain no-repeat url(\"")
+                    .Append(icon)
+                    .Append("\")}\n");
+            }
         }
-        css.Append("#oidc-sso-buttons .oidc-sso-sep{margin:.75em 0 .25em;opacity:.7;text-align:center}\n");
+
+        if (hideManualLogin)
+        {
+            // Keep Quick Connect (.btnQuick) visible; hide the password form and Forgot Password.
+            css.Append("#loginPage .manualLoginForm{display:none}\n");
+            css.Append("#loginPage .readOnlyContent .btnForgotPassword{display:none}\n");
+            css.Append("#oidc-sso-buttons .oidc-sso-title{font-size:1.6em;font-weight:400;");
+            css.Append("margin:.25em 0 .9em;text-align:center;opacity:.9}\n");
+        }
+
         css.Append(CssEnd);
 
         return (html.ToString(), css.ToString());
@@ -126,4 +162,40 @@ public static class BrandingSnippetBuilder
     // Provider ids are admin-set and normally [a-z0-9-]; this is defence in depth.
     private static string CssEscape(string value)
         => value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+
+    private static readonly Regex _scriptOrHandler = new(
+        @"<script[\s\S]*?</script\s*>|\son[a-zA-Z]+\s*=\s*(""[^""]*""|'[^']*'|[^\s>]+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Resolves the provider's <c>ButtonIcon</c> to a <c>data:</c> URI for a CSS
+    /// <c>url("…")</c>, or null when there's no usable icon. Accepts a bundled key,
+    /// raw <c>&lt;svg&gt;</c> markup, or an existing <c>data:image/*</c> URI.
+    /// </summary>
+    private static string? IconDataUri(string? buttonIcon)
+    {
+        if (string.IsNullOrWhiteSpace(buttonIcon))
+        {
+            return null;
+        }
+
+        var v = buttonIcon.Trim();
+
+        if (v.StartsWith("data:image/", System.StringComparison.OrdinalIgnoreCase))
+        {
+            // Only image data URIs; reject anything carrying scripts/handlers.
+            return _scriptOrHandler.IsMatch(v) || v.IndexOf('"') >= 0 || v.IndexOf(')') >= 0
+                ? null
+                : v;
+        }
+
+        if (v.StartsWith("<svg", System.StringComparison.OrdinalIgnoreCase))
+        {
+            var cleaned = _scriptOrHandler.Replace(v, string.Empty);
+            var bytes = System.Text.Encoding.UTF8.GetBytes(cleaned);
+            return "data:image/svg+xml;base64," + System.Convert.ToBase64String(bytes);
+        }
+
+        return KnownProviderIcons.TryGet(v);
+    }
 }

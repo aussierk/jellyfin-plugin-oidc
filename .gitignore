@@ -5,3 +5,4 @@ obj/
 .vs/
 *.DotSettings.user
 TestResults/
+*.claude/
