@@ -75,7 +75,9 @@ public class LoginButtonController : ControllerBase
         sb.AppendLine("      btn.href = basePath + '/sso/OIDC/Start/' + encodeURIComponent(p.id);");
         sb.AppendLine("      btn.textContent = 'Sign in with ' + p.name;");
         sb.AppendLine("      btn.className = 'raised button-submit block emby-button';");
-        sb.AppendLine("      btn.style.cssText = 'margin:0.5em auto;max-width:300px;' + (p.brand ? 'background-color:' + p.brand + ' !important;' : '');");
+        // A customized brand color also clears any theme gradient (background-image) so the
+        // solid colour actually shows; padding/border/font stay with the theme.
+        sb.AppendLine("      btn.style.cssText = 'margin:0.5em auto;max-width:300px;' + (p.brand ? 'background-color:' + p.brand + ' !important;background-image:none !important;' : '');");
         sb.AppendLine("      container.appendChild(btn);");
         sb.AppendLine("      var qc = document.createElement('a');");
         sb.AppendLine("      qc.href = basePath + '/sso/OIDC/QuickConnect/' + encodeURIComponent(p.id);");
@@ -120,9 +122,11 @@ public class LoginButtonController : ControllerBase
             var name = System.Net.WebUtility.HtmlEncode(p.DisplayName);
             var encodedId = System.Net.WebUtility.UrlEncode(p.ProviderId);
 
+            // A customized brand color also clears any theme gradient (background-image) so the
+            // solid colour actually shows; padding/border/font stay with the theme.
             var brand = CustomBrandColor(p.ButtonColor);
             var brandStyle = brand != null
-                ? $"background-color:{System.Net.WebUtility.HtmlEncode(brand)} !important;"
+                ? $"background-color:{System.Net.WebUtility.HtmlEncode(brand)} !important;background-image:none !important;"
                 : string.Empty;
 
             sb.Append($"<a href=\"{basePath}/sso/OIDC/Start/{encodedId}\" class=\"raised button-submit block emby-button\" style=\"margin:0.5em auto;max-width:300px;{brandStyle}\">{name}</a>");

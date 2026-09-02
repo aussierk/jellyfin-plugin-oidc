@@ -292,8 +292,9 @@ public class LoginButtonControllerTests
         // Act
         var html = GetBrandingHtml(MakeController().GetBrandingSnippet());
 
-        // Assert — a customized color is layered on as a scoped background-color override.
-        Assert.Contains("background-color:#1A2B3C !important;", html);
+        // Assert — a customized color is layered on as a scoped background override that also
+        // clears any theme gradient so the solid colour shows.
+        Assert.Contains("background-color:#1A2B3C !important;background-image:none !important;", html);
     }
 
     [Fact]

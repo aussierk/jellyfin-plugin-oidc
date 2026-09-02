@@ -153,11 +153,7 @@ public class ClaimParserTests
     [Fact]
     public void ExtractRoles_MalformedBase64Payload_ReturnsEmpty()
     {
-        // A token whose payload is not valid Base64 should not throw — just return empty.
-        var handler = new JwtSecurityTokenHandler();
-        handler.InboundClaimTypeMap.Clear();
-        var raw = "eyJhbGciOiJub25lIn0.!!!notvalidbase64!!!.";
-        // ReadJwtToken will fail; fall back to building a plain token with no claims.
+        // A token whose payload can't be read as claims should not throw — just return empty.
         var token = new JwtSecurityToken(claims: []);
         Assert.Empty(ClaimParser.ExtractRoles(token, "realm_access.roles"));
     }
