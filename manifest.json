@@ -10,11 +10,11 @@
     "versions": [
       {
         "version": "1.0.7.1",
-        "changelog": "Fix: render the login/branding SSO buttons with Jellyfin's native button classes so they follow the active theme/skin (dark and community themes included); a customized provider Button Color is layered on as a scoped override. Feat: surface the plugin's config page directly in the dashboard left nav (Plugins section).",
+        "changelog": "Feat: the plugin's Save now keeps the SSO login button in Jellyfin's Branding in sync automatically (Login Disclaimer + Custom CSS, marker-fenced) — toggle via 'Manage the login button in Branding automatically' on the General tab; manual copy/paste of Html + Css still available. The button renders full-width above the password form, white label, matching the active theme/skin (dark and community themes included); a customized provider Button Color colours just that button's background. Web client only — native/TV apps use Quick Connect. Feat: surface the plugin's config page directly in the dashboard left nav (Plugins section).",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.7.1-rc.4/oidc-rbac.zip",
-        "checksum": "245975efd24533aca1eb74cbfdfd71c7",
-        "timestamp": "2026-09-02T15:52:24Z"
+        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.7.1-rc.5/oidc-rbac.zip",
+        "checksum": "4f8ec64eec61105ffa7e2150dea0aed4",
+        "timestamp": "2026-09-02T16:42:11Z"
       },
       {
         "version": "1.0.7.0",
