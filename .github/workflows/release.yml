@@ -1,108 +1,159 @@
-name: Build & Release
+name: Release
+
+# A merged PR to `main` cuts a full release: build + test, tag v<csproj Version>,
+# publish a GitHub release, and prepend the entry to `main`'s manifest.json (the
+# Stable channel). The same entry is also synced into `dev`'s manifest so the
+# Testing channel never regresses behind Stable.
+#
+# The release is version-gated: if the tag v<Version> already exists, the push did
+# not bump <Version> (e.g. a docs-only merge) and the workflow exits without
+# releasing. So a normal release PR must bump <Version> in the .csproj and add the
+# matching entry to Jellyfin.Plugin.OIDC/meta.json.
+#
+# Manifest commits carry "[skip ci]" so they do not re-trigger this workflow or CI.
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: ["main"]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: "10.0.x"
-
-      - name: Test
-        run: dotnet test -c Release --logger "console;verbosity=normal"
 
       - name: Extract version from csproj
         id: version
         run: |
           VERSION=$(grep -oP '(?<=<Version>)[^<]+' Jellyfin.Plugin.OIDC/Jellyfin.Plugin.OIDC.csproj)
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}"    >> "$GITHUB_OUTPUT"
+
+      - name: Skip if this version was already released
+        id: gate
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${{ steps.version.outputs.tag }} already exists — <Version> was not bumped, nothing to release."
+          else
+            echo "released=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup .NET
+        if: steps.gate.outputs.released == 'false'
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Test
+        if: steps.gate.outputs.released == 'false'
+        run: dotnet test -c Release --logger "console;verbosity=normal"
 
       - name: Build
+        if: steps.gate.outputs.released == 'false'
         run: dotnet publish Jellyfin.Plugin.OIDC/Jellyfin.Plugin.OIDC.csproj -c Release -o dist
 
       - name: Package
+        if: steps.gate.outputs.released == 'false'
         run: cd dist && zip ../oidc-rbac.zip *.dll meta.json
 
-      - name: Generate manifest.json
+      - name: Build manifest entry
+        if: steps.gate.outputs.released == 'false'
+        id: entry
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
           CHECKSUM=$(md5sum oidc-rbac.zip | cut -d' ' -f1)
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          VERSION="${{ steps.version.outputs.version }}"
-          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}/oidc-rbac.zip"
-          CHANGELOG=$(jq -r --arg v "${VERSION}" '.versions[] | select(.version == $v) | .changelog' Jellyfin.Plugin.OIDC/meta.json)
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/oidc-rbac.zip"
 
-          NEW_ENTRY=$(jq -n \
-            --arg version    "${VERSION}" \
-            --arg changelog  "${CHANGELOG}" \
-            --arg sourceUrl  "${DOWNLOAD_URL}" \
-            --arg checksum   "${CHECKSUM}" \
-            --arg timestamp  "${TIMESTAMP}" \
-            '{version: $version, changelog: $changelog, targetAbi: "10.11.0.0", sourceUrl: $sourceUrl, checksum: $checksum, timestamp: $timestamp}')
-
-          # Resolve the branch this tag was pushed from
-          SOURCE_BRANCH=$(git branch -r --contains "${{ github.sha }}" \
-            | grep -v 'HEAD' | sed 's|.*origin/||' | xargs | awk '{print $1}')
-          [ -z "$SOURCE_BRANCH" ] && SOURCE_BRANCH="main"
-          echo "SOURCE_BRANCH=${SOURCE_BRANCH}" >> "$GITHUB_ENV"
-
-          # Read the existing manifest from the source branch and prepend the new entry.
-          # If this version already exists (re-run), replace it in-place instead.
-          git show "origin/${SOURCE_BRANCH}:manifest.json" > manifest_existing.json
-
-          if jq -e --arg v "${VERSION}" '.[0].versions[] | select(.version == $v)' manifest_existing.json > /dev/null 2>&1; then
-            jq --argjson entry "${NEW_ENTRY}" \
-              '.[0].versions = [.[0].versions[] | if .version == $entry.version then $entry else . end]' \
-              manifest_existing.json > manifest.json
-          else
-            jq --argjson entry "${NEW_ENTRY}" \
-              '.[0].versions = [$entry] + .[0].versions' \
-              manifest_existing.json > manifest.json
+          META=Jellyfin.Plugin.OIDC/meta.json
+          CHANGELOG=$(jq -r --arg v "$VERSION" '.versions[] | select(.version == $v) | .changelog' "$META")
+          if [ -z "$CHANGELOG" ] || [ "$CHANGELOG" = "null" ]; then
+            echo "::error::No meta.json changelog entry for ${VERSION}. Add one in the release PR."
+            exit 1
+          fi
+          TARGET_ABI=$(jq -r --arg v "$VERSION" '.versions[] | select(.version == $v) | .targetAbi' "$META")
+          if [ -z "$TARGET_ABI" ] || [ "$TARGET_ABI" = "null" ]; then
+            TARGET_ABI="10.11.0.0"
           fi
 
-      - name: Create release
+          jq -n \
+            --arg version    "$VERSION" \
+            --arg changelog  "$CHANGELOG" \
+            --arg targetAbi  "$TARGET_ABI" \
+            --arg sourceUrl  "$DOWNLOAD_URL" \
+            --arg checksum   "$CHECKSUM" \
+            --arg timestamp  "$TIMESTAMP" \
+            '{version: $version, changelog: $changelog, targetAbi: $targetAbi, sourceUrl: $sourceUrl, checksum: $checksum, timestamp: $timestamp}' \
+            > new_entry.json
+          cat new_entry.json
+
+      - name: Update main manifest
+        if: steps.gate.outputs.released == 'false'
+        run: |
+          jq --slurpfile entry new_entry.json '
+            .[0].versions = (
+              if any(.[0].versions[]; .version == $entry[0].version)
+              then [.[0].versions[] | if .version == $entry[0].version then $entry[0] else . end]
+              else [$entry[0]] + .[0].versions
+              end
+            )' manifest.json > manifest.tmp
+          mv manifest.tmp manifest.json
+
+      - name: Create GitHub release
+        if: steps.gate.outputs.released == 'false'
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          prerelease: false
+          generate_release_notes: true
           files: |
             oidc-rbac.zip
             manifest.json
-          generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
 
-      - name: Commit updated manifest
+      - name: Commit manifest to main and sync into dev
+        if: steps.gate.outputs.released == 'false'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          git config user.name "github-actions[bot]"
+          git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          cp manifest.json /tmp/manifest.json
+          cp manifest.json /tmp/release-manifest.json
+          cp new_entry.json /tmp/new_entry.json
 
-          # Discard the locally generated manifest so git checkout doesn't refuse
-          git restore manifest.json 2>/dev/null || git checkout -- manifest.json
-
-          # Always commit back to the source branch
-          git checkout "${SOURCE_BRANCH}"
-          cp /tmp/manifest.json manifest.json
+          # main
           git add manifest.json
-          git commit -m "chore(release): update manifest.json for ${GITHUB_REF_NAME}" || echo "No changes"
-          git push origin "${SOURCE_BRANCH}"
+          git commit -m "chore(release): update manifest.json for ${TAG} [skip ci]" || echo "No change on main"
+          git pull --rebase origin main
+          git push origin HEAD:main
 
-          # For full releases, also update main if the source branch wasn't main
-          if [[ "${GITHUB_REF_NAME}" != *"-"* ]] && [[ "${SOURCE_BRANCH}" != "main" ]]; then
-            git checkout main
-            cp /tmp/manifest.json manifest.json
-            git add manifest.json
-            git commit -m "chore(release): update manifest.json for ${GITHUB_REF_NAME}" || echo "No changes"
-            git push origin main
-          fi
+          # dev — prepend/replace the same entry so Testing keeps every Stable version
+          git fetch origin dev
+          git checkout -B dev origin/dev
+          jq --slurpfile entry /tmp/new_entry.json '
+            .[0].versions = (
+              if any(.[0].versions[]; .version == $entry[0].version)
+              then [.[0].versions[] | if .version == $entry[0].version then $entry[0] else . end]
+              else [$entry[0]] + .[0].versions
+              end
+            )' manifest.json > manifest.tmp
+          mv manifest.tmp manifest.json
+          git add manifest.json
+          git commit -m "chore(release): sync manifest.json for ${TAG} into dev [skip ci]" || { echo "dev already current"; exit 0; }
+          git pull --rebase origin dev
+          git push origin HEAD:dev

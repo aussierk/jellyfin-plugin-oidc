@@ -37,7 +37,7 @@ These changes are not present in the upstream plugin:
 - **Merge semantics** — users with multiple roles get the union of all permissions (most permissive wins)
 - **Default role fallback** — assign a baseline role to users with no matching IdP roles
 - **Fail-closed RBAC** — deny login when no IdP role or configured default role matches, preventing stale permissions from surviving role removal
-- **Admin UI** — full configuration from the Jellyfin dashboard (Providers, Role Mappings, General settings)
+- **Admin UI** — full configuration from the Jellyfin dashboard (Providers, Role Mappings, General settings), reachable directly from the dashboard's left nav under **Plugins**
 - **Login button injection** — paste one HTML snippet into Jellyfin's Login Disclaimer; buttons appear automatically
 - **Native/mobile app login** — sign in Android, iOS, and TV apps via Jellyfin [Quick Connect](#mobile--native-apps-quick-connect)
 - **Profile image sync** — set the Jellyfin avatar from the IdP's `picture` claim on each login
@@ -164,7 +164,7 @@ Or use the Jellyfin API to retrieve it:
 curl https://jellyfin.example.com/sso/OIDC/BrandingSnippet
 ```
 
-Copy the `Html` field from the response and paste it into the Login Disclaimer field. The snippet contains styled `<a>` links for each enabled provider — no JavaScript required.
+Copy the `Html` field from the response and paste it into the Login Disclaimer field. The snippet contains one `<a>` link per enabled provider with no JavaScript required. The links use Jellyfin's native button classes, so they match whatever theme/skin the server is using (including dark and community themes). A provider's **Button Color** setting, when changed from the default, is applied as a scoped background-color override on top of the themed button.
 
 > The auto-injected buttons (`/sso/OIDC/LoginButtons`) and the `BrandingSnippet` links automatically
 > honor a Jellyfin **base URL** (Admin Dashboard → Networking → Base URL). If you hand-write an

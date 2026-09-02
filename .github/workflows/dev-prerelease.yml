@@ -1,0 +1,117 @@
+name: Dev Pre-release
+
+# Every merge/push to `dev` builds a release-candidate package, publishes it as a
+# GitHub pre-release, and prepends the entry to `dev`'s manifest.json (the Testing
+# channel). Version = <csproj Version>-rc.<run number>, e.g. 1.0.8.0-rc.42.
+#
+# The manifest commit this workflow makes back to `dev` carries "[skip ci]" so it
+# does not re-trigger this workflow (or CI).
+
+on:
+  push:
+    branches: ["dev"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dev-prerelease
+  cancel-in-progress: false
+
+jobs:
+  prerelease:
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Test
+        run: dotnet test -c Release --logger "console;verbosity=normal"
+
+      - name: Compute version
+        id: version
+        run: |
+          BASE=$(grep -oP '(?<=<Version>)[^<]+' Jellyfin.Plugin.OIDC/Jellyfin.Plugin.OIDC.csproj)
+          VERSION="${BASE}-rc.${{ github.run_number }}"
+          echo "base=${BASE}"       >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}"    >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: dotnet publish Jellyfin.Plugin.OIDC/Jellyfin.Plugin.OIDC.csproj -c Release -o dist
+
+      - name: Package
+        run: cd dist && zip ../oidc-rbac.zip *.dll meta.json
+
+      - name: Update dev manifest
+        id: manifest
+        env:
+          BASE: ${{ steps.version.outputs.base }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          CHECKSUM=$(md5sum oidc-rbac.zip | cut -d' ' -f1)
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/oidc-rbac.zip"
+
+          META=Jellyfin.Plugin.OIDC/meta.json
+          CHANGELOG=$(jq -r --arg v "$BASE" '.versions[] | select(.version == $v) | .changelog' "$META")
+          if [ -z "$CHANGELOG" ] || [ "$CHANGELOG" = "null" ]; then
+            CHANGELOG="Development build from ${{ github.sha }}"
+          fi
+          TARGET_ABI=$(jq -r --arg v "$BASE" '.versions[] | select(.version == $v) | .targetAbi' "$META")
+          if [ -z "$TARGET_ABI" ] || [ "$TARGET_ABI" = "null" ]; then
+            TARGET_ABI="10.11.0.0"
+          fi
+
+          NEW_ENTRY=$(jq -n \
+            --arg version    "$VERSION" \
+            --arg changelog  "$CHANGELOG" \
+            --arg targetAbi  "$TARGET_ABI" \
+            --arg sourceUrl  "$DOWNLOAD_URL" \
+            --arg checksum   "$CHECKSUM" \
+            --arg timestamp  "$TIMESTAMP" \
+            '{version: $version, changelog: $changelog, targetAbi: $targetAbi, sourceUrl: $sourceUrl, checksum: $checksum, timestamp: $timestamp}')
+
+          # Replace the entry in place if this rc version already exists (workflow re-run),
+          # otherwise prepend it.
+          if jq -e --arg v "$VERSION" '.[0].versions[] | select(.version == $v)' manifest.json > /dev/null 2>&1; then
+            jq --argjson entry "$NEW_ENTRY" \
+              '.[0].versions = [.[0].versions[] | if .version == $entry.version then $entry else . end]' \
+              manifest.json > manifest.tmp
+          else
+            jq --argjson entry "$NEW_ENTRY" \
+              '.[0].versions = [$entry] + .[0].versions' \
+              manifest.json > manifest.tmp
+          fi
+          mv manifest.tmp manifest.json
+
+      - name: Create GitHub pre-release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          generate_release_notes: true
+          files: |
+            oidc-rbac.zip
+            manifest.json
+
+      - name: Commit manifest back to dev
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add manifest.json
+          git commit -m "chore(prerelease): update dev manifest for ${TAG} [skip ci]" || { echo "No manifest change"; exit 0; }
+          git pull --rebase origin dev
+          git push origin HEAD:dev
