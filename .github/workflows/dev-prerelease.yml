@@ -1,11 +1,18 @@
 name: Dev Pre-release
 
-# Every merge/push to `dev` builds a release-candidate package, publishes it as a
-# GitHub pre-release, and prepends the entry to `dev`'s manifest.json (the Testing
-# channel). Version = <csproj Version>-rc.<run number>, e.g. 1.0.8.0-rc.42.
+# Every merge/push to `dev` builds a testing package, publishes it as a GitHub
+# pre-release, and updates `dev`'s manifest.json (the Testing channel).
 #
-# The manifest commit this workflow makes back to `dev` carries "[skip ci]" so it
-# does not re-trigger this workflow (or CI).
+# IMPORTANT: Jellyfin parses each manifest `version` with System.Version, which
+# only accepts 2-4 dotted integers. A semver suffix like "1.0.7.1-rc.1" makes
+# Jellyfin throw ("Version string portion was too short or too long") and breaks
+# the whole plugin catalog. So:
+#   - the manifest `version` is the plain <csproj Version> (e.g. 1.0.7.1)
+#   - the "-rc.<run number>" suffix lives ONLY in the git tag / GitHub pre-release
+#   - each dev merge for the same <Version> REPLACES that manifest entry in place
+#     (new bits, same version number) until the version is bumped for the next cycle
+#
+# The manifest commit back to `dev` carries "[skip ci]" so it does not re-trigger.
 
 on:
   push:
@@ -40,10 +47,19 @@ jobs:
         id: version
         run: |
           BASE=$(grep -oP '(?<=<Version>)[^<]+' Jellyfin.Plugin.OIDC/Jellyfin.Plugin.OIDC.csproj)
-          VERSION="${BASE}-rc.${{ github.run_number }}"
-          echo "base=${BASE}"       >> "$GITHUB_OUTPUT"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "tag=v${VERSION}"    >> "$GITHUB_OUTPUT"
+          # Must be plain N.N[.N[.N]] for Jellyfin's System.Version parser.
+          if ! [[ "$BASE" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]]; then
+            echo "::error::<Version> '$BASE' is not a plain numeric version (2-4 dotted integers)."
+            exit 1
+          fi
+          # If v$BASE (the full-release tag) already exists, this version already
+          # shipped to Stable — bump <Version> before cutting more dev builds.
+          if git ls-remote --exit-code --tags origin "refs/tags/v${BASE}" >/dev/null 2>&1; then
+            echo "::error::v${BASE} is already released. Bump <Version> in the csproj for the next cycle."
+            exit 1
+          fi
+          echo "base=${BASE}"                       >> "$GITHUB_OUTPUT"
+          echo "rc_tag=v${BASE}-rc.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
       - name: Build
         run: dotnet publish Jellyfin.Plugin.OIDC/Jellyfin.Plugin.OIDC.csproj -c Release -o dist
@@ -52,20 +68,19 @@ jobs:
         run: cd dist && zip ../oidc-rbac.zip *.dll meta.json
 
       - name: Update dev manifest
-        id: manifest
         env:
           BASE: ${{ steps.version.outputs.base }}
-          VERSION: ${{ steps.version.outputs.version }}
-          TAG: ${{ steps.version.outputs.tag }}
+          RC_TAG: ${{ steps.version.outputs.rc_tag }}
         run: |
           CHECKSUM=$(md5sum oidc-rbac.zip | cut -d' ' -f1)
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/oidc-rbac.zip"
+          # Artifact is hosted on the rc pre-release; the manifest version stays plain.
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${RC_TAG}/oidc-rbac.zip"
 
           META=Jellyfin.Plugin.OIDC/meta.json
           CHANGELOG=$(jq -r --arg v "$BASE" '.versions[] | select(.version == $v) | .changelog' "$META")
           if [ -z "$CHANGELOG" ] || [ "$CHANGELOG" = "null" ]; then
-            CHANGELOG="Development build from ${{ github.sha }}"
+            CHANGELOG="Testing build from ${{ github.sha }}"
           fi
           TARGET_ABI=$(jq -r --arg v "$BASE" '.versions[] | select(.version == $v) | .targetAbi' "$META")
           if [ -z "$TARGET_ABI" ] || [ "$TARGET_ABI" = "null" ]; then
@@ -73,7 +88,7 @@ jobs:
           fi
 
           NEW_ENTRY=$(jq -n \
-            --arg version    "$VERSION" \
+            --arg version    "$BASE" \
             --arg changelog  "$CHANGELOG" \
             --arg targetAbi  "$TARGET_ABI" \
             --arg sourceUrl  "$DOWNLOAD_URL" \
@@ -81,9 +96,8 @@ jobs:
             --arg timestamp  "$TIMESTAMP" \
             '{version: $version, changelog: $changelog, targetAbi: $targetAbi, sourceUrl: $sourceUrl, checksum: $checksum, timestamp: $timestamp}')
 
-          # Replace the entry in place if this rc version already exists (workflow re-run),
-          # otherwise prepend it.
-          if jq -e --arg v "$VERSION" '.[0].versions[] | select(.version == $v)' manifest.json > /dev/null 2>&1; then
+          # Replace this version's entry in place if present, else prepend it.
+          if jq -e --arg v "$BASE" '.[0].versions[] | select(.version == $v)' manifest.json > /dev/null 2>&1; then
             jq --argjson entry "$NEW_ENTRY" \
               '.[0].versions = [.[0].versions[] | if .version == $entry.version then $entry else . end]' \
               manifest.json > manifest.tmp
@@ -97,7 +111,7 @@ jobs:
       - name: Create GitHub pre-release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
+          tag_name: ${{ steps.version.outputs.rc_tag }}
           target_commitish: ${{ github.sha }}
           prerelease: true
           generate_release_notes: true
@@ -107,11 +121,11 @@ jobs:
 
       - name: Commit manifest back to dev
         env:
-          TAG: ${{ steps.version.outputs.tag }}
+          RC_TAG: ${{ steps.version.outputs.rc_tag }}
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add manifest.json
-          git commit -m "chore(prerelease): update dev manifest for ${TAG} [skip ci]" || { echo "No manifest change"; exit 0; }
+          git commit -m "chore(prerelease): update dev manifest for ${RC_TAG} [skip ci]" || { echo "No manifest change"; exit 0; }
           git pull --rebase origin dev
           git push origin HEAD:dev

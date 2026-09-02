@@ -12,21 +12,32 @@ tagging.
 
 See the [README](README.md#release-channels) for the repository URLs users add in Jellyfin.
 
-## Testing (RC) builds — automatic
+## Testing builds — automatic
 
 Every merge to `dev` runs `dev-prerelease.yml`:
 
 1. Builds and tests.
-2. Version = `<Version>` from `Jellyfin.Plugin.OIDC/Jellyfin.Plugin.OIDC.csproj` plus
-   `-rc.<GitHub run number>` (e.g. `1.0.8.0-rc.42`).
-3. Publishes a GitHub **pre-release** tagged `v<version>` with `oidc-rbac.zip`.
-4. Prepends the entry to `dev`'s `manifest.json` and commits it back to `dev` with
-   `[skip ci]`.
+2. Publishes a GitHub **pre-release** tagged `v<Version>-rc.<run number>` (e.g.
+   `v1.0.8.0-rc.42`) with `oidc-rbac.zip`. The `-rc.<n>` suffix is **only** in the git tag
+   and release name — never in the manifest.
+3. Writes `dev`'s `manifest.json` with `version` = the plain `<Version>` from
+   `Jellyfin.Plugin.OIDC/Jellyfin.Plugin.OIDC.csproj` (e.g. `1.0.8.0`), `sourceUrl` pointing
+   at the rc pre-release asset, then commits it back to `dev` with `[skip ci]`.
 
-Changelog text and `targetAbi` for the RC come from the `<Version>` (base, non-`-rc`) entry
-in `meta.json`; if that entry doesn't exist yet the changelog falls back to
-`Development build from <sha>`. Add the real `meta.json` entry as part of your feature work
-so RC testers see meaningful notes.
+> Jellyfin parses every manifest `version` with `System.Version` (2–4 dotted integers).
+> A value like `1.0.8.0-rc.42` throws *"Version string portion was too short or too long"*
+> and breaks the entire plugin catalog. That's why the manifest version stays plain and the
+> rc counter lives only in the tag.
+
+Because the manifest version is plain, **each dev merge for the same `<Version>` replaces
+that one manifest entry in place** (new bits, same number) until `<Version>` is bumped for
+the next cycle. Once `v<Version>` has been released to Stable, `dev-prerelease.yml` refuses
+to run until `<Version>` is bumped — otherwise it would overwrite a shipped version's entry
+with untested code.
+
+Changelog and `targetAbi` come from the `<Version>` entry in `meta.json`; if it doesn't
+exist yet the changelog falls back to `Testing build from <sha>`. Add the real `meta.json`
+entry as part of your feature work so testers see meaningful notes.
 
 ## Full releases — automatic on merge to `main`
 
@@ -55,6 +66,6 @@ in place rather than adding a duplicate.
 
 ## Expected state between releases
 
-After an RC ships but before promotion, `dev`'s manifest legitimately has `-rc` entries
-`main`'s doesn't. That's expected divergence, not drift to reconcile. Promotion adds the
-final (non-`-rc`) entry to both branches.
+Before promotion, `dev`'s manifest legitimately carries a version `main`'s doesn't (the one
+being tested). That's expected divergence, not drift to reconcile. Promotion adds that same
+version's final entry to both branches, repointing `sourceUrl` at the full-release asset.
