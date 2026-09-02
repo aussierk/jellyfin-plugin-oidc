@@ -72,6 +72,28 @@
                                 When enabled, no provider's Authority may resolve to an RFC1918 private range (10/8, 172.16/12, 192.168/16) or IPv6 ULA (fc00::/7), for stricter network isolation. Off by default, since self-hosted IdPs commonly live on these ranges. Loopback and link-local addresses are always blocked regardless of this setting, unless individually allowed per-provider.
                             </p>
                         </div>
+                        <div style="grid-column:1/-1;">
+                            <label>
+                                <input type="checkbox" id="manageLoginButtonBranding" is="emby-checkbox" />
+                                <span>Manage the login button in Branding automatically</span>
+                            </label>
+                            <p class="fieldDescription" style="margin:0.3em 0 0 1.5em;font-size:0.85em;color:#aaa;">
+                                On Save, keeps a marked block in <strong>Dashboard &gt; General &gt; Branding</strong> (Login Disclaimer + Custom CSS) in sync with your enabled providers — nothing else in those fields is touched. Unticking and saving offers to remove the block. <strong>Web client only</strong> — TV and mobile apps don't show it and use Quick Connect instead.
+                                <br />Status: <span id="brandingStatus">—</span>
+                            </p>
+                            <details style="margin:0.4em 0 0 1.5em;font-size:0.85em;">
+                                <summary style="cursor:pointer;color:#00a4dc;">Manual install (copy / paste)</summary>
+                                <p class="fieldDescription" style="margin:0.4em 0;color:#aaa;">
+                                    Paste <strong>Login button HTML</strong> into Branding &gt; Login Disclaimer and <strong>Login button CSS</strong> into Branding &gt; Custom CSS.
+                                </p>
+                                <label for="brandingHtml" style="font-weight:600;">Login button HTML</label>
+                                <textarea id="brandingHtml" readonly rows="4" style="width:100%;font-family:monospace;font-size:0.8em;"></textarea>
+                                <button type="button" class="oidc-btn-secondary" data-copy="brandingHtml" style="margin:0.3em 0;">Copy HTML</button>
+                                <label for="brandingCss" style="font-weight:600;display:block;margin-top:0.4em;">Login button CSS</label>
+                                <textarea id="brandingCss" readonly rows="6" style="width:100%;font-family:monospace;font-size:0.8em;"></textarea>
+                                <button type="button" class="oidc-btn-secondary" data-copy="brandingCss" style="margin:0.3em 0;">Copy CSS</button>
+                            </details>
+                        </div>
                     </div>
                 </div>
             </div>

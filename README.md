@@ -4,7 +4,7 @@ A security-hardened Jellyfin plugin providing **OpenID Connect authentication** 
 
 Authenticate users via any OIDC-compatible identity provider (Authentik, Keycloak, Azure AD, Okta, etc.) and automatically assign Jellyfin permissions and library access based on IdP group/role claims.
 
-> **Forked from [Ezeqielle/jellyfin-plugin-oidc](https://github.com/Ezeqielle/jellyfin-plugin-oidc)** with significant security hardening. See [Security improvements](#security-improvements) for what was changed and why.
+
 
 ## Security improvements
 
@@ -64,7 +64,6 @@ https://raw.githubusercontent.com/aussierk/jellyfin-plugin-oidc/main/manifest.js
 | Channel | Repository URL | Contents |
 |---|---|---|
 | Stable | `https://raw.githubusercontent.com/aussierk/jellyfin-plugin-oidc/main/manifest.json` | Full releases only (e.g. `1.0.6.0`) |
-| Testing | `https://raw.githubusercontent.com/aussierk/jellyfin-plugin-oidc/dev/manifest.json` | Release-candidate builds, may be unstable |
 
 Add the Testing URL as a second repository (same steps as above) if you want early access to RC builds. Stick with Stable for normal use.
 
@@ -153,23 +152,30 @@ Go to **General tab** and configure:
 
 ### 4. Add the Login Button
 
-Go to **Admin Dashboard → General → Branding → Login disclaimer** and paste the HTML from:
+By default the plugin does this for you: with **Manage the login button in Branding
+automatically** ticked (plugin config → **General** tab), clicking **Save** with at least one
+enabled provider writes a marked block into **Admin Dashboard → General → Branding** — the
+button markup into *Login disclaimer* and its styling into *Custom CSS*. Nothing else in those
+fields is touched, and unticking + saving offers to remove the block. The button renders
+full-width above the password form, matching the active theme/skin (dark and community themes
+included); a provider's **Button Color**, when changed from the default, colours just that
+button's background.
 
-```
-GET /sso/OIDC/BrandingSnippet
-```
+> **Web client only.** `Login disclaimer` / `Custom CSS` are rendered solely by the Jellyfin
+> web UI. Android, Android TV, Swiftfin/iOS and Kodi show their own login screens — those
+> users sign in with [Quick Connect](#mobile--native-apps-quick-connect).
 
-Or use the Jellyfin API to retrieve it:
+**Manual install.** If you turn the setting off (e.g. you inject buttons another way), grab
+the snippet yourself — plugin config → General → *Manual install (copy / paste)*, or:
+
 ```bash
-curl https://jellyfin.example.com/sso/OIDC/BrandingSnippet
+curl -s https://jellyfin.example.com/sso/OIDC/BrandingSnippet | jq -r '.Html'   # → Login disclaimer
+curl -s https://jellyfin.example.com/sso/OIDC/BrandingSnippet | jq -r '.Css'    # → Custom CSS
 ```
 
-Copy the `Html` field from the response and paste it into the Login Disclaimer field. The snippet contains one `<a>` link per enabled provider with no JavaScript required. The links use Jellyfin's native button classes, so they match whatever theme/skin the server is using (including dark and community themes). A provider's **Button Color** setting, when changed from the default, is applied as a scoped background-color override on top of the themed button.
-
-> The auto-injected buttons (`/sso/OIDC/LoginButtons`) and the `BrandingSnippet` links automatically
-> honor a Jellyfin **base URL** (Admin Dashboard → Networking → Base URL). If you hand-write an
-> `<a>` snippet yourself and run Jellyfin under a base path, prefix the href, e.g.
-> `href="/base_url/sso/OIDC/Start/authentik"`.
+> The generated links (and `/sso/OIDC/LoginButtons`) honor a Jellyfin **base URL**
+> (Admin Dashboard → Networking → Base URL) automatically. If you hand-write an `<a>` snippet
+> and run under a base path, prefix the href, e.g. `href="/base_url/sso/OIDC/Start/authentik"`.
 
 ## Migrating Existing Users
 
@@ -355,7 +361,7 @@ If SSO logins start failing after an IdP upgrade:
 | POST   | `/sso/OIDC/QuickConnect/Authorize/{providerId}` | Authorize a Quick Connect code after OIDC login |
 | GET    | `/sso/OIDC/Providers`             | List enabled providers             |
 | GET    | `/sso/OIDC/LoginButtons`          | JS snippet for login button auto-injection |
-| GET    | `/sso/OIDC/BrandingSnippet`       | HTML snippet for Login Disclaimer  |
+| GET    | `/sso/OIDC/BrandingSnippet`       | `{ Html, Css }` for Login Disclaimer + Custom CSS |
 | GET    | `/sso/OIDC/Config/Libraries`      | List available libraries (admin)   |
 | GET    | `/sso/OIDC/Config/Status`         | Plugin status (admin)              |
 
@@ -414,3 +420,4 @@ Jellyfin.Plugin.OIDC/
 ## License
 
 GPLv3 (required by linking against Jellyfin's GPLv3 libraries)
+> **Forked from [Ezeqielle/jellyfin-plugin-oidc](https://github.com/Ezeqielle/jellyfin-plugin-oidc)** with significant security hardening. See [Security improvements](#security-improvements) for what was changed and why.

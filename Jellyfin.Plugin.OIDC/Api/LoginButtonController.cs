@@ -1,7 +1,6 @@
 using System.Linq;
 using System.Text;
-using System.Text.Json;
-using System.Text.RegularExpressions;
+using Jellyfin.Plugin.OIDC.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Jellyfin.Plugin.OIDC.Api;
@@ -10,83 +9,67 @@ namespace Jellyfin.Plugin.OIDC.Api;
 [Route("sso/OIDC")]
 public class LoginButtonController : ControllerBase
 {
-    // Allows only #RGB, #RGBA, #RRGGBB, #RRGGBBAA, and CSS named colors (letters/hyphens only).
-    private static readonly Regex _safeCssColor = new(
-        @"^(#[0-9a-fA-F]{3,8}|[a-zA-Z\-]+)$",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    // Jellyfin may run under a base path (Networking > Base URL); include it so generated
+    // links keep working under a prefixed deployment. Empty PathBase yields root-relative links.
+    private string BasePath => Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
 
-    private const string DefaultButtonColor = "#4285F4";
-
-    // Returns the provider's brand color only when the admin has set a valid, non-default
-    // value. When null, the button keeps the active Jellyfin theme's own button background.
-    private static string? CustomBrandColor(string? color)
-    {
-        if (string.IsNullOrWhiteSpace(color))
-        {
-            return null;
-        }
-
-        var trimmed = color.Trim();
-        return _safeCssColor.IsMatch(trimmed)
-               && !string.Equals(trimmed, DefaultButtonColor, System.StringComparison.OrdinalIgnoreCase)
-            ? trimmed
-            : null;
-    }
+    private static System.Collections.Generic.List<Configuration.OidcProviderConfig> EnabledProviders()
+        => OidcPlugin.Instance?.Configuration?.Providers.Where(p => p.Enabled).ToList()
+           ?? new System.Collections.Generic.List<Configuration.OidcProviderConfig>();
 
     [HttpGet("LoginButtons")]
     public ActionResult GetLoginButtonsScript()
     {
-        var config = OidcPlugin.Instance?.Configuration;
-        if (config == null)
-        {
-            return Content("", "application/javascript");
-        }
-
-        var providers = config.Providers.Where(p => p.Enabled).ToList();
+        var providers = EnabledProviders();
         if (providers.Count == 0)
         {
             return Content("", "application/javascript");
         }
 
-        var providerData = providers.Select(p => new
-        {
-            id = p.ProviderId,
-            name = p.DisplayName,
-            // Only a customized brand color; null means "use the active theme's button color".
-            brand = CustomBrandColor(p.ButtonColor)
-        });
-        var providersJson = JsonSerializer.Serialize(providerData);
+        // Reuse the same markup/CSS the Branding snippet uses so both injection paths render
+        // identically. The script inserts the container above the form itself, so the CSS's
+        // reorder rules are simply a no-op here.
+        var (_, css) = BrandingSnippetBuilder.Build(providers, basePath: string.Empty);
+
+        var providerData = providers.Select(p => new { id = p.ProviderId, name = p.DisplayName });
+        var providersJson = System.Text.Json.JsonSerializer.Serialize(providerData);
+        var cssJson = System.Text.Json.JsonSerializer.Serialize(css);
 
         var sb = new StringBuilder();
         sb.AppendLine("(function() {");
         sb.AppendLine($"  var providers = {providersJson};");
-        // Jellyfin may run under a base path (Networking > Base URL). The web client is served
-        // under '<basePath>/web/', so derive the prefix from the login page URL. Empty when unset.
+        sb.AppendLine($"  var css = {cssJson};");
+        // The web client is served under '<basePath>/web/', so derive the prefix from the
+        // login page URL. Empty when no base path is configured.
         sb.AppendLine("  var _p = window.location.pathname.split('/web/');");
         sb.AppendLine("  var basePath = _p.length > 1 ? _p[0] : '';");
         sb.AppendLine("  function addButtons() {");
         sb.AppendLine("    var form = document.querySelector('.manualLoginForm, #loginPage form, .loginPage form, [data-page=\"loginPage\"] form, form[action*=\"login\"], #loginPage .padded-left form');");
         sb.AppendLine("    if (!form || document.getElementById('oidc-sso-buttons')) return;");
+        sb.AppendLine("    if (css && !document.getElementById('oidc-sso-buttons-style')) {");
+        sb.AppendLine("      var st = document.createElement('style');");
+        sb.AppendLine("      st.id = 'oidc-sso-buttons-style';");
+        sb.AppendLine("      st.textContent = css;");
+        sb.AppendLine("      document.head.appendChild(st);");
+        sb.AppendLine("    }");
         sb.AppendLine("    var container = document.createElement('div');");
         sb.AppendLine("    container.id = 'oidc-sso-buttons';");
-        sb.AppendLine("    container.style.cssText = 'margin:1em 0;text-align:center;';");
         sb.AppendLine("    providers.forEach(function(p) {");
         sb.AppendLine("      var btn = document.createElement('a');");
         sb.AppendLine("      btn.href = basePath + '/sso/OIDC/Start/' + encodeURIComponent(p.id);");
-        sb.AppendLine("      btn.textContent = 'Sign in with ' + p.name;");
-        sb.AppendLine("      btn.className = 'raised button-submit block emby-button';");
-        // A customized brand color also clears any theme gradient (background-image) so the
-        // solid colour actually shows; padding/border/font stay with the theme.
-        sb.AppendLine("      btn.style.cssText = 'margin:0.5em auto;max-width:300px;' + (p.brand ? 'background-color:' + p.brand + ' !important;background-image:none !important;' : '');");
+        sb.AppendLine("      btn.textContent = p.name;");
+        sb.AppendLine("      btn.className = 'raised button-submit block emby-button oidc-sso-btn';");
+        sb.AppendLine("      btn.setAttribute('data-provider', p.id);");
         sb.AppendLine("      container.appendChild(btn);");
         sb.AppendLine("      var qc = document.createElement('a');");
         sb.AppendLine("      qc.href = basePath + '/sso/OIDC/QuickConnect/' + encodeURIComponent(p.id);");
         sb.AppendLine("      qc.textContent = 'Sign in a device with ' + p.name + ' (Quick Connect)';");
-        sb.AppendLine("      qc.style.cssText = 'display:block;margin:0.2em auto 0.8em;text-decoration:none;font-size:0.8em;max-width:300px;opacity:0.7;';");
+        sb.AppendLine("      qc.className = 'oidc-sso-qc';");
+        sb.AppendLine("      qc.style.cssText = 'display:block;margin:0.2em auto 0.8em;text-decoration:none;font-size:0.8em;opacity:0.7;';");
         sb.AppendLine("      container.appendChild(qc);");
         sb.AppendLine("    });");
         sb.AppendLine("    var sep = document.createElement('div');");
-        sb.AppendLine("    sep.style.cssText = 'margin:1em 0;text-align:center;opacity:0.7;';");
+        sb.AppendLine("    sep.className = 'oidc-sso-sep';");
         sb.AppendLine("    sep.textContent = '— or sign in with password —';");
         sb.AppendLine("    container.appendChild(sep);");
         sb.AppendLine("    form.parentNode.insertBefore(container, form);");
@@ -102,38 +85,21 @@ public class LoginButtonController : ControllerBase
     [HttpGet("BrandingSnippet")]
     public ActionResult GetBrandingSnippet()
     {
-        var config = OidcPlugin.Instance?.Configuration;
-        var providers = config?.Providers.Where(p => p.Enabled).ToList()
-                        ?? new System.Collections.Generic.List<Configuration.OidcProviderConfig>();
-
+        var providers = EnabledProviders();
         if (providers.Count == 0)
         {
-            return Ok(new { Html = "", Instructions = "No enabled providers configured." });
+            return Ok(new { Html = "", Css = "", Instructions = "No enabled providers configured." });
         }
 
-        // Jellyfin may run under a base path (Networking > Base URL); include it so pasted
-        // links keep working under a prefixed deployment. Empty PathBase yields root-relative links.
-        var basePath = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
+        var (html, css) = BrandingSnippetBuilder.Build(providers, BasePath);
 
-        var sb = new System.Text.StringBuilder();
-        sb.Append("<div style=\"margin:1em 0;text-align:center;\">");
-        foreach (var p in providers)
+        return Ok(new
         {
-            var name = System.Net.WebUtility.HtmlEncode(p.DisplayName);
-            var encodedId = System.Net.WebUtility.UrlEncode(p.ProviderId);
-
-            // A customized brand color also clears any theme gradient (background-image) so the
-            // solid colour actually shows; padding/border/font stay with the theme.
-            var brand = CustomBrandColor(p.ButtonColor);
-            var brandStyle = brand != null
-                ? $"background-color:{System.Net.WebUtility.HtmlEncode(brand)} !important;background-image:none !important;"
-                : string.Empty;
-
-            sb.Append($"<a href=\"{basePath}/sso/OIDC/Start/{encodedId}\" class=\"raised button-submit block emby-button\" style=\"margin:0.5em auto;max-width:300px;{brandStyle}\">{name}</a>");
-        }
-        sb.Append("<div style=\"margin:1em 0;opacity:0.7;\">— or sign in with password —</div>");
-        sb.Append("</div>");
-
-        return Ok(new { Html = sb.ToString(), Instructions = "Paste the Html value into Jellyfin Dashboard > General > Branding > Login Disclaimer and save." });
+            Html = html,
+            Css = css,
+            Instructions =
+                "Enable a provider and click Save on the plugin's General tab to add this automatically, "
+                + "or paste Html into Dashboard > General > Branding > Login Disclaimer and Css into Custom CSS."
+        });
     }
 }

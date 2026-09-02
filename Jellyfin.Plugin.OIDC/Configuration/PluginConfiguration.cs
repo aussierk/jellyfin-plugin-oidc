@@ -39,6 +39,14 @@ public class PluginConfiguration : BasePluginConfiguration
     public string DefaultRoleName { get; set; } = string.Empty;
 
     /// <summary>
+    /// When true, saving the plugin config also keeps a marker-fenced SSO login-button block
+    /// in sync inside Jellyfin's Branding settings (Login Disclaimer + Custom CSS), matching
+    /// the enabled providers. Web client only — native/TV apps use Quick Connect. The block
+    /// is written and removed by the config page; this flag only records the admin's choice.
+    /// </summary>
+    public bool ManageLoginButtonBranding { get; set; } = true;
+
+    /// <summary>
     /// Maps Jellyfin usernames to the OIDC provider that owns each account.
     /// Used to detect cross-provider username collisions.
     /// List of UserProviderEntry is used instead of Dictionary to remain XML-serializable.

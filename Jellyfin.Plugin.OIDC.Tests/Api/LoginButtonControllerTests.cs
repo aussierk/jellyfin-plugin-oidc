@@ -19,69 +19,60 @@ public class LoginButtonControllerTests
         ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
     };
 
-    private static string GetBrandingHtml(ActionResult result)
+    private static string BrandingField(ActionResult result, string name)
     {
         var ok = Assert.IsType<OkObjectResult>(result);
-        return (string)ok.Value!.GetType().GetProperty("Html")!.GetValue(ok.Value)!;
+        return (string)ok.Value!.GetType().GetProperty(name)!.GetValue(ok.Value)!;
     }
+
+    private static string GetBrandingHtml(ActionResult result) => BrandingField(result, "Html");
+
+    private static string GetBrandingCss(ActionResult result) => BrandingField(result, "Css");
 
     // ── GetLoginButtonsScript ──────────────────────────────────────────────────
 
     [Fact]
     public void GetLoginButtonsScript_NoProviders_ReturnsEmptyContent()
     {
-        // Arrange
         _fixture.SetConfiguration(new PluginConfiguration { Providers = [] });
 
-        // Act
         var result = MakeController().GetLoginButtonsScript();
 
-        // Assert
         Assert.Equal("", Assert.IsType<ContentResult>(result).Content);
     }
 
     [Fact]
     public void GetLoginButtonsScript_OneProvider_ContainsProviderId()
     {
-        // Arrange
         _fixture.SetConfiguration(new PluginConfiguration
         {
-            Providers =
-            [
-                new OidcProviderConfig { ProviderId = "my-provider", DisplayName = "My IdP", Enabled = true }
-            ]
+            Providers = [new OidcProviderConfig { ProviderId = "my-provider", DisplayName = "My IdP", Enabled = true }]
         });
 
-        // Act
         var result = MakeController().GetLoginButtonsScript();
 
-        // Assert
         Assert.Contains("my-provider", Assert.IsType<ContentResult>(result).Content);
     }
 
     [Fact]
-    public void GetLoginButtonsScript_OneProvider_ContainsButtonColor()
+    public void GetLoginButtonsScript_CustomColor_InInjectedCss()
     {
-        // Arrange
         _fixture.SetConfiguration(new PluginConfiguration
         {
-            Providers =
-            [
-                new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", ButtonColor = "#FF5733", Enabled = true }
-            ]
+            Providers = [new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", ButtonColor = "#FF5733", Enabled = true }]
         });
 
-        // Act
-        var result = MakeController().GetLoginButtonsScript();
+        var content = Assert.IsType<ContentResult>(MakeController().GetLoginButtonsScript()).Content;
 
-        // Assert
-        Assert.Contains("#FF5733", Assert.IsType<ContentResult>(result).Content);
+        // The script carries the builder's CSS (JSON-encoded) which colours the button by
+        // [data-provider]; no inline colour on the element.
+        Assert.Contains("#FF5733", content);
+        Assert.Contains("data-provider", content);
     }
 
     [Fact]
     public void GetLoginButtonsScript_DisabledProvider_NotIncluded()
     {
-        // Arrange
         _fixture.SetConfiguration(new PluginConfiguration
         {
             Providers =
@@ -91,11 +82,8 @@ public class LoginButtonControllerTests
             ]
         });
 
-        // Act
-        var content = Assert.IsType<ContentResult>(
-            MakeController().GetLoginButtonsScript()).Content;
+        var content = Assert.IsType<ContentResult>(MakeController().GetLoginButtonsScript()).Content;
 
-        // Assert
         Assert.Contains("enabled-p", content);
         Assert.DoesNotContain("disabled-p", content);
     }
@@ -103,21 +91,13 @@ public class LoginButtonControllerTests
     [Fact]
     public void GetLoginButtonsScript_ContainsBasePathDerivation()
     {
-        // Arrange
         _fixture.SetConfiguration(new PluginConfiguration
         {
-            Providers =
-            [
-                new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", Enabled = true }
-            ]
+            Providers = [new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", Enabled = true }]
         });
 
-        // Act
-        var content = Assert.IsType<ContentResult>(
-            MakeController().GetLoginButtonsScript()).Content;
+        var content = Assert.IsType<ContentResult>(MakeController().GetLoginButtonsScript()).Content;
 
-        // Assert — base path is derived client-side (base URL fix) and used to prefix the
-        // generated link, not hardcoded root-relative.
         Assert.Contains("window.location.pathname.split('/web/')", content);
         Assert.Contains("basePath + '/sso/OIDC/Start/'", content);
     }
@@ -125,67 +105,43 @@ public class LoginButtonControllerTests
     [Fact]
     public void GetLoginButtonsScript_UsesNativeButtonClasses()
     {
-        // Arrange
         _fixture.SetConfiguration(new PluginConfiguration
         {
-            Providers =
-            [
-                new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", Enabled = true }
-            ]
+            Providers = [new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", Enabled = true }]
         });
 
-        // Act
-        var content = Assert.IsType<ContentResult>(
-            MakeController().GetLoginButtonsScript()).Content;
+        var content = Assert.IsType<ContentResult>(MakeController().GetLoginButtonsScript()).Content;
 
-        // Assert — the button is styled by Jellyfin's own theme classes, not a hardcoded
-        // inline background/padding/border-radius blob.
-        Assert.Contains("raised button-submit block emby-button", content);
+        Assert.Contains("raised button-submit block emby-button oidc-sso-btn", content);
         Assert.DoesNotContain("border-radius", content);
         Assert.DoesNotContain("padding:0.7em", content);
     }
 
     [Fact]
-    public void GetLoginButtonsScript_DefaultColor_NoOverride()
+    public void GetLoginButtonsScript_DefaultColor_NoColourRule()
     {
-        // Arrange — provider left at the config default color.
         _fixture.SetConfiguration(new PluginConfiguration
         {
-            Providers =
-            [
-                new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", ButtonColor = "#4285F4", Enabled = true }
-            ]
+            Providers = [new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", ButtonColor = "#4285F4", Enabled = true }]
         });
 
-        // Act
-        var content = Assert.IsType<ContentResult>(
-            MakeController().GetLoginButtonsScript()).Content;
+        var content = Assert.IsType<ContentResult>(MakeController().GetLoginButtonsScript()).Content;
 
-        // Assert — the provider carries no brand color, so the runtime override is skipped
-        // and the theme supplies the button color.
-        Assert.Contains("\"brand\":null", content);
+        // Default colour ⇒ builder emits no per-provider background rule.
         Assert.DoesNotContain("#4285F4", content);
+        Assert.DoesNotContain("background-color", content);
     }
 
     [Fact]
     public void GetLoginButtonsScript_ContainsQuickConnectLink()
     {
-        // Arrange
         _fixture.SetConfiguration(new PluginConfiguration
         {
-            Providers =
-            [
-                new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", Enabled = true }
-            ]
+            Providers = [new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", Enabled = true }]
         });
 
-        // Act
-        var content = Assert.IsType<ContentResult>(
-            MakeController().GetLoginButtonsScript()).Content;
+        var content = Assert.IsType<ContentResult>(MakeController().GetLoginButtonsScript()).Content;
 
-        // Assert — a Quick Connect link is injected alongside the normal login button, for
-        // signing in native/mobile apps that can't render the web button. Base-path-aware,
-        // like the main button.
         Assert.Contains("basePath + '/sso/OIDC/QuickConnect/'", content);
         Assert.Contains("Quick Connect", content);
     }
@@ -193,74 +149,102 @@ public class LoginButtonControllerTests
     // ── GetBrandingSnippet ─────────────────────────────────────────────────────
 
     [Fact]
-    public void GetBrandingSnippet_NoProviders_ReturnsEmptyHtml()
+    public void GetBrandingSnippet_NoProviders_ReturnsEmptyHtmlAndCss()
     {
-        // Arrange
         _fixture.SetConfiguration(new PluginConfiguration { Providers = [] });
 
-        // Act
-        var html = GetBrandingHtml(MakeController().GetBrandingSnippet());
+        var result = MakeController().GetBrandingSnippet();
 
-        // Assert
-        Assert.Equal("", html);
+        Assert.Equal("", GetBrandingHtml(result));
+        Assert.Equal("", GetBrandingCss(result));
+    }
+
+    [Fact]
+    public void GetBrandingSnippet_HtmlAndCss_AreMarkerFenced()
+    {
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers = [new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", Enabled = true }]
+        });
+
+        var result = MakeController().GetBrandingSnippet();
+
+        var html = GetBrandingHtml(result);
+        Assert.StartsWith("<!-- oidc-sso-buttons:start -->", html);
+        Assert.EndsWith("<!-- oidc-sso-buttons:end -->", html);
+
+        var css = GetBrandingCss(result);
+        Assert.StartsWith("/* oidc-sso-buttons:start */", css);
+        Assert.EndsWith("/* oidc-sso-buttons:end */", css);
     }
 
     [Fact]
     public void GetBrandingSnippet_DisplayName_IsHtmlEncoded()
     {
-        // Arrange
         _fixture.SetConfiguration(new PluginConfiguration
         {
             Providers =
             [
-                new OidcProviderConfig
-                {
-                    ProviderId = "p1",
-                    DisplayName = "<script>alert('xss')</script>",
-                    Enabled = true
-                }
+                new OidcProviderConfig { ProviderId = "p1", DisplayName = "<script>alert('xss')</script>", Enabled = true }
             ]
         });
 
-        // Act
         var html = GetBrandingHtml(MakeController().GetBrandingSnippet());
 
-        // Assert
         Assert.DoesNotContain("<script>", html);
         Assert.Contains("&lt;script&gt;", html);
     }
 
     [Fact]
-    public void GetBrandingSnippet_BadButtonColor_NoOverride()
+    public void GetBrandingSnippet_Html_HasNativeClassesAndNoInlineStyle()
     {
-        // Arrange
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers = [new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", Enabled = true }]
+        });
+
+        var html = GetBrandingHtml(MakeController().GetBrandingSnippet());
+
+        Assert.Contains("id=\"oidc-sso-buttons\"", html);
+        Assert.Contains("class=\"raised button-submit block emby-button oidc-sso-btn\"", html);
+        Assert.Contains("data-provider=\"p1\"", html);
+        Assert.DoesNotContain("style=", html);
+    }
+
+    [Fact]
+    public void GetBrandingSnippet_Css_ReordersAboveFormAndSetsWhiteText()
+    {
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers = [new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", Enabled = true }]
+        });
+
+        var css = GetBrandingCss(MakeController().GetBrandingSnippet());
+
+        Assert.Contains("order:-1", css);
+        Assert.Contains("color:#fff", css);
+    }
+
+    [Fact]
+    public void GetBrandingSnippet_BadButtonColor_NoColourRule()
+    {
         _fixture.SetConfiguration(new PluginConfiguration
         {
             Providers =
             [
-                new OidcProviderConfig
-                {
-                    ProviderId = "p1",
-                    DisplayName = "Test",
-                    ButtonColor = "javascript:alert(1)",
-                    Enabled = true
-                }
+                new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", ButtonColor = "javascript:alert(1)", Enabled = true }
             ]
         });
 
-        // Act
-        var html = GetBrandingHtml(MakeController().GetBrandingSnippet());
+        var css = GetBrandingCss(MakeController().GetBrandingSnippet());
 
-        // Assert — an unsafe value is dropped entirely; the button inherits the theme color
-        // rather than falling back to a hardcoded inline default.
-        Assert.DoesNotContain("javascript:alert(1)", html);
-        Assert.DoesNotContain("background-color", html);
+        Assert.DoesNotContain("javascript:alert(1)", css);
+        Assert.DoesNotContain("background-color", css);
     }
 
     [Fact]
-    public void GetBrandingSnippet_DefaultColor_NoOverride()
+    public void GetBrandingSnippet_DefaultColor_NoColourRule()
     {
-        // Arrange — provider left at the config default color.
         _fixture.SetConfiguration(new PluginConfiguration
         {
             Providers =
@@ -269,18 +253,15 @@ public class LoginButtonControllerTests
             ]
         });
 
-        // Act
-        var html = GetBrandingHtml(MakeController().GetBrandingSnippet());
+        var css = GetBrandingCss(MakeController().GetBrandingSnippet());
 
-        // Assert — no per-provider override; the native button classes carry the theme color.
-        Assert.DoesNotContain("background-color", html);
-        Assert.DoesNotContain("#4285F4", html);
+        Assert.DoesNotContain("background-color", css);
+        Assert.DoesNotContain("#4285F4", css);
     }
 
     [Fact]
-    public void GetBrandingSnippet_CustomColor_ScopedOverride()
+    public void GetBrandingSnippet_CustomColor_ScopedRuleClearsGradient()
     {
-        // Arrange
         _fixture.SetConfiguration(new PluginConfiguration
         {
             Providers =
@@ -289,33 +270,9 @@ public class LoginButtonControllerTests
             ]
         });
 
-        // Act
-        var html = GetBrandingHtml(MakeController().GetBrandingSnippet());
+        var css = GetBrandingCss(MakeController().GetBrandingSnippet());
 
-        // Assert — a customized color is layered on as a scoped background override that also
-        // clears any theme gradient so the solid colour shows.
-        Assert.Contains("background-color:#1A2B3C !important;background-image:none !important;", html);
-    }
-
-    [Fact]
-    public void GetBrandingSnippet_UsesNativeButtonClasses()
-    {
-        // Arrange
-        _fixture.SetConfiguration(new PluginConfiguration
-        {
-            Providers =
-            [
-                new OidcProviderConfig { ProviderId = "p1", DisplayName = "Test", Enabled = true }
-            ]
-        });
-
-        // Act
-        var html = GetBrandingHtml(MakeController().GetBrandingSnippet());
-
-        // Assert — links are styled by Jellyfin's own theme classes, not a hardcoded blob.
-        Assert.Contains("class=\"raised button-submit block emby-button\"", html);
-        Assert.DoesNotContain("border-radius", html);
-        Assert.DoesNotContain("padding:0.7em", html);
+        Assert.Contains("a[data-provider=\"p1\"]{background-color:#1A2B3C;background-image:none}", css);
     }
 
     // ── Base URL / PathBase handling ──────────────────────────────────────────
@@ -323,40 +280,28 @@ public class LoginButtonControllerTests
     [Fact]
     public void GetBrandingSnippet_PathBaseSet_HrefIncludesPathBase()
     {
-        // Arrange
         _fixture.SetConfiguration(new PluginConfiguration
         {
-            Providers =
-            [
-                new OidcProviderConfig { ProviderId = "keycloak", DisplayName = "Keycloak", Enabled = true }
-            ]
+            Providers = [new OidcProviderConfig { ProviderId = "keycloak", DisplayName = "Keycloak", Enabled = true }]
         });
         var controller = MakeController();
         controller.HttpContext.Request.PathBase = new PathString("/jellyfin");
 
-        // Act
         var html = GetBrandingHtml(controller.GetBrandingSnippet());
 
-        // Assert
         Assert.Contains("href=\"/jellyfin/sso/OIDC/Start/keycloak\"", html);
     }
 
     [Fact]
     public void GetBrandingSnippet_NoPathBase_HrefIsRootRelative()
     {
-        // Arrange — no base URL configured; the fix must be a no-op in this (default) case.
         _fixture.SetConfiguration(new PluginConfiguration
         {
-            Providers =
-            [
-                new OidcProviderConfig { ProviderId = "keycloak", DisplayName = "Keycloak", Enabled = true }
-            ]
+            Providers = [new OidcProviderConfig { ProviderId = "keycloak", DisplayName = "Keycloak", Enabled = true }]
         });
 
-        // Act
         var html = GetBrandingHtml(MakeController().GetBrandingSnippet());
 
-        // Assert
         Assert.Contains("href=\"/sso/OIDC/Start/keycloak\"", html);
     }
 }
