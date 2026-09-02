@@ -360,8 +360,8 @@ public class OidcControllerCallbackTests
         appHost.GetSmartApiUrl(Arg.Any<HttpRequest>()).Returns("https://jellyfin.test");
 
         var controller = new OidcController(
-            stateManager, userSyncService, Substitute.For<ISessionManager>(),
-            quickConnect, protocol, loginFlow, appHost,
+            stateManager, userSyncService, _fixture.MapStore, Substitute.For<ISessionManager>(),
+            Substitute.For<IDeviceManager>(), quickConnect, protocol, loginFlow, appHost,
             NullLogger<OidcController>.Instance);
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
 
