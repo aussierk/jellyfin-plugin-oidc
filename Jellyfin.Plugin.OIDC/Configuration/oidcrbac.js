@@ -144,14 +144,14 @@ function iconField(idx, cur) {
         var label = ICON_LABELS[k] || (k.charAt(0).toUpperCase() + k.slice(1));
         opts += '<option value="' + k + '"' + (cur === k ? ' selected' : '') + '>' + label + '</option>';
     });
-    opts += '<option value="custom"' + (custom ? ' selected' : '') + '>Custom (SVG)</option>';
+    opts += '<option value="custom"' + (custom ? ' selected' : '') + '>Custom (image)</option>';
     return '<div class="oidc-field full">' +
         '<label for="prov_icon_' + idx + '">Button Icon</label>' +
         '<select id="prov_icon_' + idx + '">' + opts + '</select>' +
-        '<textarea id="prov_icon_svg_' + idx + '" placeholder="Paste &lt;svg&gt;…&lt;/svg&gt; or a data:image/svg+xml URI" ' +
+        '<textarea id="prov_icon_svg_' + idx + '" placeholder="Paste &lt;svg&gt;…&lt;/svg&gt; or a data:image/… URI, or pick a file below" ' +
         'style="margin-top:0.3em;width:100%;font-family:monospace;font-size:0.8em;' + hidden + '">' +
         esc(custom ? cur : '') + '</textarea>' +
-        '<input type="file" id="prov_icon_file_' + idx + '" accept=".svg,image/svg+xml" style="margin-top:0.3em;' + hidden + '" />' +
+        '<input type="file" id="prov_icon_file_' + idx + '" accept=".svg,.png,.jpg,.jpeg,.gif,.webp,image/svg+xml,image/png,image/jpeg,image/gif,image/webp" style="margin-top:0.3em;' + hidden + '" />' +
         '</div>';
 }
 
@@ -448,6 +448,7 @@ export default function (view) {
             view.querySelector('#manageLoginButtonBranding').checked = cfg.ManageLoginButtonBranding !== false;
             view.querySelector('#hideManualLogin').checked = cfg.HideManualLogin === true;
             view.querySelector('#loginTitle').value = cfg.LoginTitle || 'Please sign in';
+            view.querySelector('#loginSubtitle').value = cfg.LoginSubtitle || '';
             loadBrandingSnippet(view);
             Dashboard.hideLoadingMsg();
         }).catch(function (err) {
@@ -547,6 +548,7 @@ export default function (view) {
         cfg.ManageLoginButtonBranding = gchk(view, 'manageLoginButtonBranding');
         cfg.HideManualLogin = gchk(view, 'hideManualLogin');
         cfg.LoginTitle = gval(view, 'loginTitle') || 'Please sign in';
+        cfg.LoginSubtitle = gval(view, 'loginSubtitle') || '';
         ApiClient.updatePluginConfiguration(pluginId, cfg).then(function (result) {
             Dashboard.processPluginConfigurationUpdateResult(result);
             return syncBranding(view);
@@ -586,12 +588,18 @@ export default function (view) {
             if (file) file.style.display = custom ? '' : 'none';
         } else if (t.id.indexOf('prov_icon_file_') === 0 && t.files && t.files[0]) {
             var fidx = t.id.slice('prov_icon_file_'.length);
+            var f = t.files[0];
             var reader = new FileReader();
             reader.onload = function () {
                 var ta = view.querySelector('#prov_icon_svg_' + fidx);
                 if (ta) ta.value = String(reader.result || '').trim();
             };
-            reader.readAsText(t.files[0]);
+            // SVG stays as markup; raster formats become a data: URI.
+            if (/svg/i.test(f.type) || /\.svg$/i.test(f.name)) {
+                reader.readAsText(f);
+            } else {
+                reader.readAsDataURL(f);
+            }
         }
     });
 

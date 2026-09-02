@@ -58,6 +58,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public string LoginTitle { get; set; } = "Please sign in";
 
     /// <summary>
+    /// Optional smaller line under <see cref="LoginTitle"/> (e.g. "On a TV, use Quick Connect"),
+    /// shown only when <see cref="HideManualLogin"/> is set and this is non-empty.
+    /// </summary>
+    public string LoginSubtitle { get; set; } = string.Empty;
+
+    /// <summary>
     /// Maps Jellyfin usernames to the OIDC provider that owns each account.
     /// Used to detect cross-provider username collisions.
     /// List of UserProviderEntry is used instead of Dictionary to remain XML-serializable.

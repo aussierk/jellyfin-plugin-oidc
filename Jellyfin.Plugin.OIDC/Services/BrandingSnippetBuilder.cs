@@ -56,11 +56,16 @@ public static class BrandingSnippetBuilder
     /// Password button (Quick Connect stays) and the HTML adds a heading back.
     /// </param>
     /// <param name="loginTitle">Heading text used when <paramref name="hideManualLogin"/> is set.</param>
+    /// <param name="loginSubtitle">
+    /// Optional smaller line under the heading (e.g. TV / Quick Connect instructions), shown
+    /// only when <paramref name="hideManualLogin"/> is set and this is non-blank.
+    /// </param>
     public static (string Html, string Css) Build(
         IEnumerable<OidcProviderConfig> enabledProviders,
         string basePath,
         bool hideManualLogin = false,
-        string? loginTitle = null)
+        string? loginTitle = null,
+        string? loginSubtitle = null)
     {
         var providers = enabledProviders?.ToList() ?? new List<OidcProviderConfig>();
         if (providers.Count == 0)
@@ -72,12 +77,22 @@ public static class BrandingSnippetBuilder
 
         var html = new StringBuilder();
         html.Append(HtmlStart).Append('\n');
-        html.Append("<div id=\"oidc-sso-buttons\">\n");
+        // readOnlyContent is Jellyfin's own class for the login button stack, so themes style
+        // this block; the id is just our splice/CSS hook.
+        html.Append("<div id=\"oidc-sso-buttons\" class=\"readOnlyContent\">\n");
         if (hideManualLogin)
         {
+            // Use Jellyfin's own typography classes (.sectionTitle / .fieldDescription) so custom
+            // themes style these automatically; our classes are just layout hooks.
             var title = System.Net.WebUtility.HtmlEncode(
                 string.IsNullOrWhiteSpace(loginTitle) ? "Please sign in" : loginTitle.Trim());
-            html.Append("  <div class=\"oidc-sso-title\">").Append(title).Append("</div>\n");
+            html.Append("  <h1 class=\"sectionTitle oidc-sso-title\">").Append(title).Append("</h1>\n");
+
+            if (!string.IsNullOrWhiteSpace(loginSubtitle))
+            {
+                var subtitle = System.Net.WebUtility.HtmlEncode(loginSubtitle.Trim());
+                html.Append("  <div class=\"fieldDescription oidc-sso-subtitle\">").Append(subtitle).Append("</div>\n");
+            }
         }
 
         foreach (var p in providers)
@@ -110,7 +125,9 @@ public static class BrandingSnippetBuilder
         // its own, so the button sits as tight under "Sign In" as the native buttons do.
         css.Append(".loginDisclaimerContainer:has(#oidc-sso-buttons),\n");
         css.Append(".loginDisclaimerContainer:has(#oidc-sso-buttons) .loginDisclaimer{display:block;width:100%;margin:0;padding:0}\n");
-        css.Append("#oidc-sso-buttons{display:block;width:100%;margin:0;text-align:center}\n");
+        // Layout comes from .readOnlyContent (theme-styled); just fill the disclaimer and don't
+        // add spacing of our own (the parent .readOnlyContent already has its margin).
+        css.Append("#oidc-sso-buttons{width:100%;margin:0}\n");
         // Jellyfin upgrades the <a> to an emby-linkbutton and adds .button-link, which strips the
         // padding/flex box and collapses the button to a text-link height. Re-assert the native
         // submit-button box (full width, centred, real vertical padding) and white label. #id
@@ -149,8 +166,9 @@ public static class BrandingSnippetBuilder
             // Keep Quick Connect (.btnQuick) visible; hide the password form and Forgot Password.
             css.Append("#loginPage .manualLoginForm{display:none}\n");
             css.Append("#loginPage .readOnlyContent .btnForgotPassword{display:none}\n");
-            css.Append("#oidc-sso-buttons .oidc-sso-title{font-size:1.6em;font-weight:400;");
-            css.Append("margin:.25em 0 .9em;text-align:center;opacity:.9}\n");
+            // Typography comes from .sectionTitle / .fieldDescription (theme-styled); only layout here.
+            css.Append("#oidc-sso-buttons .oidc-sso-title{margin:.25em 0 .35em;text-align:center}\n");
+            css.Append("#oidc-sso-buttons .oidc-sso-subtitle{margin:0 auto .9em;max-width:22em;text-align:center}\n");
         }
 
         css.Append(CssEnd);
@@ -167,10 +185,18 @@ public static class BrandingSnippetBuilder
         @"<script[\s\S]*?</script\s*>|\son[a-zA-Z]+\s*=\s*(""[^""]*""|'[^']*'|[^\s>]+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
+    // Accepted image data-URI types: SVG plus the common raster formats.
+    private static readonly Regex _imageDataUri = new(
+        @"^data:image/(svg\+xml|png|jpe?g|gif|webp)[;,]",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // Cap the encoded icon so it can't bloat the Branding Custom CSS (~192 KB of image).
+    private const int MaxIconDataUriLength = 262_144;
+
     /// <summary>
     /// Resolves the provider's <c>ButtonIcon</c> to a <c>data:</c> URI for a CSS
     /// <c>url("…")</c>, or null when there's no usable icon. Accepts a bundled key,
-    /// raw <c>&lt;svg&gt;</c> markup, or an existing <c>data:image/*</c> URI.
+    /// raw <c>&lt;svg&gt;</c> markup, or a <c>data:image/(svg+xml|png|jpeg|gif|webp)</c> URI.
     /// </summary>
     private static string? IconDataUri(string? buttonIcon)
     {
@@ -181,17 +207,24 @@ public static class BrandingSnippetBuilder
 
         var v = buttonIcon.Trim();
 
-        if (v.StartsWith("data:image/", System.StringComparison.OrdinalIgnoreCase))
+        if (v.StartsWith("data:", System.StringComparison.OrdinalIgnoreCase))
         {
-            // Only image data URIs; reject anything carrying scripts/handlers.
-            return _scriptOrHandler.IsMatch(v) || v.IndexOf('"') >= 0 || v.IndexOf(')') >= 0
-                ? null
-                : v;
+            // Known image type, size-bounded, and no scripts/handlers or CSS-breaking chars.
+            return _imageDataUri.IsMatch(v)
+                   && v.Length <= MaxIconDataUriLength
+                   && !_scriptOrHandler.IsMatch(v)
+                   && v.IndexOf('"') < 0
+                   && v.IndexOf(')') < 0
+                ? v
+                : null;
         }
 
-        if (v.StartsWith("<svg", System.StringComparison.OrdinalIgnoreCase))
+        // A pasted or uploaded .svg file often starts with an <?xml …?> prolog, a <!DOCTYPE>,
+        // or comments — take everything from the first <svg tag onward.
+        var svgStart = v.IndexOf("<svg", System.StringComparison.OrdinalIgnoreCase);
+        if (svgStart >= 0)
         {
-            var cleaned = _scriptOrHandler.Replace(v, string.Empty);
+            var cleaned = _scriptOrHandler.Replace(v.Substring(svgStart), string.Empty);
             var bytes = System.Text.Encoding.UTF8.GetBytes(cleaned);
             return "data:image/svg+xml;base64," + System.Convert.ToBase64String(bytes);
         }

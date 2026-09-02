@@ -25,7 +25,7 @@ public class BrandingSnippetBuilderTests
 
         Assert.StartsWith(BrandingSnippetBuilder.HtmlStart, html);
         Assert.EndsWith(BrandingSnippetBuilder.HtmlEnd, html);
-        Assert.Contains("<div id=\"oidc-sso-buttons\">", html);
+        Assert.Contains("<div id=\"oidc-sso-buttons\" class=\"readOnlyContent\">", html);
         Assert.Contains("class=\"raised button-submit block emby-button oidc-sso-btn\"", html);
         Assert.Contains("data-provider=\"authentik\"", html);
         Assert.Contains("target=\"_self\"", html);
@@ -146,9 +146,57 @@ public class BrandingSnippetBuilderTests
     }
 
     [Fact]
+    public void Build_UploadedSvgFileWithXmlProlog_IsAccepted()
+    {
+        // What FileReader.readAsText hands back for a real .svg download.
+        var file = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!-- Generator -->\n"
+                   + "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M0 0h1v1z\"/></svg>\n";
+
+        var (_, css) = BrandingSnippetBuilder.Build([Provider(icon: file)], string.Empty);
+
+        Assert.Contains("#oidc-sso-buttons a[data-provider=\"p1\"]::before{", css);
+        Assert.Contains("url(\"data:image/svg+xml;base64,", css);
+        // The XML prolog is dropped before encoding.
+        var b64 = System.Text.RegularExpressions.Regex.Match(css, @"base64,([A-Za-z0-9+/=]+)").Groups[1].Value;
+        var decoded = System.Text.Encoding.UTF8.GetString(System.Convert.FromBase64String(b64));
+        Assert.StartsWith("<svg", decoded);
+    }
+
+    [Fact]
     public void Build_UnknownIconKey_EmitsNoBeforeRule()
     {
         var (_, css) = BrandingSnippetBuilder.Build([Provider(icon: "not-a-real-icon")], string.Empty);
+
+        Assert.DoesNotContain("::before", css);
+    }
+
+    [Theory]
+    [InlineData("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgDTD2qgAAAAASUVORK5CYII=")]
+    [InlineData("data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=")]
+    public void Build_RasterDataUriIcon_IsAccepted(string dataUri)
+    {
+        var (_, css) = BrandingSnippetBuilder.Build([Provider(icon: dataUri)], string.Empty);
+
+        Assert.Contains("#oidc-sso-buttons a[data-provider=\"p1\"]::before{", css);
+        Assert.Contains("url(\"" + dataUri + "\")", css);
+    }
+
+    [Theory]
+    [InlineData("data:text/html;base64,PHNjcmlwdD4=")]
+    [InlineData("data:application/octet-stream;base64,AAAA")]
+    public void Build_NonImageDataUri_EmitsNoBeforeRule(string dataUri)
+    {
+        var (_, css) = BrandingSnippetBuilder.Build([Provider(icon: dataUri)], string.Empty);
+
+        Assert.DoesNotContain("::before", css);
+    }
+
+    [Fact]
+    public void Build_OversizeIconDataUri_EmitsNoBeforeRule()
+    {
+        var huge = "data:image/png;base64," + new string('A', 300_000);
+
+        var (_, css) = BrandingSnippetBuilder.Build([Provider(icon: huge)], string.Empty);
 
         Assert.DoesNotContain("::before", css);
     }
@@ -161,11 +209,44 @@ public class BrandingSnippetBuilderTests
         var (html, css) = BrandingSnippetBuilder.Build(
             [Provider()], string.Empty, hideManualLogin: true, loginTitle: "Log in here");
 
-        Assert.Contains("<div class=\"oidc-sso-title\">Log in here</div>", html);
+        // Heading uses Jellyfin's own .sectionTitle so custom themes style it.
+        Assert.Contains("<h1 class=\"sectionTitle oidc-sso-title\">Log in here</h1>", html);
         Assert.Contains("#loginPage .manualLoginForm{display:none}", css);
         Assert.Contains(".btnForgotPassword{display:none}", css);
         Assert.DoesNotContain("btnQuick", css);
         Assert.Contains("#oidc-sso-buttons .oidc-sso-title{", css);
+        // No hardcoded font sizing — typography is left to the theme.
+        Assert.DoesNotContain("font-size", css);
+    }
+
+    [Fact]
+    public void Build_HideManualLogin_WithSubtitle_AddsFieldDescriptionLine()
+    {
+        var (html, css) = BrandingSnippetBuilder.Build(
+            [Provider()], string.Empty, hideManualLogin: true,
+            loginTitle: "Sign in", loginSubtitle: "On a TV, use Quick Connect");
+
+        Assert.Contains("<div class=\"fieldDescription oidc-sso-subtitle\">On a TV, use Quick Connect</div>", html);
+        Assert.Contains("#oidc-sso-buttons .oidc-sso-subtitle{", css);
+    }
+
+    [Fact]
+    public void Build_HideManualLogin_BlankSubtitle_OmitsTheLine()
+    {
+        var (html, _) = BrandingSnippetBuilder.Build(
+            [Provider()], string.Empty, hideManualLogin: true, loginSubtitle: "   ");
+
+        Assert.DoesNotContain("oidc-sso-subtitle", html);
+    }
+
+    [Fact]
+    public void Build_Subtitle_IgnoredWhenNotHidingManualLogin()
+    {
+        var (html, _) = BrandingSnippetBuilder.Build(
+            [Provider()], string.Empty, loginSubtitle: "should not appear");
+
+        Assert.DoesNotContain("oidc-sso-subtitle", html);
+        Assert.DoesNotContain("should not appear", html);
     }
 
     [Fact]
@@ -184,7 +265,7 @@ public class BrandingSnippetBuilderTests
         var (html, _) = BrandingSnippetBuilder.Build(
             [Provider()], string.Empty, hideManualLogin: true);
 
-        Assert.Contains("<div class=\"oidc-sso-title\">Please sign in</div>", html);
+        Assert.Contains("<h1 class=\"sectionTitle oidc-sso-title\">Please sign in</h1>", html);
     }
 
     [Fact]

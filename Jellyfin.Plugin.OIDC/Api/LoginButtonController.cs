@@ -21,6 +21,8 @@ public class LoginButtonController : ControllerBase
 
     private static string LoginTitle => OidcPlugin.Instance?.Configuration?.LoginTitle ?? "Please sign in";
 
+    private static string LoginSubtitle => OidcPlugin.Instance?.Configuration?.LoginSubtitle ?? string.Empty;
+
     [HttpGet("LoginButtons")]
     public ActionResult GetLoginButtonsScript()
     {
@@ -33,7 +35,7 @@ public class LoginButtonController : ControllerBase
         // Reuse the same markup/CSS the Branding snippet uses so both injection paths render
         // identically. The script inserts the container above the form itself, so the CSS's
         // reorder rules are simply a no-op here.
-        var (_, css) = BrandingSnippetBuilder.Build(providers, string.Empty, HideManualLogin, LoginTitle);
+        var (_, css) = BrandingSnippetBuilder.Build(providers, string.Empty, HideManualLogin, LoginTitle, LoginSubtitle);
 
         var providerData = providers.Select(p => new { id = p.ProviderId, name = p.DisplayName });
         var providersJson = System.Text.Json.JsonSerializer.Serialize(providerData);
@@ -41,6 +43,7 @@ public class LoginButtonController : ControllerBase
         var hideJson = System.Text.Json.JsonSerializer.Serialize(HideManualLogin);
         var titleJson = System.Text.Json.JsonSerializer.Serialize(
             string.IsNullOrWhiteSpace(LoginTitle) ? "Please sign in" : LoginTitle.Trim());
+        var subtitleJson = System.Text.Json.JsonSerializer.Serialize((LoginSubtitle ?? string.Empty).Trim());
 
         var sb = new StringBuilder();
         sb.AppendLine("(function() {");
@@ -48,6 +51,7 @@ public class LoginButtonController : ControllerBase
         sb.AppendLine($"  var css = {cssJson};");
         sb.AppendLine($"  var hideManual = {hideJson};");
         sb.AppendLine($"  var loginTitle = {titleJson};");
+        sb.AppendLine($"  var loginSubtitle = {subtitleJson};");
         // The web client is served under '<basePath>/web/', so derive the prefix from the
         // login page URL. Empty when no base path is configured.
         sb.AppendLine("  var _p = window.location.pathname.split('/web/');");
@@ -63,11 +67,18 @@ public class LoginButtonController : ControllerBase
         sb.AppendLine("    }");
         sb.AppendLine("    var container = document.createElement('div');");
         sb.AppendLine("    container.id = 'oidc-sso-buttons';");
+        sb.AppendLine("    container.className = 'readOnlyContent';");
         sb.AppendLine("    if (hideManual) {");
-        sb.AppendLine("      var title = document.createElement('div');");
-        sb.AppendLine("      title.className = 'oidc-sso-title';");
+        sb.AppendLine("      var title = document.createElement('h1');");
+        sb.AppendLine("      title.className = 'sectionTitle oidc-sso-title';");
         sb.AppendLine("      title.textContent = loginTitle;");
         sb.AppendLine("      container.appendChild(title);");
+        sb.AppendLine("      if (loginSubtitle) {");
+        sb.AppendLine("        var sub = document.createElement('div');");
+        sb.AppendLine("        sub.className = 'fieldDescription oidc-sso-subtitle';");
+        sb.AppendLine("        sub.textContent = loginSubtitle;");
+        sb.AppendLine("        container.appendChild(sub);");
+        sb.AppendLine("      }");
         sb.AppendLine("    }");
         sb.AppendLine("    providers.forEach(function(p) {");
         sb.AppendLine("      var btn = document.createElement('a');");
@@ -79,8 +90,9 @@ public class LoginButtonController : ControllerBase
         sb.AppendLine("      var qc = document.createElement('a');");
         sb.AppendLine("      qc.href = basePath + '/sso/OIDC/QuickConnect/' + encodeURIComponent(p.id);");
         sb.AppendLine("      qc.textContent = 'Sign in a device with ' + p.name + ' (Quick Connect)';");
-        sb.AppendLine("      qc.className = 'oidc-sso-qc';");
-        sb.AppendLine("      qc.style.cssText = 'display:block;margin:0.2em auto 0.8em;text-decoration:none;font-size:0.8em;opacity:0.7;';");
+        // .fieldDescription = Jellyfin's small muted text; only layout stays inline.
+        sb.AppendLine("      qc.className = 'fieldDescription oidc-sso-qc';");
+        sb.AppendLine("      qc.style.cssText = 'display:block;margin:0.2em auto 0.8em;text-decoration:none;';");
         sb.AppendLine("      container.appendChild(qc);");
         sb.AppendLine("    });");
         sb.AppendLine("    form.parentNode.insertBefore(container, form);");
@@ -102,7 +114,7 @@ public class LoginButtonController : ControllerBase
             return Ok(new { Html = "", Css = "", Instructions = "No enabled providers configured." });
         }
 
-        var (html, css) = BrandingSnippetBuilder.Build(providers, BasePath, HideManualLogin, LoginTitle);
+        var (html, css) = BrandingSnippetBuilder.Build(providers, BasePath, HideManualLogin, LoginTitle, LoginSubtitle);
 
         return Ok(new
         {
