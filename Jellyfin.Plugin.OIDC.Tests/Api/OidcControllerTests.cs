@@ -82,8 +82,10 @@ public class OidcControllerTests
             appHost.GetSmartApiUrl(Arg.Any<HttpRequest>()).Returns("https://jellyfin.test");
         }
 
+        var deviceManager = Substitute.For<IDeviceManager>();
+
         var controller = new OidcController(
-            stateManager, userSyncService, sessionManager, quickConnect,
+            stateManager, userSyncService, _fixture.MapStore, sessionManager, deviceManager, quickConnect,
             protocol, loginFlow, appHost, logger ?? NullLogger<OidcController>.Instance);
 
         controller.ControllerContext = new ControllerContext
@@ -169,6 +171,58 @@ public class OidcControllerTests
         var json = System.Text.Json.JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(result).Value);
         Assert.Contains("active", json);
         Assert.DoesNotContain("inactive", json);
+    }
+
+    [Fact]
+    public void GetProviders_ButtonIconWithScript_IsSanitized()
+    {
+        // A malicious ButtonIcon must not reach this anonymous endpoint raw.
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers =
+            [
+                new OidcProviderConfig
+                {
+                    ProviderId = "p1",
+                    DisplayName = "P1",
+                    Enabled = true,
+                    ButtonIcon = "<svg onload=\"alert(1)\"><script>alert(2)</script></svg>"
+                }
+            ]
+        });
+
+        // Parsed rather than substring-matched: the JSON encoder escapes forward slashes.
+        var doc = System.Text.Json.JsonSerializer.SerializeToDocument(
+            Assert.IsType<OkObjectResult>(MakeController().GetProviders()).Value);
+        var icon = doc.RootElement[0].GetProperty("ButtonIcon").GetString();
+
+        Assert.NotNull(icon);
+        Assert.DoesNotContain("onload", icon);
+        Assert.DoesNotContain("<script", icon, System.StringComparison.OrdinalIgnoreCase);
+        Assert.StartsWith("data:image/svg+xml;base64,", icon);
+    }
+
+    [Fact]
+    public void GetProviders_ButtonColorInvalid_IsNulledOut()
+    {
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers =
+            [
+                new OidcProviderConfig
+                {
+                    ProviderId = "p1",
+                    DisplayName = "P1",
+                    Enabled = true,
+                    ButtonColor = "javascript:alert(1)"
+                }
+            ]
+        });
+
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            Assert.IsType<OkObjectResult>(MakeController().GetProviders()).Value);
+
+        Assert.DoesNotContain("javascript:", json);
     }
 
     // Private helpers below are tested directly - the PKCE/routing logic they hold is only
@@ -314,6 +368,271 @@ public class OidcControllerTests
             Address = authority,
             Policy = new DiscoveryPolicy { ValidateIssuerName = true, ValidateEndpoints = false }
         });
+    }
+
+    // ── BackchannelLogout: pre-network request validation ─────────────────────
+
+    private static string Body(ActionResult result)
+        => System.Text.Json.JsonSerializer.Serialize(
+            Assert.IsType<BadRequestObjectResult>(result).Value);
+
+    [Fact]
+    public async Task BackchannelLogout_MissingToken_Returns400()
+    {
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers = [new OidcProviderConfig { ProviderId = "keycloak", Enabled = true }]
+        });
+
+        var result = await MakeController().BackchannelLogout("keycloak", logoutToken: null);
+
+        Assert.Contains("logout_token missing", Body(result));
+    }
+
+    [Fact]
+    public async Task BackchannelLogout_UnknownProvider_Returns400()
+    {
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers = [new OidcProviderConfig { ProviderId = "keycloak", Enabled = true }]
+        });
+
+        var result = await MakeController().BackchannelLogout("does-not-exist", "eyJ.header.sig");
+
+        Assert.Contains("unknown provider", Body(result));
+    }
+
+    [Fact]
+    public async Task BackchannelLogout_DiscoveryJwksUriDriftedFromPin_RejectsBeforeValidatingToken()
+    {
+        // Regression: BackchannelLogout used to skip the TOFU pin check Start/Callback enforce.
+        const string authority = "https://203.0.113.10";
+        var trustedDisco = await MakeDiscoAsync(authority);
+        var provider = new OidcProviderConfig
+        {
+            ProviderId = "keycloak",
+            Authority = authority,
+            Enabled = true,
+            PinnedAuthority = authority,
+            PinnedIssuer = trustedDisco.Issuer!,
+            PinnedTokenEndpoint = trustedDisco.TokenEndpoint!,
+            PinnedJwksUri = trustedDisco.JwksUri!,
+            PinnedUserInfoEndpoint = string.Empty,
+            PinnedAuthorizeEndpoint = trustedDisco.AuthorizeEndpoint!
+        };
+        _fixture.SetConfiguration(new PluginConfiguration { Providers = [provider] });
+
+        // The live response the endpoint actually fetches this call - jwks_uri redirected.
+        var tamperedDiscoveryJson = $$"""
+            {
+                "issuer": "{{authority}}",
+                "authorization_endpoint": "{{authority}}/authorize",
+                "token_endpoint": "{{authority}}/token",
+                "jwks_uri": "https://attacker.example/jwks"
+            }
+            """;
+        var controller = MakeController(httpHandler: new MockHttpMessageHandler(HttpStatusCode.OK, tamperedDiscoveryJson));
+
+        // logout_token is a deliberately invalid placeholder - a 502 (not the 400 a format
+        // check would produce) proves rejection happened at the pin check, before inspection.
+        var result = await controller.BackchannelLogout("keycloak", "not-even-a-real-jwt");
+
+        var obj = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(502, obj.StatusCode);
+    }
+
+    [Fact]
+    public async Task BackchannelLogout_JwksUriResolvesToLoopback_Blocked()
+    {
+        // The endpoints from discovery get the same SSRF guard as the Authority: a jwks_uri on
+        // a loopback host is rejected (AllowLoopbackAuthority off) even though it matches the pin.
+        const string authority = "https://203.0.113.10";
+        const string loopbackJwks = "http://127.0.0.1:9000/jwks";
+        var discoveryJson = $$"""
+            {
+                "issuer": "{{authority}}",
+                "authorization_endpoint": "{{authority}}/authorize",
+                "token_endpoint": "{{authority}}/token",
+                "jwks_uri": "{{loopbackJwks}}"
+            }
+            """;
+        var provider = new OidcProviderConfig
+        {
+            ProviderId = "keycloak",
+            Authority = authority,
+            Enabled = true,
+            AllowLoopbackAuthority = false,
+            PinnedAuthority = authority,
+            PinnedIssuer = authority,
+            PinnedTokenEndpoint = $"{authority}/token",
+            PinnedJwksUri = loopbackJwks,
+            PinnedUserInfoEndpoint = string.Empty,
+            PinnedAuthorizeEndpoint = $"{authority}/authorize"
+        };
+        _fixture.SetConfiguration(new PluginConfiguration { Providers = [provider] });
+
+        var controller = MakeController(httpHandler: new MockHttpMessageHandler(HttpStatusCode.OK, discoveryJson));
+
+        var result = await controller.BackchannelLogout("keycloak", "not-even-a-real-jwt");
+
+        Assert.Equal(502, Assert.IsType<ObjectResult>(result).StatusCode);
+    }
+
+    // ── BackchannelLogout: logout_token claim rules (spec §2.4) ───────────────
+
+    private static string? ValidateLogoutTokenClaims(params Claim[] claims)
+        => (string?)typeof(OidcController)
+            .GetMethod("ValidateLogoutTokenClaims", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, [new JwtSecurityToken(claims: claims)]);
+
+    private static Claim Events =>
+        new("events", "{\"http://schemas.openid.net/event/backchannel-logout\":{}}");
+
+    [Fact]
+    public void ValidateLogoutTokenClaims_NoncePresent_Rejected()
+        => Assert.Equal("nonce prohibited in logout_token",
+            ValidateLogoutTokenClaims(Events, new Claim("sub", "u1"), new Claim("nonce", "n")));
+
+    [Fact]
+    public void ValidateLogoutTokenClaims_MissingEventsClaim_Rejected()
+        => Assert.Equal("missing back-channel logout event",
+            ValidateLogoutTokenClaims(new Claim("sub", "u1")));
+
+    [Fact]
+    public void ValidateLogoutTokenClaims_WrongEventUri_Rejected()
+        => Assert.Equal("missing back-channel logout event",
+            ValidateLogoutTokenClaims(new Claim("events", "{\"http://example.com/other\":{}}"), new Claim("sub", "u1")));
+
+    [Fact]
+    public void ValidateLogoutTokenClaims_NoSubOrSid_Rejected()
+        => Assert.Equal("sub or sid required", ValidateLogoutTokenClaims(Events));
+
+    [Fact]
+    public void ValidateLogoutTokenClaims_SubOnly_Accepted()
+        => Assert.Null(ValidateLogoutTokenClaims(Events, new Claim("sub", "u1")));
+
+    [Fact]
+    public void ValidateLogoutTokenClaims_SidOnly_Accepted()
+        => Assert.Null(ValidateLogoutTokenClaims(Events, new Claim("sid", "s1")));
+
+    // ── BackchannelLogout: ResolveLogoutEntry (post-restart / legacy-row fallback) ──
+
+    private UserProviderEntry? ResolveLogoutEntry(
+        PluginConfiguration config, string providerId, string sub, string? sid, string? username)
+    {
+        _fixture.SetConfiguration(config); // rebuilds _fixture.MapStore over config.UserProviderMap
+        return _fixture.MapStore.ResolveForLogout(providerId, sub, sid, username);
+    }
+
+    [Fact]
+    public void ResolveLogoutEntry_SubjectKeyedRow_MatchedBySub()
+    {
+        var config = new PluginConfiguration
+        {
+            UserProviderMap =
+            [
+                new UserProviderEntry { ProviderId = "kc", Subject = "sub-1", Username = "alice", UserId = "u1" }
+            ]
+        };
+
+        var entry = ResolveLogoutEntry(config, "kc", "sub-1", null, "alice");
+
+        Assert.Equal("u1", entry!.UserId);
+    }
+
+    [Fact]
+    public void ResolveLogoutEntry_LegacyRowEmptySubject_MatchedByUsernameClaim()
+    {
+        // A pre-subject-keying row has Subject="" and can never equal a non-empty sub.
+        var config = new PluginConfiguration
+        {
+            UserProviderMap =
+            [
+                new UserProviderEntry { ProviderId = "kc", Subject = "", Username = "alice", UserId = "u1" }
+            ]
+        };
+
+        var entry = ResolveLogoutEntry(config, "kc", "sub-1", null, "alice");
+
+        Assert.Equal("u1", entry!.UserId);
+    }
+
+    [Fact]
+    public void ResolveLogoutEntry_UsernameFallback_DoesNotHijackSubjectKeyedRow()
+    {
+        // A properly keyed row sharing a username must not be diverted by the legacy fallback.
+        var config = new PluginConfiguration
+        {
+            UserProviderMap =
+            [
+                new UserProviderEntry { ProviderId = "kc", Subject = "sub-other", Username = "alice", UserId = "u1" }
+            ]
+        };
+
+        var entry = ResolveLogoutEntry(config, "kc", "sub-1", null, "alice");
+
+        Assert.Null(entry);
+    }
+
+    [Fact]
+    public void ResolveLogoutEntry_NoUsernameClaim_LegacyRowUnreachable()
+        => Assert.Null(ResolveLogoutEntry(
+            new PluginConfiguration
+            {
+                UserProviderMap = [new UserProviderEntry { ProviderId = "kc", Subject = "", Username = "alice" }]
+            },
+            "kc", "sub-1", null, null));
+
+    [Fact]
+    public void ResolveLogoutEntry_SidOnlyToken_MatchedByPersistedLogoutSid()
+    {
+        // sid-only token after a restart: in-memory tracking is gone, only the persisted sid remains.
+        var config = new PluginConfiguration
+        {
+            UserProviderMap =
+            [
+                new UserProviderEntry { ProviderId = "kc", Subject = "sub-1", Username = "alice", UserId = "u1", LogoutSid = "sess-42" }
+            ]
+        };
+
+        var entry = ResolveLogoutEntry(config, "kc", sub: "", sid: "sess-42", username: null);
+
+        Assert.Equal("u1", entry!.UserId);
+    }
+
+    [Fact]
+    public void ResolveLogoutEntry_SidFallback_RequiresNonEmptyStoredSid()
+    {
+        // A row with no persisted LogoutSid must not match an (also-empty) incoming sid.
+        var config = new PluginConfiguration
+        {
+            UserProviderMap =
+            [
+                new UserProviderEntry { ProviderId = "kc", Subject = "sub-1", Username = "alice", UserId = "u1" }
+            ]
+        };
+
+        Assert.Null(ResolveLogoutEntry(config, "kc", sub: "", sid: "", username: null));
+    }
+
+    [Fact]
+    public void ResolveLogoutEntry_BothSubAndSidPresent_SidTakesPriority()
+    {
+        // Mirrors StateManager.FindTracked's sid-must-not-widen priority: when the logout_token
+        // carries both sub and sid, the sid match must be tried first so a sid-scoped logout
+        // resolves to its own session's entry rather than defaulting to "every entry for this sub."
+        var config = new PluginConfiguration
+        {
+            UserProviderMap =
+            [
+                new UserProviderEntry { ProviderId = "kc", Subject = "sub-1", Username = "alice", UserId = "u-sub-match" },
+                new UserProviderEntry { ProviderId = "kc", Subject = "sub-2", Username = "bob", UserId = "u-sid-match", LogoutSid = "sess-42" }
+            ]
+        };
+
+        var entry = ResolveLogoutEntry(config, "kc", sub: "sub-1", sid: "sess-42", username: "alice");
+
+        Assert.Equal("u-sid-match", entry!.UserId);
     }
 
     // ── ParseAdditionalParameters ──────────────────────────────────────────────
