@@ -6,12 +6,12 @@
   "owner": "aussierk",
   "category": "Authentication",
   "versions": [
-     {
+    {
       "version": "1.0.7.1",
-      "changelog": "Fix: use Native Jellyfin button to honour custom css on user instances and still allowing custom provider colours",
+      "changelog": "Fix: render the login/branding SSO buttons with Jellyfin's native button classes so they follow the active theme/skin (dark and community themes included); a customized provider Button Color is layered on as a scoped override. Feat: surface the plugin's config page directly in the dashboard left nav (Plugins section).",
       "targetAbi": "10.11.0.0",
       "sourceUrl": "",
-      "timestamp": "2026-09-2T10:45:00Z"
+      "timestamp": "2026-09-02T10:45:00Z"
     },
     {
       "version": "1.0.7.0",
