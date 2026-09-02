@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -8,7 +9,9 @@ using Duende.IdentityModel;
 using Duende.IdentityModel.Client;
 using Jellyfin.Plugin.OIDC.Configuration;
 using Jellyfin.Plugin.OIDC.Services;
+using Jellyfin.Data.Queries;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.QuickConnect;
 using MediaBrowser.Controller.Session;
 using Microsoft.AspNetCore.Http;
@@ -32,7 +35,9 @@ public class OidcController : ControllerBase
 
     private readonly StateManager _stateManager;
     private readonly UserSyncService _userSyncService;
+    private readonly UserProviderMapStore _mapStore;
     private readonly ISessionManager _sessionManager;
+    private readonly IDeviceManager _deviceManager;
     private readonly IQuickConnect _quickConnect;
     private readonly OidcProtocolService _protocol;
     private readonly LoginFlowService _loginFlow;
@@ -42,7 +47,9 @@ public class OidcController : ControllerBase
     public OidcController(
         StateManager stateManager,
         UserSyncService userSyncService,
+        UserProviderMapStore mapStore,
         ISessionManager sessionManager,
+        IDeviceManager deviceManager,
         IQuickConnect quickConnect,
         OidcProtocolService protocol,
         LoginFlowService loginFlow,
@@ -51,7 +58,9 @@ public class OidcController : ControllerBase
     {
         _stateManager = stateManager;
         _userSyncService = userSyncService;
+        _mapStore = mapStore;
         _sessionManager = sessionManager;
+        _deviceManager = deviceManager;
         _quickConnect = quickConnect;
         _protocol = protocol;
         _loginFlow = loginFlow;
@@ -250,6 +259,7 @@ public class OidcController : ControllerBase
 
             var authResult = await _sessionManager.AuthenticateDirect(authRequest).ConfigureAwait(false);
 
+            TrackMintedSession(session, authRequest.DeviceId!, authResult.SessionInfo?.Id, userId);
             _logger.LogInformation(
                 "OIDC audit: decision=login provider={Provider} subject={Subject} user={User} device={Device}",
                 session.ProviderId, ClaimParser.RedactSubject(session.Subject), session.Username, authRequest.DeviceId);
@@ -367,6 +377,150 @@ public class OidcController : ControllerBase
         return Ok(new { success = true });
     }
 
+    /// OIDC Back-Channel Logout 1.0: a valid <c>logout_token</c> revokes by <c>sid</c> (one device) or <c>sub</c> (all of the user's).
+    [HttpPost("BackchannelLogout/{providerId}")]
+    [Consumes("application/x-www-form-urlencoded")]
+    [RateLimit("oidc-callback", maxRequests: 10, windowSeconds: 60)]
+    public async Task<ActionResult> BackchannelLogout(string providerId, [FromForm(Name = "logout_token")] string? logoutToken)
+    {
+        if (string.IsNullOrWhiteSpace(logoutToken))
+        {
+            return BadRequest(new { error = "invalid_request", error_description = "logout_token missing" });
+        }
+
+        var provider = GetProvider(providerId);
+        if (provider == null)
+        {
+            return BadRequest(new { error = "invalid_request", error_description = "unknown provider" });
+        }
+
+        var (disco, _) = await _protocol.ResolveAndPinDiscoveryAsync(provider, providerId).ConfigureAwait(false);
+        if (disco == null)
+        {
+            return StatusCode(502, new { error = "server_error" });
+        }
+
+        var signingKeys = await _protocol.ResolveSigningKeysAsync(disco, provider, providerId).ConfigureAwait(false);
+        if (signingKeys == null)
+        {
+            return StatusCode(502, new { error = "server_error" });
+        }
+
+        var token = OidcProtocolService.ValidateSignedJwt(logoutToken, disco.Issuer, provider.ClientId, signingKeys, out _, out var logoutTokenError);
+        if (token == null)
+        {
+            _logger.LogWarning("OIDC back-channel logout token invalid for {Provider}: {Message}", providerId, logoutTokenError);
+            return BadRequest(new { error = "invalid_request", error_description = "logout_token validation failed" });
+        }
+
+        var claimError = ValidateLogoutTokenClaims(token);
+        if (claimError != null)
+        {
+            return BadRequest(new { error = "invalid_request", error_description = claimError });
+        }
+
+        var sub = ClaimParser.ExtractClaim(token, "sub");
+        var sid = ClaimParser.ExtractClaim(token, "sid");
+
+        // Optional (some IdPs omit it); when present, blocks replay for the token's full validity window.
+        var jti = ClaimParser.ExtractClaim(token, "jti");
+        if (!string.IsNullOrEmpty(jti))
+        {
+            var forgetAfter = new DateTimeOffset(DateTime.SpecifyKind(token.ValidTo, DateTimeKind.Utc))
+                + TimeSpan.FromMinutes(5);
+            if (!_stateManager.RegisterJti(jti, forgetAfter))
+            {
+                return BadRequest(new { error = "invalid_request", error_description = "replayed logout_token" });
+            }
+        }
+
+        var issuer = disco.Issuer ?? provider.Authority;
+        var revokedDevices = 0;
+        var revokedAllUserTokens = false;
+        var revocationErrored = false;
+
+        // A sid-scoped logout must not widen to every session just because sub is also present.
+        var tracked = !string.IsNullOrEmpty(sid)
+            ? _stateManager.FindTracked(issuer, sub: null, sid: sid)
+            : _stateManager.FindTracked(issuer, sub: sub, sid: null);
+        foreach (var t in tracked)
+        {
+            try
+            {
+                var devices = _deviceManager.GetDevices(new DeviceQuery { UserId = t.UserId, DeviceId = t.DeviceId });
+                foreach (var device in devices.Items)
+                {
+                    await _deviceManager.DeleteDevice(device).ConfigureAwait(false);
+                    revokedDevices++;
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                revocationErrored = true;
+                _logger.LogWarning(ex, "OIDC back-channel logout: failed to delete device {Device}", t.DeviceId);
+            }
+
+            _stateManager.UntrackBySessionId(t.SessionId);
+        }
+
+        // Nothing tracked in memory (Quick Connect session, or state lost on restart): fall back to the mapped user.
+        if (revokedDevices == 0)
+        {
+            var username = ClaimParser.ExtractClaim(token, provider.UsernameClaim);
+            var entry = _mapStore.ResolveForLogout(providerId, sub, sid, username);
+            if (entry != null)
+            {
+                // A fully-legacy row stores no UserId - fall back to the live session.
+                var userId = Guid.TryParse(entry.UserId, out var parsed)
+                    ? parsed
+                    : _sessionManager.Sessions
+                        .FirstOrDefault(s => string.Equals(s.UserName, entry.Username, StringComparison.OrdinalIgnoreCase))
+                        ?.UserId ?? Guid.Empty;
+                if (userId != Guid.Empty)
+                {
+                    try
+                    {
+                        await _sessionManager.RevokeUserTokens(userId, string.Empty).ConfigureAwait(false);
+                        revokedAllUserTokens = true;
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        revocationErrored = true;
+                        _logger.LogError(ex, "OIDC back-channel logout: failed to revoke tokens for user {UserId}", userId);
+                    }
+                }
+            }
+        }
+
+        if (revokedDevices == 0 && !revokedAllUserTokens && revocationErrored)
+        {
+            // We matched a session but every revocation attempt errored. Free the jti so the IdP's
+            // retry of this same logout_token isn't rejected as a replay, and signal a retry.
+            _stateManager.UnregisterJti(jti);
+            _logger.LogError(
+                "OIDC back-channel logout for {Provider} matched a session but revoked nothing (sub={Subject} sid={Sid}); "
+                + "returning 503 so the IdP retries.",
+                providerId, ClaimParser.RedactSubject(sub), sid);
+            return StatusCode(503, new { error = "temporarily_unavailable" });
+        }
+
+        if (revokedDevices == 0 && !revokedAllUserTokens)
+        {
+            _logger.LogWarning(
+                "OIDC back-channel logout for {Provider} matched no session (sub={Subject} sid={Sid}); nothing "
+                + "was revoked. State may have been lost across a restart, or the account predates subject-keyed "
+                + "identity and hasn't logged in since - the IdP still gets a 200 per spec.",
+                providerId, ClaimParser.RedactSubject(sub), sid);
+        }
+
+        _logger.LogInformation(
+            "OIDC audit: decision=backchannel-logout provider={Provider} subject={Subject} sid={Sid} revoked={Revoked}",
+            providerId, ClaimParser.RedactSubject(sub), sid,
+            revokedAllUserTokens ? "all" : revokedDevices.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        return Ok();
+    }
+
     [HttpGet("Providers")]
     [RateLimit("oidc-providers", maxRequests: 60, windowSeconds: 60)]
     public ActionResult GetProviders()
@@ -380,6 +534,9 @@ public class OidcController : ControllerBase
             {
                 p.ProviderId,
                 p.DisplayName,
+                // Anonymous endpoint - sanitize the same way the login-button snippet does.
+                ButtonColor = ProviderButtonAssets.CustomBrandColor(p.ButtonColor),
+                ButtonIcon = ProviderButtonAssets.IconDataUri(p.ButtonIcon),
                 StartUrl = $"{baseUrl}/sso/OIDC/Start/{p.ProviderId}"
             });
 
@@ -388,6 +545,57 @@ public class OidcController : ControllerBase
 
     private static OidcProviderConfig? GetProvider(string providerId)
         => OidcPlugin.CurrentConfig.FindProvider(providerId) is { Enabled: true } p ? p : null;
+
+    /// Correlates a new session with its OIDC identity so a later back-channel logout can target it.
+    private void TrackMintedSession(AuthorizedSession session, string deviceId, string? sessionId, Guid userId)
+    {
+        if (string.IsNullOrEmpty(session.Subject) || string.IsNullOrEmpty(session.Issuer))
+        {
+            return;
+        }
+
+        _stateManager.TrackSession(new TrackedSession
+        {
+            ProviderId = session.ProviderId,
+            Issuer = session.Issuer,
+            Subject = session.Subject,
+            Sid = session.Sid,
+            UserId = userId,
+            DeviceId = deviceId,
+            SessionId = sessionId ?? deviceId
+        });
+
+        // Persist the sid on the map row so a post-restart sid-only back-channel logout still resolves
+        // the user. Debounced in the store, so sid rotation every login doesn't mean a write every login.
+        if (!string.IsNullOrEmpty(session.Sid) && !string.IsNullOrEmpty(session.Subject))
+        {
+            _mapStore.SetLogoutSid(session.ProviderId, session.Subject, session.Sid);
+        }
+    }
+
+    /// OIDC Back-Channel Logout 1.0 §2.4 claim rules (no nonce, correct event, sub or sid present).
+    private static string? ValidateLogoutTokenClaims(JwtSecurityToken token)
+    {
+        if (token.Claims.Any(c => c.Type == "nonce"))
+        {
+            return "nonce prohibited in logout_token";
+        }
+
+        var events = ClaimParser.ExtractClaim(token, "events");
+        if (!events.Contains("http://schemas.openid.net/event/backchannel-logout", StringComparison.Ordinal))
+        {
+            return "missing back-channel logout event";
+        }
+
+        var sub = ClaimParser.ExtractClaim(token, "sub");
+        var sid = ClaimParser.ExtractClaim(token, "sid");
+        if (string.IsNullOrEmpty(sub) && string.IsNullOrEmpty(sid))
+        {
+            return "sub or sid required";
+        }
+
+        return null;
+    }
 
     private string BuildRedirectUri(OidcProviderConfig provider)
     {
