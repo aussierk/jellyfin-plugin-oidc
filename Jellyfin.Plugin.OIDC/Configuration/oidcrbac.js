@@ -26,6 +26,30 @@ function beforeUnloadGuard(e) {
 // Matches OidcProviderConfig.ButtonColor / BrandingSnippetBuilder.DefaultButtonColor.
 var DEFAULT_BUTTON_COLOR = '#4285F4';
 
+// Unsaved-changes tracking. `dirty` flips true on any edit and false after a load or a
+// successful save; the sticky save bar and the beforeunload guard both read it.
+var dirty = false;
+var dirtyView = null;
+
+function setDirty(v) {
+    dirty = v;
+    if (!dirtyView) return;
+    var s = dirtyView.querySelector('#saveStatus');
+    if (s) s.textContent = v ? '● Unsaved changes' : '';
+    var btn = dirtyView.querySelector('#btnSave');
+    if (btn) btn.classList.toggle('oidc-save-dirty', v);
+}
+
+function beforeUnloadGuard(e) {
+    if (!dirty) return undefined;
+    e.preventDefault();
+    e.returnValue = '';
+    return '';
+}
+
+// Matches OidcProviderConfig.ButtonColor / BrandingSnippetBuilder.DefaultButtonColor.
+var DEFAULT_BUTTON_COLOR = '#4285F4';
+
 // Markers fencing the plugin-managed block inside Branding (Login Disclaimer / Custom CSS).
 // Kept in sync with BrandingSnippetBuilder on the server.
 var HTML_START = '<!-- oidc-sso-buttons:start -->';
@@ -145,11 +169,21 @@ function fld(label, type, id, value, placeholder, full) {
         '<input is="emby-input" type="' + type + '" id="' + id + '" value="' + esc(String(value || '')) + '"' +
         (placeholder ? ' placeholder="' + esc(placeholder) + '"' : '') +
         ' autocomplete="off" autocapitalize="off" spellcheck="false" />' +
+        '<input is="emby-input" type="' + type + '" id="' + id + '" value="' + esc(String(value || '')) + '"' +
+        (placeholder ? ' placeholder="' + esc(placeholder) + '"' : '') +
+        ' autocomplete="off" autocapitalize="off" spellcheck="false" />' +
         '</div>';
 }
 
 function chk(id, label, checked) {
     return '<label><input type="checkbox" id="' + id + '"' + (checked ? ' checked' : '') + ' /> ' + esc(label) + '</label>';
+}
+
+// A titled cluster of related permission checkboxes for the role card.
+function permGroup(title, inner) {
+    return '<div class="oidc-perm-group">' +
+        '<div class="oidc-perm-title">' + esc(title) + '</div>' +
+        '<div class="oidc-checkbox-row">' + inner + '</div></div>';
 }
 
 // A titled cluster of related permission checkboxes for the role card.
@@ -179,6 +213,7 @@ function iconField(idx, cur) {
     opts += '<option value="custom"' + (custom ? ' selected' : '') + '>Custom (image)</option>';
     return '<div class="oidc-field full">' +
         '<label for="prov_icon_' + idx + '">Button Icon</label>' +
+        '<select is="emby-select" id="prov_icon_' + idx + '">' + opts + '</select>' +
         '<select is="emby-select" id="prov_icon_' + idx + '">' + opts + '</select>' +
         '<textarea id="prov_icon_svg_' + idx + '" placeholder="Paste &lt;svg&gt;…&lt;/svg&gt; or a data:image/… URI, or pick a file below" ' +
         'style="margin-top:0.3em;width:100%;font-family:monospace;font-size:0.8em;' + hidden + '">' +
@@ -224,9 +259,43 @@ function emptyState(msg) {
     return '<div class="oidc-empty">' + esc(msg) + '</div>';
 }
 
+// One field group inside a provider card. `collapsible` groups render as a <details>
+// so the common case (Connection) stays a short form and the rare knobs stay out of
+// the way; every field still lives in the DOM, so collectProviders() is unaffected
+// whether a section is open or closed.
+function provGroup(title, hint, inner, collapsible) {
+    var head = esc(title) + (hint ? ' <span class="oidc-hint">' + esc(hint) + '</span>' : '');
+    if (collapsible) {
+        return '<details class="oidc-section"><summary>' + head + '</summary>' +
+            '<div class="oidc-grid">' + inner + '</div></details>';
+    }
+    return '<div class="oidc-section"><div class="oidc-section-title">' + head + '</div>' +
+        '<div class="oidc-grid">' + inner + '</div></div>';
+}
+
+// Host portion of an Authority URL, for the provider card header. Falls back to a
+// scheme/path strip when the value isn't yet a valid absolute URL.
+function authorityHost(url) {
+    if (!url) return '';
+    try {
+        return new URL(url).host;
+    } catch (e) {
+        return String(url).replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').split('/')[0];
+    }
+}
+
+function emptyState(msg) {
+    return '<div class="oidc-empty">' + esc(msg) + '</div>';
+}
+
 function renderProviders(view) {
     var container = view.querySelector('#providerList');
     container.innerHTML = '';
+    if (!cfg.Providers.length) {
+        container.innerHTML = emptyState(
+            "No providers configured yet — users can't sign in with SSO until you add one.");
+        return;
+    }
     if (!cfg.Providers.length) {
         container.innerHTML = emptyState(
             "No providers configured yet — users can't sign in with SSO until you add one.");
@@ -237,12 +306,18 @@ function renderProviders(view) {
         card.className = 'oidc-card';
 
         var connection =
+
+        var connection =
             fld('Provider ID', 'text', 'prov_id_' + idx, p.ProviderId, 'Unique identifier (e.g. keycloak)') +
             fld('Display Name', 'text', 'prov_name_' + idx, p.DisplayName, 'Shown on login button') +
             fld('Authority URL', 'text', 'prov_authority_' + idx, p.Authority, 'https://idp.example.com/realms/myrealm', true) +
             fld('Client ID', 'text', 'prov_clientid_' + idx, p.ClientId, '') +
             fld('Client Secret', 'password', 'prov_secret_' + idx, p.ClientSecret, '') +
             fld('Scopes', 'text', 'prov_scopes_' + idx, p.Scopes || 'openid profile email', '') +
+            '<div class="oidc-field full"><label><input type="checkbox" id="prov_enabled_' + idx + '"' +
+            (p.Enabled !== false ? ' checked' : '') + '/> Enabled</label></div>';
+
+        var claims =
             '<div class="oidc-field full"><label><input type="checkbox" id="prov_enabled_' + idx + '"' +
             (p.Enabled !== false ? ' checked' : '') + '/> Enabled</label></div>';
 
@@ -264,19 +339,37 @@ function renderProviders(view) {
             iconField(idx, p.ButtonIcon || '');
 
         var advanced =
+            '<div class="oidc-field full"><label><input type="checkbox" id="prov_syncimage_' + idx + '"' +
+            (p.SyncProfileImage !== false ? ' checked' : '') + '/> Sync profile image</label></div>';
+
+        var appearance =
+            '<div class="oidc-field">' +
+            '<label for="prov_color_' + idx + '">Button Color</label>' +
+            '<div style="display:flex;gap:0.4em;align-items:center;">' +
+            '<input type="color" id="prov_color_' + idx + '" value="' + esc(p.ButtonColor || DEFAULT_BUTTON_COLOR) + '" />' +
+            '<button type="button" class="oidc-btn-secondary" data-action="reset-color" data-idx="' + idx + '">Reset to default</button>' +
+            '</div></div>' +
+            iconField(idx, p.ButtonIcon || '');
+
+        var advanced =
             fld('Additional Params', 'text', 'prov_params_' + idx, p.AdditionalParameters || '', 'key=val&key2=val2', true) +
             fld('Server Base URL (override)', 'text', 'prov_baseurl_' + idx, p.ServerBaseUrl || '', 'Optional: https://jellyfin.example.com — overrides auto-detected redirect_uri host', true) +
             '<div class="oidc-field full"><label><input type="checkbox" id="prov_strict_access_' + idx + '"' +
             (p.StrictAccessTokenValidation !== false ? ' checked' : '') + '/> Strict access token validation</label>' +
             '<span class="oidc-hint" style="margin-left:1.5em;">Only applies when the IdP issues JWT access tokens (e.g. Keycloak). Opaque access tokens (Google, default Authelia) are skipped automatically and unaffected by this setting. Uncheck if your IdP signs access tokens with a different key than the JWKS endpoint advertises.</span></div>' +
+            '<span class="oidc-hint" style="margin-left:1.5em;">Only applies when the IdP issues JWT access tokens (e.g. Keycloak). Opaque access tokens (Google, default Authelia) are skipped automatically and unaffected by this setting. Uncheck if your IdP signs access tokens with a different key than the JWKS endpoint advertises.</span></div>' +
             '<div class="oidc-field full"><label><input type="checkbox" id="prov_allow_loopback_' + idx + '"' +
             (p.AllowLoopbackAuthority === true ? ' checked' : '') + '/> Allow loopback Authority</label>' +
+            '<span class="oidc-hint" style="margin-left:1.5em;">By default, an Authority resolving to a loopback address (127.0.0.1, ::1) is blocked. Enable this only if your IdP is intentionally hosted at loopback.</span></div>' +
             '<span class="oidc-hint" style="margin-left:1.5em;">By default, an Authority resolving to a loopback address (127.0.0.1, ::1) is blocked. Enable this only if your IdP is intentionally hosted at loopback.</span></div>' +
             '<div class="oidc-field full"><label><input type="checkbox" id="prov_allow_linklocal_' + idx + '"' +
             (p.AllowLinkLocalAuthority === true ? ' checked' : '') + '/> Allow link-local Authority</label>' +
             '<span class="oidc-hint" style="margin-left:1.5em;">By default, an Authority resolving to a link-local address (169.254.x.x, fe80::) is blocked. Enable this only if your IdP is intentionally hosted at a link-local address.</span></div>' +
+            '<span class="oidc-hint" style="margin-left:1.5em;">By default, an Authority resolving to a link-local address (169.254.x.x, fe80::) is blocked. Enable this only if your IdP is intentionally hosted at a link-local address.</span></div>' +
             '<div class="oidc-field full" style="margin-top:0.5em;">' +
             '<label style="font-weight:600;font-size:0.9em;">Endpoint Pins ' +
+            '<span class="oidc-hint">— pre-fill from your IdP docs to eliminate first-use trust, or click Test Connection to fill automatically</span></label>' +
+            '<div class="oidc-grid" style="margin-top:0.4em;">' +
             '<span class="oidc-hint">— pre-fill from your IdP docs to eliminate first-use trust, or click Test Connection to fill automatically</span></label>' +
             '<div class="oidc-grid" style="margin-top:0.4em;">' +
             fld('Issuer', 'text', 'prov_pinnedissuer_' + idx, p.PinnedIssuer || '', 'https://idp.example.com/realms/myrealm') +
@@ -291,7 +384,21 @@ function renderProviders(view) {
                 ? '<span class="oidc-pill oidc-pill-on">Enabled</span>'
                 : '<span class="oidc-pill oidc-pill-off">Disabled</span>') +
             (host ? '<span class="oidc-card-sub">' + esc(host) + '</span>' : '') +
+            '</div></div>';
+
+        var host = authorityHost(p.Authority);
+        card.innerHTML = '<div class="oidc-card-head">' +
+            '<h4>' + esc(p.DisplayName || 'New Provider') + '</h4>' +
+            (p.Enabled !== false
+                ? '<span class="oidc-pill oidc-pill-on">Enabled</span>'
+                : '<span class="oidc-pill oidc-pill-off">Disabled</span>') +
+            (host ? '<span class="oidc-card-sub">' + esc(host) + '</span>' : '') +
             '</div>' +
+            provGroup('Connection', '', connection, false) +
+            provGroup('Claim mapping', 'role, username, display name & avatar', claims, true) +
+            provGroup('Appearance', 'login button colour & icon', appearance, true) +
+            provGroup('Advanced & security', 'redirect host, token validation, network guards, endpoint pins', advanced, true) +
+            '<div style="margin-top:0.8em;display:flex;gap:0.5em;align-items:center;flex-wrap:wrap;">' +
             provGroup('Connection', '', connection, false) +
             provGroup('Claim mapping', 'role, username, display name & avatar', claims, true) +
             provGroup('Appearance', 'login button colour & icon', appearance, true) +
@@ -308,6 +415,12 @@ function renderProviders(view) {
 function renderRoleMappings(view) {
     var container = view.querySelector('#roleMappingList');
     container.innerHTML = '';
+    if (!cfg.RoleMappings.length) {
+        container.innerHTML = emptyState(
+            'No role mappings — signed-in users get the Default Role set on the General tab, '
+            + 'or no extra permissions if that is blank.');
+        return;
+    }
     if (!cfg.RoleMappings.length) {
         container.innerHTML = emptyState(
             'No role mappings — signed-in users get the Default Role set on the General tab, '
@@ -343,7 +456,12 @@ function renderRoleMappings(view) {
             '<div class="oidc-field full" style="margin-bottom:0.5em;">' +
             '<label>Provider Filter <span class="oidc-hint">(restrict to one provider — leave blank to apply to all)</span></label>' +
             '<select is="emby-select" id="role_provfilter_' + idx + '">' + provOpts + '</select>' +
+            '<label>Provider Filter <span class="oidc-hint">(restrict to one provider — leave blank to apply to all)</span></label>' +
+            '<select is="emby-select" id="role_provfilter_' + idx + '">' + provOpts + '</select>' +
             '</div>' +
+            '<div class="oidc-field full" style="margin-top:0.3em;">' +
+            '<label>Permissions <span class="oidc-hint">(Administrator grants everything below)</span></label>' +
+            '<div class="oidc-checkbox-row" style="margin-top:0.2em;">' +
             '<div class="oidc-field full" style="margin-top:0.3em;">' +
             '<label>Permissions <span class="oidc-hint">(Administrator grants everything below)</span></label>' +
             '<div class="oidc-checkbox-row" style="margin-top:0.2em;">' +
@@ -366,6 +484,25 @@ function renderRoleMappings(view) {
             '<div class="oidc-checkbox-row">' +
             chk('role_alllibs_' + idx, 'All libraries', m.EnableAllLibraries) +
             '</div>' +
+            permGroup('Playback',
+                chk('role_playback_' + idx, 'Playback', m.EnableMediaPlayback !== false) +
+                chk('role_transcode_' + idx, 'Transcoding', m.EnableTranscoding !== false) +
+                chk('role_remote_' + idx, 'Remote Access', m.EnableRemoteAccess !== false)) +
+            permGroup('Live TV',
+                chk('role_livetv_' + idx, 'Access', m.EnableLiveTv) +
+                chk('role_livetvmgmt_' + idx, 'Recording management', m.EnableLiveTvManagement)) +
+            permGroup('Content management',
+                chk('role_collections_' + idx, 'Collections', m.EnableCollectionManagement) +
+                chk('role_subtitles_' + idx, 'Subtitles', m.EnableSubtitleManagement) +
+                chk('role_delete_' + idx, 'Delete content', m.EnableContentDeletion)) +
+            '</div>' +
+            '<div class="oidc-field full" style="margin-top:0.5em;">' +
+            '<div class="oidc-perm-title">Library access</div>' +
+            '<div class="oidc-checkbox-row">' +
+            chk('role_alllibs_' + idx, 'All libraries', m.EnableAllLibraries) +
+            '</div>' +
+            '<label style="margin-top:0.4em;">Specific libraries <span class="oidc-hint">(used when "All libraries" is off)</span></label>' +
+            '<select is="emby-select" id="role_libadd_' + idx + '"><option value="">-- Select library --</option>' + libOpts + '</select>' +
             '<label style="margin-top:0.4em;">Specific libraries <span class="oidc-hint">(used when "All libraries" is off)</span></label>' +
             '<select is="emby-select" id="role_libadd_' + idx + '"><option value="">-- Select library --</option>' + libOpts + '</select>' +
             '<button type="button" class="oidc-btn-secondary" style="margin-top:0.3em;width:fit-content;" data-action="add-lib" data-idx="' + idx + '">Add Library</button>' +
@@ -373,6 +510,7 @@ function renderRoleMappings(view) {
             '</div>' +
             '<div class="oidc-field" style="margin-top:0.5em;">' +
             '<label>Max Parental Rating (empty = unrestricted)</label>' +
+            '<input is="emby-input" type="number" id="role_maxrating_' + idx + '" value="' + (m.MaxParentalRating != null ? m.MaxParentalRating : '') + '" />' +
             '<input is="emby-input" type="number" id="role_maxrating_' + idx + '" value="' + (m.MaxParentalRating != null ? m.MaxParentalRating : '') + '" />' +
             '</div>' +
             '<div style="margin-top:0.5em;">' +
@@ -389,6 +527,7 @@ function testProvider(view, idx) {
     var scopes = gval(view, 'prov_scopes_' + idx);
     var resultEl = view.querySelector('.oidc-test-result[data-idx="' + idx + '"]');
     if (!authority) {
+        if (resultEl) { resultEl.style.color = '#e53935'; resultEl.textContent = 'Authority URL is required'; }
         if (resultEl) { resultEl.style.color = '#e53935'; resultEl.textContent = 'Authority URL is required'; }
         return;
     }
@@ -425,6 +564,10 @@ function testProvider(view, idx) {
             var sec = issuerEl && issuerEl.closest('details.oidc-section');
             if (sec) sec.open = true;
             setDirty(true); // pins were written into the form; Save persists them
+            // Reveal the collapsed section so the just-filled pin fields are visible.
+            var sec = issuerEl && issuerEl.closest('details.oidc-section');
+            if (sec) sec.open = true;
+            setDirty(true); // pins were written into the form; Save persists them
             if (resultEl) {
                 resultEl.style.color = '#4caf50';
                 var msg = 'OK — issuer ' + result.Issuer;
@@ -447,10 +590,12 @@ function testProvider(view, idx) {
             });
         } else {
             if (resultEl) { resultEl.style.color = '#e53935'; resultEl.textContent = 'Failed: ' + result.Error; }
+            if (resultEl) { resultEl.style.color = '#e53935'; resultEl.textContent = 'Failed: ' + result.Error; }
             Dashboard.alert({ title: 'Provider test failed', message: result.Error || 'Unknown error' });
         }
     }).catch(function (err) {
         var msg = (err && (err.statusText || err.message)) || 'Network error';
+        if (resultEl) { resultEl.style.color = '#e53935'; resultEl.textContent = 'Failed: ' + msg; }
         if (resultEl) { resultEl.style.color = '#e53935'; resultEl.textContent = 'Failed: ' + msg; }
         Dashboard.alert({ title: 'Provider test failed', message: msg });
     });
@@ -575,6 +720,7 @@ export default function (view) {
     view.addEventListener('viewshow', function () {
         Dashboard.showLoadingMsg();
         window.addEventListener('resize', alignSaveBar);
+        window.addEventListener('resize', alignSaveBar);
 
         ApiClient.getJSON(ApiClient.getUrl('sso/OIDC/Config/Libraries')).then(function (data) {
             libs = data || {};
@@ -601,6 +747,8 @@ export default function (view) {
             loadBrandingSnippet(view);
             setDirty(false);
             alignSaveBar();
+            setDirty(false);
+            alignSaveBar();
             Dashboard.hideLoadingMsg();
         }).catch(function (err) {
             Dashboard.hideLoadingMsg();
@@ -614,10 +762,14 @@ export default function (view) {
             view.querySelectorAll('.oidc-tab').forEach(function (t) {
                 t.classList.remove('is-active');
                 t.setAttribute('aria-selected', 'false');
+                t.classList.remove('is-active');
+                t.setAttribute('aria-selected', 'false');
             });
             view.querySelectorAll('.oidc-tab-content').forEach(function (c) {
                 c.style.display = 'none';
             });
+            this.classList.add('is-active');
+            this.setAttribute('aria-selected', 'true');
             this.classList.add('is-active');
             this.setAttribute('aria-selected', 'true');
             view.querySelector('#tab-' + this.getAttribute('data-tab')).style.display = 'block';
@@ -651,12 +803,14 @@ export default function (view) {
             RoleClaim: 'groups', UsernameClaim: 'preferred_username',
             DisplayNameClaim: 'name', PictureClaim: 'picture', SyncProfileImage: true,
             Enabled: true, ButtonColor: DEFAULT_BUTTON_COLOR,
+            Enabled: true, ButtonColor: DEFAULT_BUTTON_COLOR,
             ButtonIcon: '', AdditionalParameters: '',
             StrictAccessTokenValidation: true,
             AllowLoopbackAuthority: false, AllowLinkLocalAuthority: false,
             PinnedAuthority: '', PinnedIssuer: '', PinnedTokenEndpoint: '', PinnedJwksUri: ''
         });
         renderProviders(view);
+        setDirty(true);
         setDirty(true);
     });
 
@@ -673,6 +827,7 @@ export default function (view) {
             EnableSubtitleManagement: false, MaxParentalRating: null
         });
         renderRoleMappings(view);
+        setDirty(true);
         setDirty(true);
     });
 
@@ -708,6 +863,7 @@ export default function (view) {
         }).then(function () {
             loadBrandingSnippet(view);
             setDirty(false);
+            setDirty(false);
             Dashboard.hideLoadingMsg();
         }).catch(function (err) {
             Dashboard.hideLoadingMsg();
@@ -725,8 +881,13 @@ export default function (view) {
             cfg.Providers.splice(idx, 1);
             renderProviders(view);
             setDirty(true);
+            setDirty(true);
         } else if (btn.getAttribute('data-action') === 'test-provider') {
             testProvider(view, idx);
+        } else if (btn.getAttribute('data-action') === 'reset-color') {
+            var el = view.querySelector('#prov_color_' + idx);
+            if (el) el.value = DEFAULT_BUTTON_COLOR;
+            setDirty(true);
         } else if (btn.getAttribute('data-action') === 'reset-color') {
             var el = view.querySelector('#prov_color_' + idx);
             if (el) el.value = DEFAULT_BUTTON_COLOR;
@@ -767,6 +928,7 @@ export default function (view) {
         if (e.target.classList.contains('remove')) {
             e.target.parentElement.remove();
             setDirty(true);
+            setDirty(true);
             return;
         }
         var btn = e.target.closest('[data-action]');
@@ -776,6 +938,7 @@ export default function (view) {
             cfg.RoleMappings = collectRoleMappings(view);
             cfg.RoleMappings.splice(idx, 1);
             renderRoleMappings(view);
+            setDirty(true);
             setDirty(true);
         } else if (btn.getAttribute('data-action') === 'add-lib') {
             var sel = view.querySelector('#role_libadd_' + idx);
@@ -787,6 +950,7 @@ export default function (view) {
             }
             addLibChip(cont, sel.value);
             sel.value = '';
+            setDirty(true);
             setDirty(true);
         }
     });
