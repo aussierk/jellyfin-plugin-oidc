@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -50,18 +52,40 @@ public sealed class AuthorizedSession
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 
+/// <summary>
+/// A minted Jellyfin session correlated to its OIDC identity, so an OIDC back-channel
+/// logout token can target it. Held in memory only — after a Jellyfin restart, sid-scoped
+/// logout falls back to revoking all of the subject's sessions.
+/// </summary>
+public sealed class TrackedSession
+{
+    public required string ProviderId { get; init; }
+    public required string Issuer { get; init; }
+    public required string Subject { get; init; }
+    public string? Sid { get; init; }
+    public required Guid UserId { get; init; }
+    public required string DeviceId { get; init; }
+    public required string SessionId { get; init; }
+    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
+}
+
 public sealed class StateManager : IHostedService, IDisposable
 {
     internal static readonly TimeSpan StateExpiry = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan SessionExpiry = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan TrackedSessionMaxAge = TimeSpan.FromDays(90);
+    private static readonly TimeSpan JtiRetention = TimeSpan.FromMinutes(15);
 
     // Hard caps prevent unbounded memory growth from unauthenticated flood attacks.
     private const int MaxPendingStates = 500;
     private const int MaxAuthorizedSessions = 200;
+    private const int MaxTrackedSessions = 5000;
 
     private readonly ConcurrentDictionary<string, OidcState> _pendingStates = new();
     private readonly ConcurrentDictionary<string, AuthorizedSession> _authorizedSessions = new();
+    private readonly ConcurrentDictionary<string, TrackedSession> _trackedSessions = new();
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _seenJti = new();
     private readonly ILogger<StateManager> _logger;
     private Timer? _cleanupTimer;
 
@@ -155,6 +179,46 @@ public sealed class StateManager : IHostedService, IDisposable
         _authorizedSessions.TryRemove(token, out _);
     }
 
+    // ── back-channel logout support ───────────────────────────────────────────
+
+    public void TrackSession(TrackedSession session)
+    {
+        if (_trackedSessions.Count >= MaxTrackedSessions)
+        {
+            var oldest = _trackedSessions.OrderBy(kv => kv.Value.CreatedAt).FirstOrDefault().Key;
+            if (oldest != null)
+            {
+                _trackedSessions.TryRemove(oldest, out _);
+            }
+        }
+
+        _trackedSessions[session.SessionId] = session;
+    }
+
+    public void UntrackBySessionId(string sessionId) => _trackedSessions.TryRemove(sessionId, out _);
+
+    public void UntrackByDeviceId(string deviceId)
+    {
+        foreach (var (key, s) in _trackedSessions)
+        {
+            if (string.Equals(s.DeviceId, deviceId, StringComparison.Ordinal))
+            {
+                _trackedSessions.TryRemove(key, out _);
+            }
+        }
+    }
+
+    public IReadOnlyList<TrackedSession> FindTracked(string issuer, string? sub, string? sid)
+        => _trackedSessions.Values.Where(s =>
+                string.Equals(s.Issuer, issuer, StringComparison.Ordinal)
+                && ((!string.IsNullOrEmpty(sid) && string.Equals(s.Sid, sid, StringComparison.Ordinal))
+                    || (!string.IsNullOrEmpty(sub) && string.Equals(s.Subject, sub, StringComparison.Ordinal))))
+            .ToList();
+
+    /// <summary>Records a logout-token <c>jti</c>; returns false if it was already seen (replay).</summary>
+    public bool RegisterJti(string jti)
+        => !string.IsNullOrEmpty(jti) && _seenJti.TryAdd(jti, DateTimeOffset.UtcNow);
+
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _cleanupTimer = new Timer(Cleanup, null, CleanupInterval, CleanupInterval);
@@ -189,6 +253,22 @@ public sealed class StateManager : IHostedService, IDisposable
             if (now - session.CreatedAt > SessionExpiry)
             {
                 _authorizedSessions.TryRemove(key, out _);
+            }
+        }
+
+        foreach (var (key, tracked) in _trackedSessions)
+        {
+            if (now - tracked.CreatedAt > TrackedSessionMaxAge)
+            {
+                _trackedSessions.TryRemove(key, out _);
+            }
+        }
+
+        foreach (var (jti, seenAt) in _seenJti)
+        {
+            if (now - seenAt > JtiRetention)
+            {
+                _seenJti.TryRemove(jti, out _);
             }
         }
     }

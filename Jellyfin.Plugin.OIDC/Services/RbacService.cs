@@ -66,8 +66,8 @@ public class RbacService
         if (matchedMappings.Count == 0)
         {
             _logger.LogWarning(
-                "Login denied: no role mappings matched for user {Username} with roles [{Roles}] and no valid default role was configured",
-                user.Username, string.Join(", ", userRoles));
+                "OIDC audit: decision=deny provider={Provider} user={User} reason=no-role-match roles=[{Roles}]",
+                providerId, user.Username, string.Join(", ", userRoles));
             throw new InvalidOperationException(
                 $"No role mapping matched user '{user.Username}'. Configure a matching role or a non-privileged default role.");
         }
@@ -133,7 +133,8 @@ public class RbacService
         await _userManager.UpdatePolicyAsync(userId, policy).ConfigureAwait(false);
 
         _logger.LogInformation(
-            "Applied RBAC for user {Username}: admin={IsAdmin}, libraries={Libraries}, roles matched=[{Roles}]",
+            "OIDC audit: decision=rbac provider={Provider} user={User} admin={IsAdmin} libraries={Libraries} roles=[{Roles}]",
+            providerId,
             user.Username,
             merged.IsAdmin,
             merged.EnableAllLibraries ? "ALL" : enabledFolderIds.Length.ToString(),

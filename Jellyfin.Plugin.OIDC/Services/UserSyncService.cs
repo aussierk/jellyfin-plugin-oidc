@@ -104,6 +104,9 @@ public class UserSyncService
         {
             if (config?.AutoCreateUsers != true)
             {
+                _logger.LogWarning(
+                    "OIDC audit: decision=deny provider={Provider} subject={Subject} user={User} reason=auto-create-disabled",
+                    providerId, Redact(sub), username);
                 throw new InvalidOperationException(
                     $"User '{username}' does not exist and auto-creation is disabled");
             }
@@ -126,6 +129,9 @@ public class UserSyncService
         {
             if (user.HasPermission(PermissionKind.IsDisabled))
             {
+                _logger.LogWarning(
+                    "OIDC audit: decision=deny provider={Provider} subject={Subject} user={User} reason=account-disabled",
+                    providerId, Redact(sub), user.Username);
                 throw new InvalidOperationException(
                     $"User '{user.Username}' is disabled in Jellyfin. Remove them from the IdP or re-enable them in Jellyfin.");
             }

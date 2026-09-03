@@ -11,6 +11,7 @@ using System.Net;
 using System.Net.Http;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.QuickConnect;
@@ -73,8 +74,10 @@ public class OidcControllerTests
         // consistent with the "OidcPlugin" mock if a test starts exercising the discovery path.
         HttpClient PinnedClientFactory(IPAddress address, bool allowAutoRedirect) => httpClientFactory.CreateClient("OidcPlugin");
 
+        var deviceManager = Substitute.For<IDeviceManager>();
+
         var controller = new OidcController(
-            stateManager, userSyncService, sessionManager, quickConnect,
+            stateManager, userSyncService, sessionManager, deviceManager, quickConnect,
             httpClientFactory, PinnedClientFactory, appHost, NullLogger<OidcController>.Instance);
 
         controller.ControllerContext = new ControllerContext
@@ -197,6 +200,38 @@ public class OidcControllerTests
         var expected = Base64UrlEncoder.Encode(sha256.ComputeHash(Encoding.ASCII.GetBytes(verifier)));
         Assert.Equal(expected, result);
     }
+
+    // ── CheckAdmission (allowlist gate) ────────────────────────────────────────
+
+    private static string? CheckAdmission(PluginConfiguration cfg, string[] roles, string email, bool verified)
+        => (string?)typeof(OidcController)
+            .GetMethod("CheckAdmission", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, [cfg, roles, email, verified]);
+
+    [Fact]
+    public void CheckAdmission_NoAllowlist_Admits()
+        => Assert.Null(CheckAdmission(new PluginConfiguration(), ["anything"], "a@b.com", false));
+
+    [Fact]
+    public void CheckAdmission_RequireVerifiedEmail_DeniesUnverified()
+        => Assert.Equal("email-not-verified",
+            CheckAdmission(new PluginConfiguration { RequireVerifiedEmail = true }, [], "a@b.com", false));
+
+    [Fact]
+    public void CheckAdmission_GroupMatch_Admits()
+        => Assert.Null(CheckAdmission(
+            new PluginConfiguration { AllowedGroups = ["staff"] }, ["Staff"], "", false));
+
+    [Fact]
+    public void CheckAdmission_DomainMatch_Admits()
+        => Assert.Null(CheckAdmission(
+            new PluginConfiguration { AllowedEmailDomains = ["example.com"] }, [], "alice@Example.com", true));
+
+    [Fact]
+    public void CheckAdmission_NoRuleMatched_Denies()
+        => Assert.Equal("not-on-allowlist", CheckAdmission(
+            new PluginConfiguration { AllowedGroups = ["staff"], AllowedEmailDomains = ["corp.com"] },
+            ["guests"], "bob@other.com", true));
 
     // ── ParseAdditionalParameters ──────────────────────────────────────────────
 

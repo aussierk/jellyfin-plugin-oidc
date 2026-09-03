@@ -13,7 +13,9 @@ using IdentityModel;
 using IdentityModel.Client;
 using Jellyfin.Plugin.OIDC.Configuration;
 using Jellyfin.Plugin.OIDC.Services;
+using Jellyfin.Data.Queries;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.QuickConnect;
 using MediaBrowser.Controller.Session;
 using Microsoft.AspNetCore.Http;
@@ -35,6 +37,7 @@ public class OidcController : ControllerBase
     private readonly StateManager _stateManager;
     private readonly UserSyncService _userSyncService;
     private readonly ISessionManager _sessionManager;
+    private readonly IDeviceManager _deviceManager;
     private readonly IQuickConnect _quickConnect;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly Func<IPAddress, bool, HttpClient> _pinnedHttpClientFactory;
@@ -45,6 +48,7 @@ public class OidcController : ControllerBase
         StateManager stateManager,
         UserSyncService userSyncService,
         ISessionManager sessionManager,
+        IDeviceManager deviceManager,
         IQuickConnect quickConnect,
         IHttpClientFactory httpClientFactory,
         Func<IPAddress, bool, HttpClient> pinnedHttpClientFactory,
@@ -54,6 +58,7 @@ public class OidcController : ControllerBase
         _stateManager = stateManager;
         _userSyncService = userSyncService;
         _sessionManager = sessionManager;
+        _deviceManager = deviceManager;
         _quickConnect = quickConnect;
         _httpClientFactory = httpClientFactory;
         _pinnedHttpClientFactory = pinnedHttpClientFactory;
@@ -399,8 +404,20 @@ public class OidcController : ControllerBase
             }
         }
 
-        _logger.LogInformation("OIDC auth successful: user={Username}, roles=[{Roles}], provider={Provider}",
-            username, string.Join(", ", roles), providerId);
+        // Admission gate — who may sign in at all, independent of RBAC. This is the single
+        // choke point shared by the web and Quick Connect flows.
+        var admissionDenied = CheckAdmission(OidcPlugin.Instance?.Configuration, roles, email, emailVerified);
+        if (admissionDenied != null)
+        {
+            _logger.LogWarning(
+                "OIDC audit: decision=deny provider={Provider} subject={Subject} user={User} reason=admission-{Reason}",
+                providerId, subject, username, admissionDenied);
+            return BadRequest("Your account is not permitted to sign in to this server.");
+        }
+
+        _logger.LogInformation(
+            "OIDC audit: decision=authorize provider={Provider} subject={Subject} user={User} roles=[{Roles}]",
+            providerId, subject, username, string.Join(", ", roles));
 
         var sessionToken = _stateManager.StoreAuthorizedSession(new AuthorizedSession
         {
@@ -481,11 +498,18 @@ public class OidcController : ControllerBase
 
             var authResult = await _sessionManager.AuthenticateDirect(authRequest).ConfigureAwait(false);
 
+            TrackMintedSession(session, authRequest.DeviceId!, authResult.SessionInfo?.Id, userId);
+            _logger.LogInformation(
+                "OIDC audit: decision=login provider={Provider} subject={Subject} user={User} device={Device}",
+                session.ProviderId, session.Subject, session.Username, authRequest.DeviceId);
+
             return Ok(authResult);
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning("User sync failed: {Message}", ex.Message);
+            _logger.LogWarning(
+                "OIDC audit: decision=deny provider={Provider} subject={Subject} user={User} reason=sync-{Reason}",
+                session.ProviderId, session.Subject, session.Username, ex.Message);
             return Forbid();
         }
         catch (Exception ex)
@@ -569,10 +593,149 @@ public class OidcController : ControllerBase
         // Success — invalidate the one-time session so the token can't be replayed.
         _stateManager.InvalidateAuthorizedSession(request.Token);
         _logger.LogInformation(
-            "Quick Connect authorized for user {Username} via provider {Provider}",
-            session.Username, providerId);
+            "OIDC audit: decision=login provider={Provider} subject={Subject} user={User} channel=quickconnect",
+            providerId, session.Subject, session.Username);
 
         return Ok(new { success = true });
+    }
+
+    /// <summary>
+    /// OpenID Connect Back-Channel Logout 1.0 endpoint. The IdP POSTs a signed
+    /// <c>logout_token</c>; a valid token revokes the matching Jellyfin session(s):
+    /// a <c>sid</c> targets one device, a bare <c>sub</c> revokes all of that user's tokens.
+    /// Register this URL as the client's <c>backchannel_logout_uri</c>.
+    /// </summary>
+    [HttpPost("BackchannelLogout/{providerId}")]
+    [Consumes("application/x-www-form-urlencoded")]
+    [RateLimit("oidc-callback", maxRequests: 10, windowSeconds: 60)]
+    public async Task<ActionResult> BackchannelLogout(string providerId, [FromForm(Name = "logout_token")] string? logoutToken)
+    {
+        if (string.IsNullOrWhiteSpace(logoutToken))
+        {
+            return BadRequest(new { error = "invalid_request", error_description = "logout_token missing" });
+        }
+
+        var provider = GetProvider(providerId);
+        if (provider == null)
+        {
+            return BadRequest(new { error = "invalid_request", error_description = "unknown provider" });
+        }
+
+        // Same SSRF-guarded discovery + pin path as the login flow.
+        var blockPrivateNetworks = OidcPlugin.Instance?.Configuration?.BlockPrivateNetworkAuthorities ?? false;
+        var (blockReason, pinnedAddress) = await AuthorityGuard.ValidateAndResolveAsync(
+            provider.Authority, provider.AllowLoopbackAuthority, provider.AllowLinkLocalAuthority, blockPrivateNetworks)
+            .ConfigureAwait(false);
+        if (blockReason != null)
+        {
+            return StatusCode(502, new { error = "server_error" });
+        }
+
+        var disco = await GetDiscoveryDocumentAsync(provider, pinnedAddress).ConfigureAwait(false);
+        if (disco.IsError)
+        {
+            return StatusCode(502, new { error = "server_error" });
+        }
+
+        using var http = _httpClientFactory.CreateClient("OidcPlugin");
+        var keysResponse = await http.GetJsonWebKeySetAsync(disco.JwksUri).ConfigureAwait(false);
+        if (keysResponse.IsError)
+        {
+            return StatusCode(502, new { error = "server_error" });
+        }
+
+        var handler = new JwtSecurityTokenHandler();
+        handler.InboundClaimTypeMap.Clear();
+
+        JwtSecurityToken token;
+        try
+        {
+            handler.ValidateToken(logoutToken, new TokenValidationParameters
+            {
+                ValidIssuer = disco.Issuer,
+                ValidAudience = provider.ClientId,
+                IssuerSigningKeys = new JsonWebKeySet(keysResponse.Raw).GetSigningKeys(),
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ClockSkew = TimeSpan.FromMinutes(5)
+            }, out var validated);
+            token = (JwtSecurityToken)validated;
+        }
+        catch (SecurityTokenException ex)
+        {
+            _logger.LogWarning("OIDC back-channel logout token invalid for {Provider}: {Message}", providerId, ex.Message);
+            return BadRequest(new { error = "invalid_request", error_description = "logout_token validation failed" });
+        }
+
+        // Spec §2.4: no nonce; events must carry the back-channel logout event; sub or sid required.
+        if (token.Claims.Any(c => c.Type == "nonce"))
+        {
+            return BadRequest(new { error = "invalid_request", error_description = "nonce prohibited in logout_token" });
+        }
+
+        var events = ClaimParser.ExtractClaim(token, "events");
+        if (!events.Contains("http://schemas.openid.net/event/backchannel-logout", StringComparison.Ordinal))
+        {
+            return BadRequest(new { error = "invalid_request", error_description = "missing back-channel logout event" });
+        }
+
+        var sub = ClaimParser.ExtractClaim(token, "sub");
+        var sid = ClaimParser.ExtractClaim(token, "sid");
+        if (string.IsNullOrEmpty(sub) && string.IsNullOrEmpty(sid))
+        {
+            return BadRequest(new { error = "invalid_request", error_description = "sub or sid required" });
+        }
+
+        var jti = ClaimParser.ExtractClaim(token, "jti");
+        if (!string.IsNullOrEmpty(jti) && !_stateManager.RegisterJti(jti))
+        {
+            return BadRequest(new { error = "invalid_request", error_description = "replayed logout_token" });
+        }
+
+        var issuer = disco.Issuer ?? provider.Authority;
+        var revoked = 0;
+
+        // Prefer targeted revocation via a tracked (issuer, sid|sub) session.
+        var tracked = _stateManager.FindTracked(issuer, string.IsNullOrEmpty(sub) ? null : sub, string.IsNullOrEmpty(sid) ? null : sid);
+        foreach (var t in tracked)
+        {
+            try
+            {
+                var devices = _deviceManager.GetDevices(new DeviceQuery { UserId = t.UserId, DeviceId = t.DeviceId });
+                foreach (var device in devices.Items)
+                {
+                    await _deviceManager.DeleteDevice(device).ConfigureAwait(false);
+                    revoked++;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "OIDC back-channel logout: failed to delete device {Device}", t.DeviceId);
+            }
+
+            _stateManager.UntrackBySessionId(t.SessionId);
+        }
+
+        // Fall back to a subject-wide revoke (covers Quick Connect sessions and post-restart state).
+        if (revoked == 0 && !string.IsNullOrEmpty(sub))
+        {
+            var entry = OidcPlugin.Instance?.Configuration.UserProviderMap.FirstOrDefault(e =>
+                string.Equals(e.ProviderId, providerId, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(e.Subject, sub, StringComparison.Ordinal));
+            if (entry != null && Guid.TryParse(entry.UserId, out var userId))
+            {
+                await _sessionManager.RevokeUserTokens(userId, string.Empty).ConfigureAwait(false);
+                revoked = -1; // "all", count unknown
+            }
+        }
+
+        _logger.LogInformation(
+            "OIDC audit: decision=backchannel-logout provider={Provider} subject={Subject} sid={Sid} revoked={Revoked}",
+            providerId, sub, sid, revoked == -1 ? "all" : revoked.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        return Ok();
     }
 
     [HttpGet("Providers")]
@@ -606,6 +769,79 @@ public class OidcController : ControllerBase
         return OidcPlugin.Instance?.Configuration.Providers
             .FirstOrDefault(p => string.Equals(p.ProviderId, providerId, StringComparison.OrdinalIgnoreCase)
                                  && p.Enabled);
+    }
+
+    /// <summary>
+    /// Correlate a freshly minted Jellyfin session with its OIDC identity so a later
+    /// back-channel logout token can target it. No-op when the session lacks a subject.
+    /// </summary>
+    private void TrackMintedSession(AuthorizedSession session, string deviceId, string? sessionId, Guid userId)
+    {
+        if (string.IsNullOrEmpty(session.Subject) || string.IsNullOrEmpty(session.Issuer))
+        {
+            return;
+        }
+
+        _stateManager.TrackSession(new TrackedSession
+        {
+            ProviderId = session.ProviderId,
+            Issuer = session.Issuer,
+            Subject = session.Subject,
+            Sid = session.Sid,
+            UserId = userId,
+            DeviceId = deviceId,
+            SessionId = sessionId ?? deviceId
+        });
+    }
+
+    /// <summary>
+    /// Returns a short deny reason, or null when the user is admitted. An allowlist is
+    /// satisfied if the user matches ANY configured rule (group / exact email / email
+    /// domain). <c>RequireVerifiedEmail</c> is an additional hard gate. With no allowlist
+    /// configured, anyone who authenticated is admitted (unchanged behaviour).
+    /// </summary>
+    private static string? CheckAdmission(PluginConfiguration? cfg, string[] roles, string email, bool emailVerified)
+    {
+        if (cfg == null)
+        {
+            return null;
+        }
+
+        if (cfg.RequireVerifiedEmail && !emailVerified)
+        {
+            return "email-not-verified";
+        }
+
+        var hasGroupRule = cfg.AllowedGroups.Count > 0;
+        var hasEmailRule = cfg.AllowedEmails.Count > 0;
+        var hasDomainRule = cfg.AllowedEmailDomains.Count > 0;
+        if (!hasGroupRule && !hasEmailRule && !hasDomainRule)
+        {
+            return null;
+        }
+
+        if (hasGroupRule && roles.Any(r => cfg.AllowedGroups.Contains(r, StringComparer.OrdinalIgnoreCase)))
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrEmpty(email))
+        {
+            if (hasEmailRule && cfg.AllowedEmails.Contains(email, StringComparer.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var at = email.LastIndexOf('@');
+            var domain = at >= 0 && at < email.Length - 1 ? email[(at + 1)..] : string.Empty;
+            if (hasDomainRule && domain.Length > 0
+                && cfg.AllowedEmailDomains.Contains(domain, StringComparer.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+        }
+
+        return "not-on-allowlist";
     }
 
     private bool ValidateOrPinEndpoints(OidcProviderConfig provider, DiscoveryDocumentResponse disco)

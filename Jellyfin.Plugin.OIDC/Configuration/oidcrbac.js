@@ -152,6 +152,12 @@ function chk(id, label, checked) {
     return '<label><input type="checkbox" id="' + id + '"' + (checked ? ' checked' : '') + ' /> ' + esc(label) + '</label>';
 }
 
+// <textarea> ↔ string[] for the allowlist fields (one entry per line or comma-separated).
+function listToText(arr) { return (arr || []).join('\n'); }
+function textToList(str) {
+    return (str || '').split(/[\n,]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+}
+
 // A titled cluster of related permission checkboxes for the role card.
 function permGroup(title, inner) {
     return '<div class="oidc-perm-group">' +
@@ -243,6 +249,15 @@ function emptyState(msg) {
     return '<div class="oidc-empty">' + esc(msg) + '</div>';
 }
 
+// The URL to register at the IdP as backchannel_logout_uri for this provider.
+function backchannelLogoutUrl(p) {
+    var base = (p.ServerBaseUrl || '').replace(/\/+$/, '');
+    if (!base) {
+        try { base = ApiClient.serverAddress().replace(/\/+$/, ''); } catch (e) { base = ''; }
+    }
+    return (base || '(your server URL)') + '/sso/OIDC/BackchannelLogout/' + encodeURIComponent(p.ProviderId || '');
+}
+
 function renderProviders(view) {
     var container = view.querySelector('#providerList');
     container.innerHTML = '';
@@ -268,9 +283,13 @@ function renderProviders(view) {
             fld('Role Claim Path', 'text', 'prov_roleclaim_' + idx, p.RoleClaim || 'groups', 'e.g. groups or realm_access.roles') +
             fld('Username Claim', 'text', 'prov_userclaim_' + idx, p.UsernameClaim || 'preferred_username', '') +
             fld('Display Name Claim', 'text', 'prov_displayclaim_' + idx, p.DisplayNameClaim || 'name', '') +
+            fld('Email Claim', 'text', 'prov_emailclaim_' + idx, p.EmailClaim || 'email', '') +
             fld('Picture Claim', 'text', 'prov_pictureclaim_' + idx, p.PictureClaim || 'picture', 'e.g. picture') +
             '<div class="oidc-field full"><label><input type="checkbox" id="prov_syncimage_' + idx + '"' +
-            (p.SyncProfileImage !== false ? ' checked' : '') + '/> Sync profile image</label></div>';
+            (p.SyncProfileImage !== false ? ' checked' : '') + '/> Sync profile image</label></div>' +
+            '<div class="oidc-field full"><label><input type="checkbox" id="prov_syncdisplay_' + idx + '"' +
+            (p.SyncDisplayName === true ? ' checked' : '') + '/> Sync display name on login</label>' +
+            '<span class="oidc-hint" style="margin-left:1.5em;">Jellyfin has no separate display name — this <strong>renames the Jellyfin account</strong> to match the Display Name Claim on every login. Safe now that identity is keyed on the OIDC subject.</span></div>';
 
         var appearance =
             '<div class="oidc-field">' +
@@ -300,7 +319,17 @@ function renderProviders(view) {
             fld('Issuer', 'text', 'prov_pinnedissuer_' + idx, p.PinnedIssuer || '', 'https://idp.example.com/realms/myrealm') +
             fld('Token Endpoint', 'text', 'prov_pinnedtoken_' + idx, p.PinnedTokenEndpoint || '', 'https://idp.example.com/.../token') +
             fld('JWKS URI', 'text', 'prov_pinnedjwks_' + idx, p.PinnedJwksUri || '', 'https://idp.example.com/.../certs') +
-            '</div></div>';
+            '</div></div>' +
+            (p.ProviderId ?
+                '<div class="oidc-field full" style="margin-top:0.5em;">' +
+                '<label style="font-weight:600;font-size:0.9em;">Back-channel logout URL ' +
+                '<span class="oidc-hint">— register as the client\'s <code>backchannel_logout_uri</code> so the IdP can revoke Jellyfin sessions</span></label>' +
+                '<div style="display:flex;gap:0.4em;align-items:center;margin-top:0.3em;">' +
+                '<input is="emby-input" type="text" id="prov_bclogout_' + idx + '" readonly value="' +
+                esc(backchannelLogoutUrl(p)) + '" style="flex:1;font-family:monospace;font-size:0.85em;" />' +
+                '<button type="button" class="oidc-btn-secondary" data-copy="prov_bclogout_' + idx + '">Copy</button>' +
+                '</div></div>'
+                : '');
 
         var host = authorityHost(p.Authority);
         // "Configured" providers open fully collapsed; a fresh/incomplete one opens with
@@ -537,8 +566,10 @@ function collectProviders(view) {
             RoleClaim: gval(view, 'prov_roleclaim_' + idx),
             UsernameClaim: gval(view, 'prov_userclaim_' + idx),
             DisplayNameClaim: gval(view, 'prov_displayclaim_' + idx),
+            EmailClaim: gval(view, 'prov_emailclaim_' + idx),
             PictureClaim: gval(view, 'prov_pictureclaim_' + idx),
             SyncProfileImage: gchk(view, 'prov_syncimage_' + idx),
+            SyncDisplayName: gchk(view, 'prov_syncdisplay_' + idx),
             ButtonColor: gval(view, 'prov_color_' + idx),
             AdditionalParameters: gval(view, 'prov_params_' + idx),
             ServerBaseUrl: gval(view, 'prov_baseurl_' + idx),
@@ -655,6 +686,11 @@ export default function (view) {
             view.querySelector('#autoCreateUsers').checked = cfg.AutoCreateUsers !== false;
             view.querySelector('#migrateLocalUsers').checked = cfg.MigrateLocalUsers === true;
             view.querySelector('#blockPrivateNetworkAuthorities').checked = cfg.BlockPrivateNetworkAuthorities === true;
+            view.querySelector('#allowedGroups').value = listToText(cfg.AllowedGroups);
+            view.querySelector('#allowedEmailDomains').value = listToText(cfg.AllowedEmailDomains);
+            view.querySelector('#allowedEmails').value = listToText(cfg.AllowedEmails);
+            view.querySelector('#requireVerifiedEmail').checked = cfg.RequireVerifiedEmail === true;
+            view.querySelector('#linkExistingUsersByEmail').checked = cfg.LinkExistingUsersByEmail === true;
             view.querySelector('#manageLoginButtonBranding').checked = cfg.ManageLoginButtonBranding !== false;
             view.querySelector('#hideManualLogin').checked = cfg.HideManualLogin === true;
             view.querySelector('#loginTitle').value = cfg.LoginTitle || 'Please sign in';
@@ -710,7 +746,8 @@ export default function (view) {
             ProviderId: '', DisplayName: 'New Provider', Authority: '',
             ClientId: '', ClientSecret: '', Scopes: 'openid profile email',
             RoleClaim: 'groups', UsernameClaim: 'preferred_username',
-            DisplayNameClaim: 'name', PictureClaim: 'picture', SyncProfileImage: true,
+            DisplayNameClaim: 'name', EmailClaim: 'email', PictureClaim: 'picture',
+            SyncProfileImage: true, SyncDisplayName: false,
             Enabled: true, ButtonColor: DEFAULT_BUTTON_COLOR,
             ButtonIcon: '', AdditionalParameters: '',
             StrictAccessTokenValidation: true,
@@ -757,6 +794,11 @@ export default function (view) {
         cfg.AutoCreateUsers = gchk(view, 'autoCreateUsers');
         cfg.MigrateLocalUsers = gchk(view, 'migrateLocalUsers');
         cfg.BlockPrivateNetworkAuthorities = gchk(view, 'blockPrivateNetworkAuthorities');
+        cfg.AllowedGroups = textToList(gval(view, 'allowedGroups'));
+        cfg.AllowedEmailDomains = textToList(gval(view, 'allowedEmailDomains'));
+        cfg.AllowedEmails = textToList(gval(view, 'allowedEmails'));
+        cfg.RequireVerifiedEmail = gchk(view, 'requireVerifiedEmail');
+        cfg.LinkExistingUsersByEmail = gchk(view, 'linkExistingUsersByEmail');
         cfg.ManageLoginButtonBranding = gchk(view, 'manageLoginButtonBranding');
         cfg.HideManualLogin = gchk(view, 'hideManualLogin');
         cfg.LoginTitle = gval(view, 'loginTitle') || 'Please sign in';
@@ -776,6 +818,15 @@ export default function (view) {
 
     // Event delegation for dynamic buttons in provider list
     view.querySelector('#providerList').addEventListener('click', function (e) {
+        var copyBtn = e.target.closest('[data-copy]');
+        if (copyBtn) {
+            var src = view.querySelector('#' + copyBtn.getAttribute('data-copy'));
+            if (src && navigator.clipboard) { navigator.clipboard.writeText(src.value).catch(function () {}); }
+            var orig = copyBtn.textContent;
+            copyBtn.textContent = 'Copied';
+            setTimeout(function () { copyBtn.textContent = orig; }, 1200);
+            return;
+        }
         var btn = e.target.closest('[data-action]');
         if (!btn) return;
         var idx = parseInt(btn.getAttribute('data-idx'));

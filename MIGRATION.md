@@ -66,13 +66,20 @@ When enabled, the first time an existing local-password user successfully logs i
 
 When disabled (default), existing users can still log in via SSO and have RBAC applied, but their password login remains active. You can disable it manually in the Jellyfin dashboard after migration if needed.
 
-### Sync display name from OIDC token (SyncDisplayName)
+### Sync display name from OIDC token (per-provider `SyncDisplayName`)
 
-**Not yet available** — this setting is visible in the UI but disabled. It requires Jellyfin to expose a stable external subject ID on the `User` entity so the plugin can look up accounts by identity rather than by a mutable name.
+**Available.** The plugin now keys each account on the OIDC `sub` claim in its own
+`UserProviderMap` (with the Jellyfin user id), so a rename can no longer orphan an account —
+the next login still resolves by subject, not by the mutable name.
 
-The core problem: in Jellyfin, username and display name are the same field. Renaming an account to match the IdP display name means the next SSO login can no longer find the account by `preferred_username`. Any fallback lookup by display name risks accidentally matching an unrelated local Jellyfin user, which is both a correctness and security issue.
+In Jellyfin the username *is* the display name, so enabling this **renames the Jellyfin
+account** to match the Display Name Claim on every login. The claim is folded to Jellyfin's
+allowed username characters and truncated to 255; a name that still collides with another
+user is skipped (logged, login continues). Off by default, opt-in per provider in the
+provider card's Claim mapping section.
 
-The correct fix is an upstream Jellyfin change to store the OIDC `sub` (subject) claim — a stable, never-changing identifier — alongside the user record. Once that lands, display name sync can be implemented safely.
+Existing `UserProviderMap` rows written before sub-keying keep working and self-heal
+(back-fill `Subject`/`UserId`) on the user's next login.
 
 ## Caveats
 

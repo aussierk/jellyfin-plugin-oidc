@@ -1,6 +1,8 @@
 using System.Net;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Authentication;
+using MediaBrowser.Controller.Events;
+using MediaBrowser.Controller.Events.Session;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -29,5 +31,8 @@ public class ServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddScoped<RbacService>();
         serviceCollection.AddScoped<ProfileImageService>();
         serviceCollection.AddScoped<UserSyncService>();
+
+        // Prunes the back-channel-logout session table when a Jellyfin session ends.
+        serviceCollection.AddScoped<IEventConsumer<SessionEndedEventArgs>, OidcSessionEndedConsumer>();
     }
 }

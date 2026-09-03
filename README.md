@@ -146,9 +146,10 @@ Go to **General tab** and configure:
 | Setting                           | Default | Description |
 |-----------------------------------|---------|-------------|
 | Auto-create users                 | On      | Create a Jellyfin account on first SSO login |
-| Default Role                      | —       | Fallback role when no IdP role matches a mapping; login is denied if neither a role nor a valid default matches |
+| Fallback role (Role Mappings tab) | —       | Role applied when no IdP role matches a mapping; login is denied if neither a role nor a valid fallback matches |
 | Migrate local users to SSO        | Off     | Switch existing password accounts to SSO auth on first SSO login |
-| Sync display name from OIDC token | Off     | Rename the Jellyfin account to match the IdP display name on each login |
+| Sync display name (per provider)  | Off     | Rename the Jellyfin account to match the Display Name Claim on each login (sanitised; identity is keyed on the OIDC subject so this is safe) |
+| Access allowlist (Role Mappings)  | empty   | Groups / email domains / emails permitted to sign in at all; empty admits everyone who authenticates |
 
 ### 4. Add the Login Button
 
@@ -271,13 +272,21 @@ When a user matches multiple role mappings, permissions are **merged (union)**:
 - `EnableAllLibraries`: `true` if any role enables it
 - `MaxParentalRating`: highest value across all matched roles
 
-### Priority
+### Fallback role
 
-Each role mapping has a priority field. Higher priority roles take precedence in ordering, though merge semantics still apply.
+If no role mappings match a user's IdP roles, the **Fallback role** (a dropdown of your
+defined role names, at the top of the Role Mappings tab) is applied instead. If neither a
+role mapping nor a valid fallback matches, login is denied — the plugin never falls back to
+Jellyfin's stock default permissions or lets a user keep a policy from a previous login.
+This is deliberate: it stops a role removed at the IdP or in plugin config from silently
+leaving a user with access they should no longer have.
 
-### Default Role
+### Admission allowlist
 
-If no role mappings match a user's IdP roles, the **Default Role** (configured in the General tab) is used as a fallback. If neither a role mapping nor a valid Default Role matches, login is denied — the plugin never falls back to Jellyfin's stock default permissions or lets a user keep a policy from a previous login. This is deliberate: it stops a role or role mapping removed at the IdP or in plugin config from silently leaving a user with access they should no longer have.
+Separate from RBAC, the **Access** section (top of the Role Mappings tab) gates *who may
+sign in at all*: allowed groups (matched against the role claim), allowed email domains,
+allowed exact emails, and an optional "require verified email". Leave the lists empty to
+admit everyone who authenticates; a user passes if they match **any** rule.
 
 ### Multi-provider role isolation
 
