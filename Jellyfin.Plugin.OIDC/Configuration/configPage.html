@@ -8,6 +8,7 @@
                 <button type="button" class="oidc-tab is-active" data-tab="providers" role="tab" aria-selected="true" aria-controls="tab-providers">Providers</button>
                 <button type="button" class="oidc-tab" data-tab="roles" role="tab" aria-selected="false" aria-controls="tab-roles">Role Mappings</button>
                 <button type="button" class="oidc-tab" data-tab="general" role="tab" aria-selected="false" aria-controls="tab-general">General</button>
+                <button type="button" class="oidc-tab" data-tab="loginpage" role="tab" aria-selected="false" aria-controls="tab-loginpage">Login Page</button>
             </div>
 
             <div id="tab-providers" class="oidc-tab-content" role="tabpanel">
@@ -72,6 +73,16 @@
                                 When enabled, no provider's Authority may resolve to an RFC1918 private range (10/8, 172.16/12, 192.168/16) or IPv6 ULA (fc00::/7), for stricter network isolation. Off by default, since self-hosted IdPs commonly live on these ranges. Loopback and link-local addresses are always blocked regardless of this setting, unless individually allowed per-provider.
                             </p>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-loginpage" class="oidc-tab-content" role="tabpanel" style="display:none;">
+                <div class="oidc-card" style="margin-bottom:0;">
+                    <p class="fieldDescription" style="margin:0 0 1em;">
+                        Customises the <strong>web</strong> login page. TV and mobile apps ignore these and use Quick Connect.
+                    </p>
+                    <div class="oidc-grid">
                         <div style="grid-column:1/-1;">
                             <label>
                                 <input type="checkbox" id="manageLoginButtonBranding" is="emby-checkbox" />

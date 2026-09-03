@@ -553,11 +553,19 @@ export default function (view) {
         if (r.width < 1) return; // not visible yet
         savebar.style.left = r.left + 'px';
         savebar.style.width = r.width + 'px';
-        contentPrimary.style.paddingBottom = (savebar.offsetHeight + 12) + 'px';
+        var pad = (savebar.offsetHeight + 12) + 'px'; // guard: only write when it changes,
+        if (contentPrimary.style.paddingBottom !== pad) { // so the ResizeObserver settles
+            contentPrimary.style.paddingBottom = pad;
+        }
     }
     if (savebar) {
         var bg = getComputedStyle(document.body).backgroundColor;
         savebar.style.background = (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') ? bg : '#101010';
+    }
+    // A ResizeObserver on the content column re-aligns the bar whenever the form's
+    // width changes — tab switch, card add/remove, scrollbar appearing, window resize.
+    if (window.ResizeObserver && contentPrimary) {
+        new ResizeObserver(alignSaveBar).observe(contentPrimary);
     }
     view.addEventListener('viewbeforehide', function () {
         setDirty(false);
