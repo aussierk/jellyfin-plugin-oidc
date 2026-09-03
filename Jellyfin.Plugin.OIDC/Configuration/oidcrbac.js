@@ -195,18 +195,13 @@ function addLibChip(container, libId) {
     container.appendChild(chip);
 }
 
-// One field group inside a provider card. `collapsible` groups render as a <details>
-// so the common case (Connection) stays a short form and the rare knobs stay out of
-// the way; every field still lives in the DOM, so collectProviders() is unaffected
-// whether a section is open or closed.
-function provGroup(title, hint, inner, collapsible) {
+// One field group inside a provider card, rendered as a <details>. `open` decides the
+// initial state (Connection opens only when the provider isn't configured yet); every
+// field stays in the DOM either way, so collectProviders() is unaffected.
+function provGroup(title, hint, inner, open) {
     var head = esc(title) + (hint ? ' <span class="oidc-hint">' + esc(hint) + '</span>' : '');
-    if (collapsible) {
-        return '<details class="oidc-section"><summary>' + head + '</summary>' +
-            '<div class="oidc-grid">' + inner + '</div></details>';
-    }
-    return '<div class="oidc-section"><div class="oidc-section-title">' + head + '</div>' +
-        '<div class="oidc-grid">' + inner + '</div></div>';
+    return '<details class="oidc-section"' + (open ? ' open' : '') + '><summary>' + head + '</summary>' +
+        '<div class="oidc-grid">' + inner + '</div></details>';
 }
 
 // Host portion of an Authority URL, for the provider card header. Falls back to a
@@ -242,9 +237,7 @@ function renderProviders(view) {
             fld('Authority URL', 'text', 'prov_authority_' + idx, p.Authority, 'https://idp.example.com/realms/myrealm', true) +
             fld('Client ID', 'text', 'prov_clientid_' + idx, p.ClientId, '') +
             fld('Client Secret', 'password', 'prov_secret_' + idx, p.ClientSecret, '') +
-            fld('Scopes', 'text', 'prov_scopes_' + idx, p.Scopes || 'openid profile email', '') +
-            '<div class="oidc-field full"><label><input type="checkbox" id="prov_enabled_' + idx + '"' +
-            (p.Enabled !== false ? ' checked' : '') + '/> Enabled</label></div>';
+            fld('Scopes', 'text', 'prov_scopes_' + idx, p.Scopes || 'openid profile email', '');
 
         var claims =
             fld('Role Claim Path', 'text', 'prov_roleclaim_' + idx, p.RoleClaim || 'groups', 'e.g. groups or realm_access.roles') +
@@ -285,17 +278,20 @@ function renderProviders(view) {
             '</div></div>';
 
         var host = authorityHost(p.Authority);
+        // "Configured" providers open fully collapsed; a fresh/incomplete one opens with
+        // Connection expanded so the essentials are in front of you.
+        var configured = !!(p.ProviderId && p.Authority && p.ClientId);
+        if (p.Enabled === false) card.className += ' oidc-disabled';
         card.innerHTML = '<div class="oidc-card-head">' +
             '<h4>' + esc(p.DisplayName || 'New Provider') + '</h4>' +
-            (p.Enabled !== false
-                ? '<span class="oidc-pill oidc-pill-on">Enabled</span>'
-                : '<span class="oidc-pill oidc-pill-off">Disabled</span>') +
             (host ? '<span class="oidc-card-sub">' + esc(host) + '</span>' : '') +
+            '<label class="oidc-enable-toggle"><span>Enabled</span>' +
+            '<input type="checkbox" id="prov_enabled_' + idx + '"' + (p.Enabled !== false ? ' checked' : '') + ' /></label>' +
             '</div>' +
-            provGroup('Connection', '', connection, false) +
-            provGroup('Claim mapping', 'role, username, display name & avatar', claims, true) +
-            provGroup('Appearance', 'login button colour & icon', appearance, true) +
-            provGroup('Advanced & security', 'redirect host, token validation, network guards, endpoint pins', advanced, true) +
+            provGroup('Connection', 'provider id, endpoint & client credentials', connection, !configured) +
+            provGroup('Claim mapping', 'role, username, display name & avatar', claims, false) +
+            provGroup('Appearance', 'login button colour & icon', appearance, false) +
+            provGroup('Advanced & security', 'redirect host, token validation, network guards, endpoint pins', advanced, false) +
             '<div style="margin-top:0.8em;display:flex;gap:0.5em;align-items:center;flex-wrap:wrap;">' +
             '<button type="button" class="oidc-btn-secondary" data-action="test-provider" data-idx="' + idx + '">Test Connection</button>' +
             '<button type="button" class="oidc-btn-remove" data-action="remove-provider" data-idx="' + idx + '">Remove</button>' +
@@ -315,8 +311,8 @@ function renderRoleMappings(view) {
         return;
     }
     cfg.RoleMappings.forEach(function (m, idx) {
-        var card = document.createElement('div');
-        card.className = 'oidc-card';
+        var card = document.createElement('details');
+        card.className = 'oidc-card oidc-role';
         var libOpts = Object.keys(libs).map(function (id) {
             return '<option value="' + esc(id) + '">' + esc(libs[id]) + '</option>';
         }).join('');
@@ -335,7 +331,22 @@ function renderRoleMappings(view) {
                     (m.ProviderFilter === p.ProviderId ? ' selected' : '') + '>' +
                     esc(p.DisplayName || p.ProviderId) + '</option>';
             }).join('');
-        card.innerHTML = '<h4>Role: ' + esc(m.RoleName || 'New Role') + '</h4>' +
+        // Collapsed summary: role name + Admin badge + a one-line scope (provider,
+        // library access, priority). A role without a name opens expanded.
+        var provLabel = m.ProviderFilter
+            ? (((cfg.Providers || []).find(function (p) { return p.ProviderId === m.ProviderFilter; }) || {}).DisplayName || m.ProviderFilter)
+            : 'all providers';
+        var libLabel = m.EnableAllLibraries
+            ? 'all libraries'
+            : (selectedLibs.length ? selectedLibs.length + (selectedLibs.length === 1 ? ' library' : ' libraries') : 'no library access');
+        var scopeParts = [provLabel, libLabel];
+        if (m.Priority) scopeParts.push('priority ' + m.Priority);
+
+        card.innerHTML = '<summary class="oidc-role-summary">' +
+            '<h4>Role: ' + esc(m.RoleName || 'New Role') + '</h4>' +
+            (m.IsAdmin ? '<span class="oidc-badge">Admin</span>' : '') +
+            '<span class="oidc-role-scope">' + esc(scopeParts.join('  ·  ')) + '</span>' +
+            '</summary>' +
             '<div class="oidc-grid">' +
             fld('Role Name', 'text', 'role_name_' + idx, m.RoleName, 'Must match IdP role claim value') +
             fld('Priority', 'number', 'role_priority_' + idx, m.Priority || 0, 'Higher = takes precedence') +
@@ -378,6 +389,7 @@ function renderRoleMappings(view) {
             '<div style="margin-top:0.5em;">' +
             '<button type="button" class="oidc-btn-remove" data-action="remove-role" data-idx="' + idx + '">Remove</button>' +
             '</div>';
+        card.open = !m.RoleName;
         container.appendChild(card);
         var libCont = view.querySelector('#role_libs_' + idx);
         selectedLibs.forEach(function (libId) { addLibChip(libCont, libId); });

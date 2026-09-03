@@ -147,25 +147,33 @@
         .oidc-btn-secondary:focus-visible { outline:2px solid #00a4dc; outline-offset:2px; }
         .oidc-card { border:1px solid rgba(127,127,127,0.4); border-radius:8px; padding:1em; margin-bottom:1em; background:rgba(127,127,127,0.08); }
         .oidc-card h4 { margin-top:0; }
-        /* Provider card header: name + status pill + Authority host, so collapsed cards
-           are still distinguishable at a glance. */
+        /* Provider card header: name + Authority host on the left, an Enabled switch on
+           the right, so collapsed cards stay identifiable and toggleable. */
         .oidc-card-head { display:flex; align-items:center; flex-wrap:wrap; gap:0.5em; margin-bottom:0.3em; }
         .oidc-card-head h4 { margin:0; }
         .oidc-card-sub { font-size:0.85em; opacity:0.6; font-family:monospace; word-break:break-all; }
-        .oidc-pill { font-size:0.7em; font-weight:700; text-transform:uppercase; letter-spacing:0.04em;
-            padding:0.15em 0.55em; border-radius:999px; border:1px solid currentColor; white-space:nowrap; }
-        .oidc-pill-on { color:#4caf50; }
-        .oidc-pill-off { color:#9e9e9e; }
+        .oidc-enable-toggle { margin-left:auto; display:flex; align-items:center; gap:0.5em;
+            font-weight:normal; font-size:0.85em; white-space:nowrap; cursor:pointer; }
+        .oidc-enable-toggle input { appearance:none; -webkit-appearance:none; margin:0; flex:none;
+            width:2.2em; height:1.2em; border-radius:1em; background:rgba(127,127,127,0.45);
+            position:relative; cursor:pointer; transition:background .15s; }
+        .oidc-enable-toggle input::after { content:""; position:absolute; top:0.15em; left:0.15em;
+            width:0.9em; height:0.9em; border-radius:50%; background:#fff; transition:left .15s; }
+        .oidc-enable-toggle input:checked { background:#00a4dc; }
+        .oidc-enable-toggle input:checked::after { left:1.15em; }
+        .oidc-enable-toggle input:focus-visible { outline:2px solid #00a4dc; outline-offset:2px; }
+        /* A disabled provider dims its header but keeps the switch legible. */
+        .oidc-card.oidc-disabled .oidc-card-head h4,
+        .oidc-card.oidc-disabled .oidc-card-sub { opacity:0.5; }
         /* Empty-list placeholder for the Providers / Role Mappings tabs. */
         .oidc-empty { border:1px dashed rgba(127,127,127,0.5); border-radius:8px; padding:1.5em 1em;
             text-align:center; opacity:0.75; font-size:0.9em; }
-        /* Provider-card field groups. "Connection" is a static block; the rest are
-           collapsible <details> so the card opens as a short form. */
+        /* Provider-card field groups — collapsible <details> so the card opens short.
+           Connection is expanded only until the provider is configured. */
         .oidc-section { border:1px solid rgba(127,127,127,0.22); border-radius:6px; margin-top:0.8em; padding:0 0.85em; }
         .oidc-section > summary { cursor:pointer; padding:0.6em 0; font-weight:600; font-size:0.9em; }
         .oidc-section > summary:focus-visible { outline:2px solid #00a4dc; outline-offset:2px; }
         .oidc-section[open] > summary { border-bottom:1px solid rgba(127,127,127,0.22); margin-bottom:0.85em; }
-        .oidc-section-title { padding:0.6em 0; font-weight:600; font-size:0.9em; border-bottom:1px solid rgba(127,127,127,0.22); margin-bottom:0.85em; }
         .oidc-section > .oidc-grid { padding-bottom:0.85em; }
         /* Muted helper text: dim the inherited (themed) colour rather than hardcode a
            grey, so it stays readable on both the dark dashboard and light themes. */
@@ -179,6 +187,17 @@
         .oidc-field.full { grid-column:1/-1; }
         .oidc-checkbox-row { display:flex; flex-wrap:wrap; gap:0.5em 1.25em; margin:0.4em 0; }
         .oidc-checkbox-row label { display:flex; align-items:center; gap:0.3em; font-weight:normal; }
+        /* Role cards are collapsible; the summary shows name + Admin badge + a one-line
+           scope so the Role Mappings tab reads as a list. */
+        details.oidc-role > summary { display:flex; align-items:center; flex-wrap:wrap; gap:0.5em;
+            cursor:pointer; font-weight:600; padding:0.1em 0; }
+        details.oidc-role > summary h4 { margin:0; }
+        details.oidc-role > summary:focus-visible { outline:2px solid #00a4dc; outline-offset:2px; }
+        details.oidc-role[open] > summary { border-bottom:1px solid rgba(127,127,127,0.25);
+            margin-bottom:0.85em; padding-bottom:0.6em; }
+        .oidc-role-scope { font-size:0.85em; font-weight:normal; opacity:0.65; }
+        .oidc-badge { font-size:0.7em; font-weight:700; text-transform:uppercase; letter-spacing:0.04em;
+            padding:0.1em 0.5em; border-radius:999px; border:1px solid currentColor; color:#ff9800; white-space:nowrap; }
         /* Titled clusters of related permission checkboxes on the role card. */
         .oidc-perm-group { margin:0.55em 0; }
         .oidc-perm-group .oidc-checkbox-row { margin:0.15em 0 0; }
@@ -195,7 +214,7 @@
            and hosts the unsaved-changes indicator. position:fixed (not sticky) because a
            Jellyfin overflow:hidden page wrapper breaks sticky here; left/width/background
            and the form's bottom padding are set at runtime from oidcrbac.js. */
-        .oidc-savebar { position:fixed; bottom:0; z-index:50; display:flex; align-items:center;
+        .oidc-savebar { position:fixed; bottom:0; z-index:50; box-sizing:border-box; display:flex; align-items:center;
             justify-content:flex-end; gap:1em; padding:0.7em 1em;
             border-top:1px solid rgba(127,127,127,0.4); box-shadow:0 -6px 14px rgba(0,0,0,0.28); }
         .oidc-save-status { font-weight:600; opacity:0.9; font-size:0.9em; }
