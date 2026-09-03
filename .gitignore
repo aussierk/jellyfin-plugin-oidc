@@ -6,3 +6,7 @@ obj/
 *.DotSettings.user
 TestResults/
 *.claude/
+screenshots/
+.playwright-mcp/
+dist/
+.mcp.json
