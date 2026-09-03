@@ -2,6 +2,30 @@ var pluginId = 'e1c020c5-3972-4b7b-9538-ee4934cc902c';
 var cfg = null;
 var libs = {};
 
+// Unsaved-changes tracking. `dirty` flips true on any edit and false after a load or a
+// successful save; the sticky save bar and the beforeunload guard both read it.
+var dirty = false;
+var dirtyView = null;
+
+function setDirty(v) {
+    dirty = v;
+    if (!dirtyView) return;
+    var s = dirtyView.querySelector('#saveStatus');
+    if (s) s.textContent = v ? '● Unsaved changes' : '';
+    var btn = dirtyView.querySelector('#btnSave');
+    if (btn) btn.classList.toggle('oidc-save-dirty', v);
+}
+
+function beforeUnloadGuard(e) {
+    if (!dirty) return undefined;
+    e.preventDefault();
+    e.returnValue = '';
+    return '';
+}
+
+// Matches OidcProviderConfig.ButtonColor / BrandingSnippetBuilder.DefaultButtonColor.
+var DEFAULT_BUTTON_COLOR = '#4285F4';
+
 // Markers fencing the plugin-managed block inside Branding (Login Disclaimer / Custom CSS).
 // Kept in sync with BrandingSnippetBuilder on the server.
 var HTML_START = '<!-- oidc-sso-buttons:start -->';
@@ -118,13 +142,21 @@ function gchk(view, id) {
 function fld(label, type, id, value, placeholder, full) {
     return '<div class="oidc-field' + (full ? ' full' : '') + '">' +
         '<label for="' + id + '">' + esc(label) + '</label>' +
-        '<input type="' + type + '" id="' + id + '" value="' + esc(String(value || '')) + '"' +
-        (placeholder ? ' placeholder="' + esc(placeholder) + '"' : '') + ' />' +
+        '<input is="emby-input" type="' + type + '" id="' + id + '" value="' + esc(String(value || '')) + '"' +
+        (placeholder ? ' placeholder="' + esc(placeholder) + '"' : '') +
+        ' autocomplete="off" autocapitalize="off" spellcheck="false" />' +
         '</div>';
 }
 
 function chk(id, label, checked) {
     return '<label><input type="checkbox" id="' + id + '"' + (checked ? ' checked' : '') + ' /> ' + esc(label) + '</label>';
+}
+
+// A titled cluster of related permission checkboxes for the role card.
+function permGroup(title, inner) {
+    return '<div class="oidc-perm-group">' +
+        '<div class="oidc-perm-title">' + esc(title) + '</div>' +
+        '<div class="oidc-checkbox-row">' + inner + '</div></div>';
 }
 
 // Bundled Button Icon keys — must match Services/KnownProviderIcons.Keys on the server.
@@ -147,7 +179,7 @@ function iconField(idx, cur) {
     opts += '<option value="custom"' + (custom ? ' selected' : '') + '>Custom (image)</option>';
     return '<div class="oidc-field full">' +
         '<label for="prov_icon_' + idx + '">Button Icon</label>' +
-        '<select id="prov_icon_' + idx + '">' + opts + '</select>' +
+        '<select is="emby-select" id="prov_icon_' + idx + '">' + opts + '</select>' +
         '<textarea id="prov_icon_svg_' + idx + '" placeholder="Paste &lt;svg&gt;…&lt;/svg&gt; or a data:image/… URI, or pick a file below" ' +
         'style="margin-top:0.3em;width:100%;font-family:monospace;font-size:0.8em;' + hidden + '">' +
         esc(custom ? cur : '') + '</textarea>' +
@@ -163,53 +195,108 @@ function addLibChip(container, libId) {
     container.appendChild(chip);
 }
 
+// One field group inside a provider card. `collapsible` groups render as a <details>
+// so the common case (Connection) stays a short form and the rare knobs stay out of
+// the way; every field still lives in the DOM, so collectProviders() is unaffected
+// whether a section is open or closed.
+function provGroup(title, hint, inner, collapsible) {
+    var head = esc(title) + (hint ? ' <span class="oidc-hint">' + esc(hint) + '</span>' : '');
+    if (collapsible) {
+        return '<details class="oidc-section"><summary>' + head + '</summary>' +
+            '<div class="oidc-grid">' + inner + '</div></details>';
+    }
+    return '<div class="oidc-section"><div class="oidc-section-title">' + head + '</div>' +
+        '<div class="oidc-grid">' + inner + '</div></div>';
+}
+
+// Host portion of an Authority URL, for the provider card header. Falls back to a
+// scheme/path strip when the value isn't yet a valid absolute URL.
+function authorityHost(url) {
+    if (!url) return '';
+    try {
+        return new URL(url).host;
+    } catch (e) {
+        return String(url).replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').split('/')[0];
+    }
+}
+
+function emptyState(msg) {
+    return '<div class="oidc-empty">' + esc(msg) + '</div>';
+}
+
 function renderProviders(view) {
     var container = view.querySelector('#providerList');
     container.innerHTML = '';
+    if (!cfg.Providers.length) {
+        container.innerHTML = emptyState(
+            "No providers configured yet — users can't sign in with SSO until you add one.");
+        return;
+    }
     cfg.Providers.forEach(function (p, idx) {
         var card = document.createElement('div');
         card.className = 'oidc-card';
-        card.innerHTML = '<h4>' + esc(p.DisplayName || 'New Provider') +
-            (p.Enabled ? ' <span style="color:#4caf50">&#9679;</span>' : ' <span style="color:#888">&#9679;</span>') +
-            '</h4>' +
-            '<div class="oidc-grid">' +
+
+        var connection =
             fld('Provider ID', 'text', 'prov_id_' + idx, p.ProviderId, 'Unique identifier (e.g. keycloak)') +
             fld('Display Name', 'text', 'prov_name_' + idx, p.DisplayName, 'Shown on login button') +
             fld('Authority URL', 'text', 'prov_authority_' + idx, p.Authority, 'https://idp.example.com/realms/myrealm', true) +
             fld('Client ID', 'text', 'prov_clientid_' + idx, p.ClientId, '') +
             fld('Client Secret', 'password', 'prov_secret_' + idx, p.ClientSecret, '') +
             fld('Scopes', 'text', 'prov_scopes_' + idx, p.Scopes || 'openid profile email', '') +
+            '<div class="oidc-field full"><label><input type="checkbox" id="prov_enabled_' + idx + '"' +
+            (p.Enabled !== false ? ' checked' : '') + '/> Enabled</label></div>';
+
+        var claims =
             fld('Role Claim Path', 'text', 'prov_roleclaim_' + idx, p.RoleClaim || 'groups', 'e.g. groups or realm_access.roles') +
             fld('Username Claim', 'text', 'prov_userclaim_' + idx, p.UsernameClaim || 'preferred_username', '') +
             fld('Display Name Claim', 'text', 'prov_displayclaim_' + idx, p.DisplayNameClaim || 'name', '') +
             fld('Picture Claim', 'text', 'prov_pictureclaim_' + idx, p.PictureClaim || 'picture', 'e.g. picture') +
-            fld('Button Color', 'color', 'prov_color_' + idx, p.ButtonColor || '#4285F4', '') +
-            iconField(idx, p.ButtonIcon || '') +
+            '<div class="oidc-field full"><label><input type="checkbox" id="prov_syncimage_' + idx + '"' +
+            (p.SyncProfileImage !== false ? ' checked' : '') + '/> Sync profile image</label></div>';
+
+        var appearance =
+            '<div class="oidc-field">' +
+            '<label for="prov_color_' + idx + '">Button Color</label>' +
+            '<div style="display:flex;gap:0.4em;align-items:center;">' +
+            '<input type="color" id="prov_color_' + idx + '" value="' + esc(p.ButtonColor || DEFAULT_BUTTON_COLOR) + '" />' +
+            '<button type="button" class="oidc-btn-secondary" data-action="reset-color" data-idx="' + idx + '">Reset to default</button>' +
+            '</div></div>' +
+            iconField(idx, p.ButtonIcon || '');
+
+        var advanced =
             fld('Additional Params', 'text', 'prov_params_' + idx, p.AdditionalParameters || '', 'key=val&key2=val2', true) +
             fld('Server Base URL (override)', 'text', 'prov_baseurl_' + idx, p.ServerBaseUrl || '', 'Optional: https://jellyfin.example.com — overrides auto-detected redirect_uri host', true) +
-            '<div class="oidc-field"><label><input type="checkbox" id="prov_syncimage_' + idx + '"' +
-            (p.SyncProfileImage !== false ? ' checked' : '') + '/> Sync profile image</label></div>' +
-            '<div class="oidc-field"><label><input type="checkbox" id="prov_enabled_' + idx + '"' +
-            (p.Enabled !== false ? ' checked' : '') + '/> Enabled</label></div>' +
             '<div class="oidc-field full"><label><input type="checkbox" id="prov_strict_access_' + idx + '"' +
             (p.StrictAccessTokenValidation !== false ? ' checked' : '') + '/> Strict access token validation</label>' +
-            '<span style="font-size:0.8em;color:#aaa;margin-left:1.5em;">Only applies when the IdP issues JWT access tokens (e.g. Keycloak). Opaque access tokens (Google, default Authelia) are skipped automatically and unaffected by this setting. Uncheck if your IdP signs access tokens with a different key than the JWKS endpoint advertises.</span></div>' +
+            '<span class="oidc-hint" style="margin-left:1.5em;">Only applies when the IdP issues JWT access tokens (e.g. Keycloak). Opaque access tokens (Google, default Authelia) are skipped automatically and unaffected by this setting. Uncheck if your IdP signs access tokens with a different key than the JWKS endpoint advertises.</span></div>' +
             '<div class="oidc-field full"><label><input type="checkbox" id="prov_allow_loopback_' + idx + '"' +
             (p.AllowLoopbackAuthority === true ? ' checked' : '') + '/> Allow loopback Authority</label>' +
-            '<span style="font-size:0.8em;color:#aaa;margin-left:1.5em;">By default, an Authority resolving to a loopback address (127.0.0.1, ::1) is blocked. Enable this only if your IdP is intentionally hosted at loopback.</span></div>' +
+            '<span class="oidc-hint" style="margin-left:1.5em;">By default, an Authority resolving to a loopback address (127.0.0.1, ::1) is blocked. Enable this only if your IdP is intentionally hosted at loopback.</span></div>' +
             '<div class="oidc-field full"><label><input type="checkbox" id="prov_allow_linklocal_' + idx + '"' +
             (p.AllowLinkLocalAuthority === true ? ' checked' : '') + '/> Allow link-local Authority</label>' +
-            '<span style="font-size:0.8em;color:#aaa;margin-left:1.5em;">By default, an Authority resolving to a link-local address (169.254.x.x, fe80::) is blocked. Enable this only if your IdP is intentionally hosted at a link-local address.</span></div>' +
+            '<span class="oidc-hint" style="margin-left:1.5em;">By default, an Authority resolving to a link-local address (169.254.x.x, fe80::) is blocked. Enable this only if your IdP is intentionally hosted at a link-local address.</span></div>' +
             '<div class="oidc-field full" style="margin-top:0.5em;">' +
             '<label style="font-weight:600;font-size:0.9em;">Endpoint Pins ' +
-            '<span style="font-weight:normal;color:#aaa;">— pre-fill from your IdP docs to eliminate first-use trust, or click Test Connection to fill automatically</span></label>' +
-            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5em;margin-top:0.4em;">' +
+            '<span class="oidc-hint">— pre-fill from your IdP docs to eliminate first-use trust, or click Test Connection to fill automatically</span></label>' +
+            '<div class="oidc-grid" style="margin-top:0.4em;">' +
             fld('Issuer', 'text', 'prov_pinnedissuer_' + idx, p.PinnedIssuer || '', 'https://idp.example.com/realms/myrealm') +
             fld('Token Endpoint', 'text', 'prov_pinnedtoken_' + idx, p.PinnedTokenEndpoint || '', 'https://idp.example.com/.../token') +
             fld('JWKS URI', 'text', 'prov_pinnedjwks_' + idx, p.PinnedJwksUri || '', 'https://idp.example.com/.../certs') +
-            '</div></div>' +
+            '</div></div>';
+
+        var host = authorityHost(p.Authority);
+        card.innerHTML = '<div class="oidc-card-head">' +
+            '<h4>' + esc(p.DisplayName || 'New Provider') + '</h4>' +
+            (p.Enabled !== false
+                ? '<span class="oidc-pill oidc-pill-on">Enabled</span>'
+                : '<span class="oidc-pill oidc-pill-off">Disabled</span>') +
+            (host ? '<span class="oidc-card-sub">' + esc(host) + '</span>' : '') +
             '</div>' +
-            '<div style="margin-top:0.5em;display:flex;gap:0.5em;align-items:center;">' +
+            provGroup('Connection', '', connection, false) +
+            provGroup('Claim mapping', 'role, username, display name & avatar', claims, true) +
+            provGroup('Appearance', 'login button colour & icon', appearance, true) +
+            provGroup('Advanced & security', 'redirect host, token validation, network guards, endpoint pins', advanced, true) +
+            '<div style="margin-top:0.8em;display:flex;gap:0.5em;align-items:center;flex-wrap:wrap;">' +
             '<button type="button" class="oidc-btn-secondary" data-action="test-provider" data-idx="' + idx + '">Test Connection</button>' +
             '<button type="button" class="oidc-btn-remove" data-action="remove-provider" data-idx="' + idx + '">Remove</button>' +
             '<span class="oidc-test-result" data-idx="' + idx + '" style="font-size:0.9em;"></span>' +
@@ -221,6 +308,12 @@ function renderProviders(view) {
 function renderRoleMappings(view) {
     var container = view.querySelector('#roleMappingList');
     container.innerHTML = '';
+    if (!cfg.RoleMappings.length) {
+        container.innerHTML = emptyState(
+            'No role mappings — signed-in users get the Default Role set on the General tab, '
+            + 'or no extra permissions if that is blank.');
+        return;
+    }
     cfg.RoleMappings.forEach(function (m, idx) {
         var card = document.createElement('div');
         card.className = 'oidc-card';
@@ -248,30 +341,39 @@ function renderRoleMappings(view) {
             fld('Priority', 'number', 'role_priority_' + idx, m.Priority || 0, 'Higher = takes precedence') +
             '</div>' +
             '<div class="oidc-field full" style="margin-bottom:0.5em;">' +
-            '<label>Provider Filter <span style="font-size:0.8em;color:#aaa;">(restrict to one provider — leave blank to apply to all)</span></label>' +
-            '<select id="role_provfilter_' + idx + '">' + provOpts + '</select>' +
+            '<label>Provider Filter <span class="oidc-hint">(restrict to one provider — leave blank to apply to all)</span></label>' +
+            '<select is="emby-select" id="role_provfilter_' + idx + '">' + provOpts + '</select>' +
             '</div>' +
-            '<div class="oidc-checkbox-row">' +
+            '<div class="oidc-field full" style="margin-top:0.3em;">' +
+            '<label>Permissions <span class="oidc-hint">(Administrator grants everything below)</span></label>' +
+            '<div class="oidc-checkbox-row" style="margin-top:0.2em;">' +
             chk('role_admin_' + idx, 'Administrator', m.IsAdmin) +
-            chk('role_alllibs_' + idx, 'All Libraries', m.EnableAllLibraries) +
-            chk('role_livetv_' + idx, 'Live TV', m.EnableLiveTv) +
-            chk('role_livetvmgmt_' + idx, 'Live TV Mgmt', m.EnableLiveTvManagement) +
-            chk('role_playback_' + idx, 'Playback', m.EnableMediaPlayback !== false) +
-            chk('role_remote_' + idx, 'Remote Access', m.EnableRemoteAccess !== false) +
-            chk('role_transcode_' + idx, 'Transcoding', m.EnableTranscoding !== false) +
-            chk('role_delete_' + idx, 'Delete Content', m.EnableContentDeletion) +
-            chk('role_collections_' + idx, 'Collections', m.EnableCollectionManagement) +
-            chk('role_subtitles_' + idx, 'Subtitles', m.EnableSubtitleManagement) +
             '</div>' +
-            '<div class="oidc-field" style="margin-top:0.5em;">' +
-            '<label>Libraries (when "All Libraries" is unchecked)</label>' +
-            '<select id="role_libadd_' + idx + '"><option value="">-- Select library --</option>' + libOpts + '</select>' +
+            permGroup('Playback',
+                chk('role_playback_' + idx, 'Playback', m.EnableMediaPlayback !== false) +
+                chk('role_transcode_' + idx, 'Transcoding', m.EnableTranscoding !== false) +
+                chk('role_remote_' + idx, 'Remote Access', m.EnableRemoteAccess !== false)) +
+            permGroup('Live TV',
+                chk('role_livetv_' + idx, 'Access', m.EnableLiveTv) +
+                chk('role_livetvmgmt_' + idx, 'Recording management', m.EnableLiveTvManagement)) +
+            permGroup('Content management',
+                chk('role_collections_' + idx, 'Collections', m.EnableCollectionManagement) +
+                chk('role_subtitles_' + idx, 'Subtitles', m.EnableSubtitleManagement) +
+                chk('role_delete_' + idx, 'Delete content', m.EnableContentDeletion)) +
+            '</div>' +
+            '<div class="oidc-field full" style="margin-top:0.5em;">' +
+            '<div class="oidc-perm-title">Library access</div>' +
+            '<div class="oidc-checkbox-row">' +
+            chk('role_alllibs_' + idx, 'All libraries', m.EnableAllLibraries) +
+            '</div>' +
+            '<label style="margin-top:0.4em;">Specific libraries <span class="oidc-hint">(used when "All libraries" is off)</span></label>' +
+            '<select is="emby-select" id="role_libadd_' + idx + '"><option value="">-- Select library --</option>' + libOpts + '</select>' +
             '<button type="button" class="oidc-btn-secondary" style="margin-top:0.3em;width:fit-content;" data-action="add-lib" data-idx="' + idx + '">Add Library</button>' +
             '<div id="role_libs_' + idx + '" class="oidc-library-list"></div>' +
             '</div>' +
             '<div class="oidc-field" style="margin-top:0.5em;">' +
             '<label>Max Parental Rating (empty = unrestricted)</label>' +
-            '<input type="number" id="role_maxrating_' + idx + '" value="' + (m.MaxParentalRating != null ? m.MaxParentalRating : '') + '" />' +
+            '<input is="emby-input" type="number" id="role_maxrating_' + idx + '" value="' + (m.MaxParentalRating != null ? m.MaxParentalRating : '') + '" />' +
             '</div>' +
             '<div style="margin-top:0.5em;">' +
             '<button type="button" class="oidc-btn-remove" data-action="remove-role" data-idx="' + idx + '">Remove</button>' +
@@ -287,7 +389,7 @@ function testProvider(view, idx) {
     var scopes = gval(view, 'prov_scopes_' + idx);
     var resultEl = view.querySelector('.oidc-test-result[data-idx="' + idx + '"]');
     if (!authority) {
-        if (resultEl) { resultEl.style.color = '#c62828'; resultEl.textContent = 'Authority URL is required'; }
+        if (resultEl) { resultEl.style.color = '#e53935'; resultEl.textContent = 'Authority URL is required'; }
         return;
     }
     if (resultEl) { resultEl.style.color = '#888'; resultEl.textContent = 'Testing...'; }
@@ -319,6 +421,10 @@ function testProvider(view, idx) {
             if (issuerEl) issuerEl.value = result.Issuer        || '';
             if (tokenEl)  tokenEl.value  = result.TokenEndpoint || '';
             if (jwksEl)   jwksEl.value   = result.JwksUri       || '';
+            // Reveal the collapsed section so the just-filled pin fields are visible.
+            var sec = issuerEl && issuerEl.closest('details.oidc-section');
+            if (sec) sec.open = true;
+            setDirty(true); // pins were written into the form; Save persists them
             if (resultEl) {
                 resultEl.style.color = '#4caf50';
                 var msg = 'OK — issuer ' + result.Issuer;
@@ -340,12 +446,12 @@ function testProvider(view, idx) {
                         : '')
             });
         } else {
-            if (resultEl) { resultEl.style.color = '#c62828'; resultEl.textContent = 'Failed: ' + result.Error; }
+            if (resultEl) { resultEl.style.color = '#e53935'; resultEl.textContent = 'Failed: ' + result.Error; }
             Dashboard.alert({ title: 'Provider test failed', message: result.Error || 'Unknown error' });
         }
     }).catch(function (err) {
         var msg = (err && (err.statusText || err.message)) || 'Network error';
-        if (resultEl) { resultEl.style.color = '#c62828'; resultEl.textContent = 'Failed: ' + msg; }
+        if (resultEl) { resultEl.style.color = '#e53935'; resultEl.textContent = 'Failed: ' + msg; }
         Dashboard.alert({ title: 'Provider test failed', message: msg });
     });
 }
@@ -424,8 +530,43 @@ function collectRoleMappings(view) {
 }
 
 export default function (view) {
+    dirtyView = view;
+
+    // Warn on reload / tab-close / navigation away from the dashboard while edits are
+    // pending. (SPA navigation to another dashboard section can't be intercepted here,
+    // so that path is covered only by the visible "Unsaved changes" indicator.)
+    window.addEventListener('beforeunload', beforeUnloadGuard);
+
+    // Any field edit marks the form dirty. Programmatic value/checked assignments during
+    // load and re-render don't emit input/change, so they never trip this.
+    view.addEventListener('input', function () { setDirty(true); }, true);
+    view.addEventListener('change', function () { setDirty(true); }, true);
+
+    // The save bar is position:fixed (a Jellyfin overflow:hidden wrapper breaks
+    // position:sticky here), so keep it lined up with the content column and reserve
+    // space beneath the form so the last field isn't covered.
+    var savebar = view.querySelector('.oidc-savebar');
+    var contentPrimary = view.querySelector('.content-primary');
+    function alignSaveBar() {
+        if (!savebar || !contentPrimary) return;
+        var r = contentPrimary.getBoundingClientRect();
+        if (r.width < 1) return; // not visible yet
+        savebar.style.left = r.left + 'px';
+        savebar.style.width = r.width + 'px';
+        contentPrimary.style.paddingBottom = (savebar.offsetHeight + 12) + 'px';
+    }
+    if (savebar) {
+        var bg = getComputedStyle(document.body).backgroundColor;
+        savebar.style.background = (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') ? bg : '#101010';
+    }
+    view.addEventListener('viewbeforehide', function () {
+        setDirty(false);
+        window.removeEventListener('resize', alignSaveBar);
+    });
+
     view.addEventListener('viewshow', function () {
         Dashboard.showLoadingMsg();
+        window.addEventListener('resize', alignSaveBar);
 
         ApiClient.getJSON(ApiClient.getUrl('sso/OIDC/Config/Libraries')).then(function (data) {
             libs = data || {};
@@ -450,6 +591,8 @@ export default function (view) {
             view.querySelector('#loginTitle').value = cfg.LoginTitle || 'Please sign in';
             view.querySelector('#loginSubtitle').value = cfg.LoginSubtitle || '';
             loadBrandingSnippet(view);
+            setDirty(false);
+            alignSaveBar();
             Dashboard.hideLoadingMsg();
         }).catch(function (err) {
             Dashboard.hideLoadingMsg();
@@ -461,14 +604,14 @@ export default function (view) {
     view.querySelectorAll('.oidc-tab').forEach(function (tab) {
         tab.addEventListener('click', function () {
             view.querySelectorAll('.oidc-tab').forEach(function (t) {
-                t.style.borderBottomColor = 'transparent';
-                t.style.color = '#aaa';
+                t.classList.remove('is-active');
+                t.setAttribute('aria-selected', 'false');
             });
             view.querySelectorAll('.oidc-tab-content').forEach(function (c) {
                 c.style.display = 'none';
             });
-            this.style.borderBottomColor = '#00a4dc';
-            this.style.color = '#00a4dc';
+            this.classList.add('is-active');
+            this.setAttribute('aria-selected', 'true');
             view.querySelector('#tab-' + this.getAttribute('data-tab')).style.display = 'block';
         });
     });
@@ -499,13 +642,14 @@ export default function (view) {
             ClientId: '', ClientSecret: '', Scopes: 'openid profile email',
             RoleClaim: 'groups', UsernameClaim: 'preferred_username',
             DisplayNameClaim: 'name', PictureClaim: 'picture', SyncProfileImage: true,
-            Enabled: true, ButtonColor: '#4285F4',
+            Enabled: true, ButtonColor: DEFAULT_BUTTON_COLOR,
             ButtonIcon: '', AdditionalParameters: '',
             StrictAccessTokenValidation: true,
             AllowLoopbackAuthority: false, AllowLinkLocalAuthority: false,
             PinnedAuthority: '', PinnedIssuer: '', PinnedTokenEndpoint: '', PinnedJwksUri: ''
         });
         renderProviders(view);
+        setDirty(true);
     });
 
     // Add role mapping
@@ -521,6 +665,7 @@ export default function (view) {
             EnableSubtitleManagement: false, MaxParentalRating: null
         });
         renderRoleMappings(view);
+        setDirty(true);
     });
 
     // Save
@@ -554,6 +699,7 @@ export default function (view) {
             return syncBranding(view);
         }).then(function () {
             loadBrandingSnippet(view);
+            setDirty(false);
             Dashboard.hideLoadingMsg();
         }).catch(function (err) {
             Dashboard.hideLoadingMsg();
@@ -570,8 +716,13 @@ export default function (view) {
             cfg.Providers = collectProviders(view);
             cfg.Providers.splice(idx, 1);
             renderProviders(view);
+            setDirty(true);
         } else if (btn.getAttribute('data-action') === 'test-provider') {
             testProvider(view, idx);
+        } else if (btn.getAttribute('data-action') === 'reset-color') {
+            var el = view.querySelector('#prov_color_' + idx);
+            if (el) el.value = DEFAULT_BUTTON_COLOR;
+            setDirty(true);
         }
     });
 
@@ -607,6 +758,7 @@ export default function (view) {
     view.querySelector('#roleMappingList').addEventListener('click', function (e) {
         if (e.target.classList.contains('remove')) {
             e.target.parentElement.remove();
+            setDirty(true);
             return;
         }
         var btn = e.target.closest('[data-action]');
@@ -616,6 +768,7 @@ export default function (view) {
             cfg.RoleMappings = collectRoleMappings(view);
             cfg.RoleMappings.splice(idx, 1);
             renderRoleMappings(view);
+            setDirty(true);
         } else if (btn.getAttribute('data-action') === 'add-lib') {
             var sel = view.querySelector('#role_libadd_' + idx);
             if (!sel || !sel.value) return;
@@ -626,6 +779,7 @@ export default function (view) {
             }
             addLibChip(cont, sel.value);
             sel.value = '';
+            setDirty(true);
         }
     });
 }
