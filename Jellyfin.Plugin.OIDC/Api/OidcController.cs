@@ -309,10 +309,14 @@ public class OidcController : ControllerBase
             return BadRequest("Token validation failed: nonce mismatch");
         }
 
+        // The OIDC subject is the stable identity key (see UserProviderEntry.Subject).
+        var subject = ClaimParser.ExtractClaim(idToken, "sub");
+        var sid = ClaimParser.ExtractClaim(idToken, "sid");
+
         var username = ClaimParser.ExtractClaim(idToken, provider.UsernameClaim);
         if (string.IsNullOrEmpty(username))
         {
-            username = ClaimParser.ExtractClaim(idToken, "sub");
+            username = subject;
         }
 
         if (string.IsNullOrEmpty(username))
@@ -321,6 +325,10 @@ public class OidcController : ControllerBase
         }
 
         var displayName = ClaimParser.ExtractClaim(idToken, provider.DisplayNameClaim);
+
+        var email = ClaimParser.ExtractClaim(idToken, string.IsNullOrWhiteSpace(provider.EmailClaim) ? "email" : provider.EmailClaim);
+        var emailVerified = string.Equals(
+            ClaimParser.ExtractClaim(idToken, "email_verified"), "true", StringComparison.OrdinalIgnoreCase);
 
         // Extract roles from both ID token and access token
         var roles = ClaimParser.ExtractRoles(idToken, provider.RoleClaim);
@@ -400,7 +408,12 @@ public class OidcController : ControllerBase
             Username = username,
             DisplayName = displayName,
             PictureUrl = string.IsNullOrEmpty(pictureUrl) ? null : pictureUrl,
-            Roles = roles
+            Roles = roles,
+            Subject = subject,
+            Sid = string.IsNullOrEmpty(sid) ? null : sid,
+            Issuer = disco.Issuer,
+            Email = string.IsNullOrEmpty(email) ? null : email,
+            EmailVerified = emailVerified
         });
 
         if (sessionToken == null)
@@ -449,7 +462,8 @@ public class OidcController : ControllerBase
 
         try
         {
-            var userId = await _userSyncService.SyncUserAsync(session.Username, session.DisplayName, session.ProviderId).ConfigureAwait(false);
+            var userId = await _userSyncService.SyncUserAsync(
+                session.Username, session.DisplayName, session.Subject, session.Email, session.EmailVerified, session.ProviderId).ConfigureAwait(false);
 
             // Apply RBAC via UpdatePolicyAsync BEFORE AuthenticateDirect so that
             // Jellyfin's runtime user state is correct when the session token is minted.
@@ -523,7 +537,8 @@ public class OidcController : ControllerBase
         Guid userId;
         try
         {
-            userId = await _userSyncService.SyncUserAsync(session.Username, session.DisplayName, session.ProviderId).ConfigureAwait(false);
+            userId = await _userSyncService.SyncUserAsync(
+                session.Username, session.DisplayName, session.Subject, session.Email, session.EmailVerified, session.ProviderId).ConfigureAwait(false);
             await _userSyncService.ApplyRolesAsync(userId, session.Roles, session.ProviderId).ConfigureAwait(false);
             await _userSyncService.ApplyProfileImageAsync(userId, session.PictureUrl, session.ProviderId).ConfigureAwait(false);
         }

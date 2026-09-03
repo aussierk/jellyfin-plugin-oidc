@@ -67,7 +67,7 @@ public class UserSyncServiceTests
 
         // Act & Assert
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => MakeService(Substitute.For<IUserManager>()).SyncUserAsync("", null, "keycloak"));
+            () => MakeService(Substitute.For<IUserManager>()).SyncUserAsync("", null, null, null, false, "keycloak"));
     }
 
     [Fact]
@@ -78,7 +78,7 @@ public class UserSyncServiceTests
 
         // Act & Assert
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => MakeService(Substitute.For<IUserManager>()).SyncUserAsync("   ", null, "keycloak"));
+            () => MakeService(Substitute.For<IUserManager>()).SyncUserAsync("   ", null, null, null, false, "keycloak"));
     }
 
     [Fact]
@@ -95,7 +95,7 @@ public class UserSyncServiceTests
         });
 
         // Act
-        var userId = await MakeService(userManager).SyncUserAsync(atLimit, null, "keycloak");
+        var userId = await MakeService(userManager).SyncUserAsync(atLimit, null, null, null, false, "keycloak");
 
         // Assert
         Assert.NotEqual(Guid.Empty, userId);
@@ -110,7 +110,7 @@ public class UserSyncServiceTests
 
         // Act & Assert
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => MakeService(Substitute.For<IUserManager>()).SyncUserAsync(overLimit, null, "keycloak"));
+            () => MakeService(Substitute.For<IUserManager>()).SyncUserAsync(overLimit, null, null, null, false, "keycloak"));
     }
 
     [Fact]
@@ -121,7 +121,7 @@ public class UserSyncServiceTests
 
         // Act & Assert
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => MakeService(Substitute.For<IUserManager>()).SyncUserAsync("alice\x00", null, "keycloak"));
+            () => MakeService(Substitute.For<IUserManager>()).SyncUserAsync("alice\x00", null, null, null, false, "keycloak"));
     }
 
     // ── new user creation ──────────────────────────────────────────────────────
@@ -138,7 +138,7 @@ public class UserSyncServiceTests
         _fixture.SetConfiguration(new PluginConfiguration { AutoCreateUsers = true });
 
         // Act
-        var userId = await MakeService(userManager).SyncUserAsync("alice", "Alice", "keycloak");
+        var userId = await MakeService(userManager).SyncUserAsync("alice", "Alice", null, null, false, "keycloak");
 
         // Assert
         Assert.Equal(newUser.Id, userId);
@@ -156,7 +156,7 @@ public class UserSyncServiceTests
         _fixture.SetConfiguration(new PluginConfiguration { AutoCreateUsers = true });
 
         // Act
-        await MakeService(userManager).SyncUserAsync("alice", "Alice", "keycloak");
+        await MakeService(userManager).SyncUserAsync("alice", "Alice", null, null, false, "keycloak");
 
         // Assert
         Assert.Equal(OidcProviderId, newUser.AuthenticationProviderId);
@@ -174,7 +174,7 @@ public class UserSyncServiceTests
         _fixture.SetConfiguration(config);
 
         // Act
-        await MakeService(userManager).SyncUserAsync("alice", null, "keycloak");
+        await MakeService(userManager).SyncUserAsync("alice", null, null, null, false, "keycloak");
 
         // Assert
         Assert.Contains(config.UserProviderMap,
@@ -191,7 +191,7 @@ public class UserSyncServiceTests
 
         // Act & Assert
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => MakeService(userManager).SyncUserAsync("alice", null, "keycloak"));
+            () => MakeService(userManager).SyncUserAsync("alice", null, null, null, false, "keycloak"));
     }
 
     // ── existing OIDC user ─────────────────────────────────────────────────────
@@ -210,7 +210,7 @@ public class UserSyncServiceTests
         });
 
         // Act
-        var userId = await MakeService(userManager).SyncUserAsync("alice", null, "keycloak");
+        var userId = await MakeService(userManager).SyncUserAsync("alice", null, null, null, false, "keycloak");
 
         // Assert
         Assert.Equal(user.Id, userId);
@@ -231,7 +231,7 @@ public class UserSyncServiceTests
 
         // Act & Assert
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => MakeService(userManager).SyncUserAsync("alice", null, "okta"));
+            () => MakeService(userManager).SyncUserAsync("alice", null, null, null, false, "okta"));
     }
 
     // ── local user migration ───────────────────────────────────────────────────
@@ -247,7 +247,7 @@ public class UserSyncServiceTests
 
         // Act & Assert
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => MakeService(userManager).SyncUserAsync("alice", null, "keycloak"));
+            () => MakeService(userManager).SyncUserAsync("alice", null, null, null, false, "keycloak"));
     }
 
     [Fact]
@@ -261,7 +261,7 @@ public class UserSyncServiceTests
         _fixture.SetConfiguration(new PluginConfiguration { MigrateLocalUsers = true });
 
         // Act
-        await MakeService(userManager).SyncUserAsync("alice", null, "keycloak");
+        await MakeService(userManager).SyncUserAsync("alice", null, null, null, false, "keycloak");
 
         // Assert
         Assert.Equal(OidcProviderId, user.AuthenticationProviderId);
@@ -280,6 +280,120 @@ public class UserSyncServiceTests
 
         // Act & Assert
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => MakeService(userManager).SyncUserAsync("alice", null, "keycloak"));
+            () => MakeService(userManager).SyncUserAsync("alice", null, null, null, false, "keycloak"));
+    }
+
+    // ── sub-keyed identity (1.1) ───────────────────────────────────────────────
+
+    [Fact]
+    public async Task SubKeyedLookup_ResolvesByUserId_EvenWhenUsernameDiffers()
+    {
+        // Arrange — the map row points at a user whose Jellyfin name is no longer the claim name.
+        var user = MakeOidcUser("renamed-alice");
+        var userManager = Substitute.For<IUserManager>();
+        userManager.GetUserById(user.Id).Returns(user);
+        userManager.GetUserByName("alice").Returns((User?)null);
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            AutoCreateUsers = true,
+            UserProviderMap = [new UserProviderEntry
+            {
+                Username = "renamed-alice", ProviderId = "keycloak", Subject = "sub-123", UserId = user.Id.ToString()
+            }]
+        });
+
+        // Act — claim username is "alice" but subject matches the row.
+        var userId = await MakeService(userManager).SyncUserAsync("alice", null, "sub-123", null, false, "keycloak");
+
+        // Assert — resolved the existing account, did not create a new one.
+        Assert.Equal(user.Id, userId);
+        await userManager.DidNotReceive().CreateUserAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task LegacyUsernameOnlyRow_BackfillsSubjectAndUserId()
+    {
+        // Arrange — a pre-sub-keying row (Subject/UserId empty).
+        var user = MakeOidcUser("alice");
+        var userManager = Substitute.For<IUserManager>();
+        userManager.GetUserByName("alice").Returns(user);
+        var config = new PluginConfiguration
+        {
+            AutoCreateUsers = true,
+            UserProviderMap = [new UserProviderEntry { Username = "alice", ProviderId = "keycloak" }]
+        };
+        _fixture.SetConfiguration(config);
+
+        // Act
+        await MakeService(userManager).SyncUserAsync("alice", null, "sub-xyz", null, false, "keycloak");
+
+        // Assert — the row self-healed.
+        var row = Assert.Single(config.UserProviderMap);
+        Assert.Equal("sub-xyz", row.Subject);
+        Assert.Equal(user.Id.ToString(), row.UserId);
+    }
+
+    [Fact]
+    public async Task DisplayNameSync_Off_DoesNotRename()
+    {
+        var user = MakeOidcUser("alice");
+        var userManager = Substitute.For<IUserManager>();
+        userManager.GetUserByName("alice").Returns(user);
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            AutoCreateUsers = true,
+            Providers = [new OidcProviderConfig { ProviderId = "keycloak", SyncDisplayName = false }],
+            UserProviderMap = [new UserProviderEntry { Username = "alice", ProviderId = "keycloak", Subject = "s", UserId = user.Id.ToString() }]
+        });
+
+        await MakeService(userManager).SyncUserAsync("alice", "Alice Anderson", "s", null, false, "keycloak");
+
+        await userManager.DidNotReceive().RenameUser(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task DisplayNameSync_On_RenamesToSanitizedClaim()
+    {
+        var user = MakeOidcUser("alice");
+        var userManager = Substitute.For<IUserManager>();
+        userManager.GetUserByName("alice").Returns(user);
+        userManager.RenameUser(user.Id, "alice", Arg.Any<string>()).Returns(Task.CompletedTask);
+        var config = new PluginConfiguration
+        {
+            AutoCreateUsers = true,
+            Providers = [new OidcProviderConfig { ProviderId = "keycloak", SyncDisplayName = true }],
+            UserProviderMap = [new UserProviderEntry { Username = "alice", ProviderId = "keycloak", Subject = "s", UserId = user.Id.ToString() }]
+        };
+        _fixture.SetConfiguration(config);
+
+        // "Alice (Ops)!" has characters Jellyfin rejects → folded to spaces + collapsed.
+        await MakeService(userManager).SyncUserAsync("alice", "Alice (Ops)!", "s", null, false, "keycloak");
+
+        await userManager.Received().RenameUser(user.Id, "alice", "Alice Ops");
+        Assert.Equal("Alice Ops", Assert.Single(config.UserProviderMap).Username);
+    }
+
+    [Fact]
+    public async Task LinkExistingUsersByEmail_MatchesVerifiedEmailRow()
+    {
+        var user = MakeOidcUser("alice");
+        var userManager = Substitute.For<IUserManager>();
+        userManager.GetUserById(user.Id).Returns(user);
+        userManager.GetUserByName("alice2").Returns((User?)null);
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            AutoCreateUsers = true,
+            LinkExistingUsersByEmail = true,
+            UserProviderMap = [new UserProviderEntry
+            {
+                Username = "alice", ProviderId = "keycloak", Subject = "old-sub", UserId = user.Id.ToString(), Email = "alice@example.com"
+            }]
+        });
+
+        var userId = await MakeService(userManager)
+            .SyncUserAsync("alice2", null, "new-sub", "ALICE@example.com", emailVerified: true, "keycloak");
+
+        Assert.Equal(user.Id, userId);
+        await userManager.DidNotReceive().CreateUserAsync(Arg.Any<string>());
     }
 }

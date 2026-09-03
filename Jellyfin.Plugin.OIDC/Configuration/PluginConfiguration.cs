@@ -19,12 +19,26 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool MigrateLocalUsers { get; set; } = false;
 
     /// <summary>
-    /// When true, the user's Jellyfin display name (username) is updated to match
-    /// the display name claim from the OIDC token on each login. Note: in Jellyfin,
-    /// the username IS the display name — enabling this renames the account.
-    /// Defaults to false — opt-in only.
+    /// When set, a login is rejected unless the token asserts <c>email_verified</c>.
+    /// Off by default. Evaluated at the admission gate alongside <see cref="AllowedGroups"/> etc.
     /// </summary>
-    public bool SyncDisplayName { get; set; } = false;
+    public bool RequireVerifiedEmail { get; set; } = false;
+
+    /// <summary>
+    /// When set and the token's email is verified, a login whose subject/username doesn't
+    /// resolve is matched to an existing account previously seen with the same email (instead
+    /// of creating a duplicate). Off by default.
+    /// </summary>
+    public bool LinkExistingUsersByEmail { get; set; } = false;
+
+    /// <summary>Groups/roles allowed to sign in at all (separate from RBAC). Empty ⇒ everyone who authenticates.</summary>
+    public List<string> AllowedGroups { get; set; } = new();
+
+    /// <summary>Email domains allowed to sign in (e.g. "example.com"). Empty ⇒ no domain restriction.</summary>
+    public List<string> AllowedEmailDomains { get; set; } = new();
+
+    /// <summary>Exact emails allowed to sign in. Empty ⇒ no per-address restriction.</summary>
+    public List<string> AllowedEmails { get; set; } = new();
 
     /// <summary>
     /// When true, an Authority resolving to an RFC1918 private range (10/8, 172.16/12, 192.168/16)
@@ -62,18 +76,30 @@ public class PluginConfiguration : BasePluginConfiguration
     public string LoginSubtitle { get; set; } = string.Empty;
 
     /// <summary>
-    /// Maps Jellyfin usernames to the OIDC provider that owns each account.
-    /// Used to detect cross-provider username collisions.
-    /// List of UserProviderEntry is used instead of Dictionary to remain XML-serializable.
+    /// Maps each OIDC identity to the Jellyfin account that owns it. Keyed on the stable
+    /// <c>sub</c> claim (<see cref="UserProviderEntry.Subject"/>) once known, so a Jellyfin
+    /// rename (or a display-name sync) can't orphan the account; <see cref="UserProviderEntry.Username"/>
+    /// is kept for legacy rows and cross-provider collision detection.
+    /// List (not Dictionary) to remain XML-serializable.
     /// </summary>
     public List<UserProviderEntry> UserProviderMap { get; set; } = new();
 }
 
-/// <summary>XML-serializable username → provider ID mapping entry.</summary>
+/// <summary>XML-serializable OIDC identity → Jellyfin account mapping entry.</summary>
 public class UserProviderEntry
 {
     public string Username { get; set; } = string.Empty;
+
     public string ProviderId { get; set; } = string.Empty;
+
+    /// <summary>The OIDC <c>sub</c> claim. Empty on rows written before sub-keying; back-filled on next login.</summary>
+    public string Subject { get; set; } = string.Empty;
+
+    /// <summary>The Jellyfin user id (GUID as string). Empty on legacy rows; back-filled on next login.</summary>
+    public string UserId { get; set; } = string.Empty;
+
+    /// <summary>Last-seen verified email, for <see cref="PluginConfiguration.LinkExistingUsersByEmail"/>. May be empty.</summary>
+    public string Email { get; set; } = string.Empty;
 }
 
 public class OidcProviderConfig
@@ -97,6 +123,16 @@ public class OidcProviderConfig
     public string UsernameClaim { get; set; } = "preferred_username";
 
     public string DisplayNameClaim { get; set; } = "name";
+
+    public string EmailClaim { get; set; } = "email";
+
+    /// <summary>
+    /// When true, the Jellyfin account is renamed to match this provider's display-name claim
+    /// on every login. Jellyfin has no separate display name — the username IS the display
+    /// name — so this renames the account. Off by default. Safe now that identity is keyed on
+    /// the OIDC <c>sub</c> (<see cref="UserProviderEntry.Subject"/>).
+    /// </summary>
+    public bool SyncDisplayName { get; set; } = false;
 
     public string PictureClaim { get; set; } = "picture";
 

@@ -31,6 +31,22 @@ public sealed class AuthorizedSession
     public string? DisplayName { get; init; }
     public string? PictureUrl { get; init; }
     public required string[] Roles { get; init; }
+
+    /// <summary>The OIDC <c>sub</c> claim — the stable identity key.</summary>
+    public string? Subject { get; init; }
+
+    /// <summary>The OIDC <c>sid</c> (session id) claim, when the IdP issues one. Used to target back-channel logout.</summary>
+    public string? Sid { get; init; }
+
+    /// <summary>The token issuer, carried so a back-channel logout token can be correlated to the right provider.</summary>
+    public string? Issuer { get; init; }
+
+    /// <summary>The <c>email</c> claim value, when present.</summary>
+    public string? Email { get; init; }
+
+    /// <summary>True when the token asserted <c>email_verified</c>.</summary>
+    public bool EmailVerified { get; init; }
+
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 
