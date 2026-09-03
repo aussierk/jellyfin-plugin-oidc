@@ -38,7 +38,7 @@ public class KnownProviderIconsTests
     }
 
     [Fact]
-    public void Keys_AreTheSixBundledProviders()
+    public void Keys_AreTheEightBundledProviders()
     {
         Assert.Equal(
             new[] { "authentik", "keycloak", "google", "microsoft", "okta", "auth0", "discord", "github" },

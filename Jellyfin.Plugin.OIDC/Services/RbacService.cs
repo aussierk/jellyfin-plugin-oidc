@@ -48,9 +48,9 @@ public class RbacService
                         || string.Equals(m.ProviderFilter, providerId, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
+        // All matched mappings are merged (union of permissions, strictest parental rating).
         var matchedMappings = applicableMappings
             .Where(m => userRoles.Contains(m.RoleName, StringComparer.OrdinalIgnoreCase))
-            .OrderByDescending(m => m.Priority)
             .ToList();
 
         if (matchedMappings.Count == 0 && !string.IsNullOrEmpty(config.DefaultRoleName))

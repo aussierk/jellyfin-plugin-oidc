@@ -9,8 +9,6 @@ public class PluginConfiguration : BasePluginConfiguration
 
     public List<RoleMapping> RoleMappings { get; set; } = new();
 
-    public string DefaultProvider { get; set; } = string.Empty;
-
     public bool AutoCreateUsers { get; set; } = true;
 
     /// <summary>
@@ -92,7 +90,9 @@ public class OidcProviderConfig
 
     public string Scopes { get; set; } = "openid profile email";
 
-    public string RoleClaim { get; set; } = "realm_access.roles";
+    // "groups" is the most portable default (Authentik, Google, Okta, Auth0, generic OIDC).
+    // Keycloak users set "realm_access.roles". Kept in sync with the config page's fallback.
+    public string RoleClaim { get; set; } = "groups";
 
     public string UsernameClaim { get; set; } = "preferred_username";
 
@@ -184,6 +184,4 @@ public class RoleMapping
     public bool EnableSubtitleManagement { get; set; }
 
     public int? MaxParentalRating { get; set; }
-
-    public int Priority { get; set; }
 }

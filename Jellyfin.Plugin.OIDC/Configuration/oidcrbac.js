@@ -168,6 +168,30 @@ function iconIsCustom(v) {
 
 var ICON_LABELS = { auth0: 'Auth0', github: 'GitHub' };
 
+// One-shot "prefill for <IdP>" helper on the provider card. Sets claim paths / scopes /
+// icon only — never Authority or client credentials. Values follow each IdP's common
+// convention; some (Google/Okta groups, Auth0 roles) still need IdP-side config.
+var PROVIDER_PRESETS = {
+    keycloak:  { label: 'Keycloak',            roleClaim: 'realm_access.roles', usernameClaim: 'preferred_username', scopes: 'openid profile email',        icon: 'keycloak'  },
+    authentik: { label: 'Authentik',           roleClaim: 'groups',             usernameClaim: 'preferred_username', scopes: 'openid profile email',        icon: 'authentik' },
+    authelia:  { label: 'Authelia',            roleClaim: 'groups',             usernameClaim: 'preferred_username', scopes: 'openid profile email groups', icon: ''          },
+    entra:     { label: 'Microsoft Entra ID',  roleClaim: 'roles',             usernameClaim: 'preferred_username', scopes: 'openid profile email',        icon: 'microsoft' },
+    google:    { label: 'Google Workspace',    roleClaim: 'groups',             usernameClaim: 'email',              scopes: 'openid profile email',        icon: 'google'    },
+    okta:      { label: 'Okta',                roleClaim: 'groups',             usernameClaim: 'preferred_username', scopes: 'openid profile email groups', icon: 'okta'      },
+    auth0:     { label: 'Auth0',               roleClaim: '',                  usernameClaim: 'nickname',           scopes: 'openid profile email',        icon: 'auth0'     }
+};
+
+function presetField(idx) {
+    var opts = '<option value="">— choose an IdP —</option>';
+    Object.keys(PROVIDER_PRESETS).forEach(function (k) {
+        opts += '<option value="' + k + '">' + esc(PROVIDER_PRESETS[k].label) + '</option>';
+    });
+    return '<div class="oidc-field full">' +
+        '<label for="prov_preset_' + idx + '">Prefill for ' +
+        '<span class="oidc-hint">(sets claims / scopes / icon — you still enter Authority &amp; client credentials)</span></label>' +
+        '<select id="prov_preset_' + idx + '">' + opts + '</select></div>';
+}
+
 function iconField(idx, cur) {
     var custom = iconIsCustom(cur);
     var hidden = custom ? '' : 'display:none;';
@@ -232,6 +256,7 @@ function renderProviders(view) {
         card.className = 'oidc-card';
 
         var connection =
+            presetField(idx) +
             fld('Provider ID', 'text', 'prov_id_' + idx, p.ProviderId, 'Unique identifier (e.g. keycloak)') +
             fld('Display Name', 'text', 'prov_name_' + idx, p.DisplayName, 'Shown on login button') +
             fld('Authority URL', 'text', 'prov_authority_' + idx, p.Authority, 'https://idp.example.com/realms/myrealm', true) +
@@ -303,13 +328,37 @@ function renderProviders(view) {
     });
 }
 
+// Fills the "Fallback role" <select> on the Role Mappings tab from the current role names.
+// Reads live DOM values when cards are present (so it tracks unsaved renames), else cfg.
+function renderDefaultRoleOptions(view) {
+    var sel = view.querySelector('#defaultRoleName');
+    if (!sel) return;
+    var current = sel.value || cfg.DefaultRoleName || '';
+    var source = view.querySelector('#roleMappingList .oidc-card')
+        ? collectRoleMappings(view).map(function (m) { return m.RoleName; })
+        : (cfg.RoleMappings || []).map(function (m) { return m.RoleName; });
+    var names = [];
+    source.forEach(function (n) {
+        n = (n || '').trim();
+        if (n && names.every(function (x) { return x.toLowerCase() !== n.toLowerCase(); })) names.push(n);
+    });
+    var opts = '<option value="">— none —</option>';
+    if (current && names.every(function (x) { return x.toLowerCase() !== current.toLowerCase(); })) {
+        opts += '<option value="' + esc(current) + '">' + esc(current) + ' (not a defined role)</option>';
+    }
+    names.forEach(function (n) { opts += '<option value="' + esc(n) + '">' + esc(n) + '</option>'; });
+    sel.innerHTML = opts;
+    sel.value = current;
+}
+
 function renderRoleMappings(view) {
     var container = view.querySelector('#roleMappingList');
     container.innerHTML = '';
     if (!cfg.RoleMappings.length) {
         container.innerHTML = emptyState(
-            'No role mappings — signed-in users get the Default Role set on the General tab, '
-            + 'or no extra permissions if that is blank.');
+            'No role mappings — signed-in users get the fallback role selected above, '
+            + 'or no extra permissions if that is "— none —".');
+        renderDefaultRoleOptions(view);
         return;
     }
     cfg.RoleMappings.forEach(function (m, idx) {
@@ -342,23 +391,20 @@ function renderRoleMappings(view) {
             ? 'all libraries'
             : (selectedLibs.length ? selectedLibs.length + (selectedLibs.length === 1 ? ' library' : ' libraries') : 'no library access');
         var scopeParts = [provLabel, libLabel];
-        if (m.Priority) scopeParts.push('priority ' + m.Priority);
 
         card.innerHTML = '<summary class="oidc-role-summary">' +
             '<h4>Role: ' + esc(m.RoleName || 'New Role') + '</h4>' +
             (m.IsAdmin ? '<span class="oidc-badge">Admin</span>' : '') +
             '<span class="oidc-role-scope">' + esc(scopeParts.join('  ·  ')) + '</span>' +
             '</summary>' +
-            '<div class="oidc-grid">' +
-            fld('Role Name', 'text', 'role_name_' + idx, m.RoleName, 'Must match IdP role claim value') +
-            fld('Priority', 'number', 'role_priority_' + idx, m.Priority || 0, 'Higher = takes precedence') +
-            '</div>' +
+            fld('Role Name', 'text', 'role_name_' + idx, m.RoleName, 'Must match IdP role claim value', true) +
             '<div class="oidc-field full" style="margin-bottom:0.5em;">' +
             '<label>Provider Filter <span class="oidc-hint">(restrict to one provider — leave blank to apply to all)</span></label>' +
             '<select is="emby-select" id="role_provfilter_' + idx + '">' + provOpts + '</select>' +
             '</div>' +
             '<div class="oidc-field full" style="margin-top:0.3em;">' +
             '<label>Permissions <span class="oidc-hint">(Administrator grants everything below)</span></label>' +
+            '<p class="oidc-hint" style="margin:0.1em 0 0;">When a user matches several roles, all their permissions are combined and the strictest parental rating wins.</p>' +
             '<div class="oidc-checkbox-row" style="margin-top:0.2em;">' +
             chk('role_admin_' + idx, 'Administrator', m.IsAdmin) +
             '</div>' +
@@ -396,6 +442,7 @@ function renderRoleMappings(view) {
         var libCont = view.querySelector('#role_libs_' + idx);
         selectedLibs.forEach(function (libId) { addLibChip(libCont, libId); });
     });
+    renderDefaultRoleOptions(view);
 }
 
 function testProvider(view, idx) {
@@ -524,7 +571,6 @@ function collectRoleMappings(view) {
         var mr = gval(view, 'role_maxrating_' + idx);
         result.push({
             RoleName: gval(view, 'role_name_' + idx),
-            Priority: parseInt(gval(view, 'role_priority_' + idx)) || 0,
             ProviderFilter: gval(view, 'role_provfilter_' + idx),
             IsAdmin: gchk(view, 'role_admin_' + idx),
             EnableAllLibraries: gchk(view, 'role_alllibs_' + idx),
@@ -553,7 +599,11 @@ export default function (view) {
 
     // Any field edit marks the form dirty. Programmatic value/checked assignments during
     // load and re-render don't emit input/change, so they never trip this.
-    view.addEventListener('input', function () { setDirty(true); }, true);
+    view.addEventListener('input', function (e) {
+        setDirty(true);
+        // keep the Fallback-role dropdown in step with unsaved role renames
+        if (e.target && e.target.id && e.target.id.indexOf('role_name_') === 0) renderDefaultRoleOptions(view);
+    }, true);
     view.addEventListener('change', function () { setDirty(true); }, true);
 
     // The save bar is position:fixed (a Jellyfin overflow:hidden wrapper breaks
@@ -601,12 +651,9 @@ export default function (view) {
             cfg.Providers = cfg.Providers || [];
             cfg.RoleMappings = cfg.RoleMappings || [];
             renderProviders(view);
-            renderRoleMappings(view);
-            view.querySelector('#defaultProvider').value = cfg.DefaultProvider || '';
-            view.querySelector('#defaultRoleName').value = cfg.DefaultRoleName || '';
+            renderRoleMappings(view); // also fills the #defaultRoleName <select> from cfg
             view.querySelector('#autoCreateUsers').checked = cfg.AutoCreateUsers !== false;
             view.querySelector('#migrateLocalUsers').checked = cfg.MigrateLocalUsers === true;
-            view.querySelector('#syncDisplayName').checked = cfg.SyncDisplayName === true;
             view.querySelector('#blockPrivateNetworkAuthorities').checked = cfg.BlockPrivateNetworkAuthorities === true;
             view.querySelector('#manageLoginButtonBranding').checked = cfg.ManageLoginButtonBranding !== false;
             view.querySelector('#hideManualLogin').checked = cfg.HideManualLogin === true;
@@ -679,7 +726,7 @@ export default function (view) {
         if (!cfg) return;
         cfg.RoleMappings = collectRoleMappings(view);
         cfg.RoleMappings.push({
-            RoleName: '', Priority: 0, ProviderFilter: '', IsAdmin: false, EnableAllLibraries: false,
+            RoleName: '', ProviderFilter: '', IsAdmin: false, EnableAllLibraries: false,
             LibraryIds: [], LibraryNames: [], EnableLiveTv: false,
             EnableLiveTvManagement: false, EnableMediaPlayback: true,
             EnableRemoteAccess: true, EnableTranscoding: true,
@@ -706,11 +753,9 @@ export default function (view) {
         Dashboard.showLoadingMsg();
         cfg.Providers = collectProviders(view);
         cfg.RoleMappings = collectRoleMappings(view);
-        cfg.DefaultProvider = gval(view, 'defaultProvider');
         cfg.DefaultRoleName = gval(view, 'defaultRoleName');
         cfg.AutoCreateUsers = gchk(view, 'autoCreateUsers');
         cfg.MigrateLocalUsers = gchk(view, 'migrateLocalUsers');
-        cfg.SyncDisplayName = gchk(view, 'syncDisplayName');
         cfg.BlockPrivateNetworkAuthorities = gchk(view, 'blockPrivateNetworkAuthorities');
         cfg.ManageLoginButtonBranding = gchk(view, 'manageLoginButtonBranding');
         cfg.HideManualLogin = gchk(view, 'hideManualLogin');
@@ -759,9 +804,27 @@ export default function (view) {
     });
 
     // Button Icon: toggle the custom SVG inputs; load a picked .svg file into the textarea.
+    // Also: "Prefill for <IdP>" — one-shot fill of claim/scope/icon fields.
     view.querySelector('#providerList').addEventListener('change', function (e) {
         var t = e.target;
         if (!t || !t.id) return;
+        if (t.id.indexOf('prov_preset_') === 0 && t.value) {
+            var pidx = t.id.slice('prov_preset_'.length);
+            var preset = PROVIDER_PRESETS[t.value];
+            t.value = ''; // it's a verb, not state
+            if (!preset) return;
+            var setVal = function (id, v) { var el = view.querySelector('#' + id); if (el) el.value = v; };
+            setVal('prov_roleclaim_' + pidx, preset.roleClaim);
+            setVal('prov_userclaim_' + pidx, preset.usernameClaim);
+            setVal('prov_scopes_' + pidx, preset.scopes);
+            var iconSel = view.querySelector('#prov_icon_' + pidx);
+            if (iconSel) {
+                iconSel.value = preset.icon || 'none';
+                iconSel.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            setDirty(true);
+            return;
+        }
         if (t.id.indexOf('prov_icon_') === 0 && t.tagName === 'SELECT') {
             var idx = t.id.slice('prov_icon_'.length);
             var custom = t.value === 'custom';

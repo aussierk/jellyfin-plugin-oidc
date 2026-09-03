@@ -26,20 +26,18 @@
                         <span>+ Add Role Mapping</span>
                     </button>
                 </div>
+                <div class="oidc-field full" style="margin:0 0 1.2em;">
+                    <label for="defaultRoleName">Fallback role
+                        <span class="oidc-hint">(applied when a user's claim matches no role below)</span>
+                    </label>
+                    <select id="defaultRoleName" is="emby-select"></select>
+                </div>
                 <div id="roleMappingList"></div>
             </div>
 
             <div id="tab-general" class="oidc-tab-content" role="tabpanel" style="display:none;">
                 <div class="oidc-card" style="margin-bottom:0;">
                     <div class="oidc-grid">
-                        <div>
-                            <label class="fieldDescription" for="defaultProvider">Default Provider ID</label>
-                            <input id="defaultProvider" type="text" is="emby-input" placeholder="e.g. keycloak" />
-                        </div>
-                        <div>
-                            <label class="fieldDescription" for="defaultRoleName">Default Role (fallback)</label>
-                            <input id="defaultRoleName" type="text" is="emby-input" placeholder="e.g. viewer" />
-                        </div>
                         <div style="grid-column:1/-1;">
                             <label>
                                 <input type="checkbox" id="autoCreateUsers" is="emby-checkbox" />
@@ -53,15 +51,6 @@
                             </label>
                             <p class="fieldDescription" style="margin:0.3em 0 0 1.5em;font-size:0.85em;">
                                 When enabled, existing local Jellyfin accounts that log in via OIDC will have their authentication provider switched to SSO automatically. Leave off if you want users to opt in manually.
-                            </p>
-                        </div>
-                        <div style="grid-column:1/-1;opacity:0.5;">
-                            <label>
-                                <input type="checkbox" id="syncDisplayName" is="emby-checkbox" disabled />
-                                <span>Sync display name from OIDC token on login <em>(pending Jellyfin upstream support)</em></span>
-                            </label>
-                            <p class="fieldDescription" style="margin:0.3em 0 0 1.5em;font-size:0.85em;">
-                                Requires Jellyfin to expose a stable external subject ID on the User entity so the plugin can look up accounts without relying on a mutable display name. Tracking: <a href="https://github.com/jellyfin/jellyfin/issues" target="_blank" rel="noopener">jellyfin/jellyfin</a>.
                             </p>
                         </div>
                         <div style="grid-column:1/-1;">
