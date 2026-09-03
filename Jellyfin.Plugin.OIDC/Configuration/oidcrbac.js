@@ -293,6 +293,8 @@ function renderProviders(view) {
             provGroup('Appearance', 'login button colour & icon', appearance, false) +
             provGroup('Advanced & security', 'redirect host, token validation, network guards, endpoint pins', advanced, false) +
             '<div style="margin-top:0.8em;display:flex;gap:0.5em;align-items:center;flex-wrap:wrap;">' +
+            '<button type="button" class="oidc-btn-secondary oidc-btn-icon" data-action="move-provider" data-dir="-1" data-idx="' + idx + '" title="Move up (changes login-button order)"' + (idx === 0 ? ' disabled' : '') + '>&#8593;</button>' +
+            '<button type="button" class="oidc-btn-secondary oidc-btn-icon" data-action="move-provider" data-dir="1" data-idx="' + idx + '" title="Move down (changes login-button order)"' + (idx === cfg.Providers.length - 1 ? ' disabled' : '') + '>&#8595;</button>' +
             '<button type="button" class="oidc-btn-secondary" data-action="test-provider" data-idx="' + idx + '">Test Connection</button>' +
             '<button type="button" class="oidc-btn-remove" data-action="remove-provider" data-idx="' + idx + '">Remove</button>' +
             '<span class="oidc-test-result" data-idx="' + idx + '" style="font-size:0.9em;"></span>' +
@@ -735,6 +737,16 @@ export default function (view) {
         if (btn.getAttribute('data-action') === 'remove-provider') {
             cfg.Providers = collectProviders(view);
             cfg.Providers.splice(idx, 1);
+            renderProviders(view);
+            setDirty(true);
+        } else if (btn.getAttribute('data-action') === 'move-provider') {
+            // Provider order is the login-button order (LoginButtonController /
+            // BrandingSnippetBuilder both iterate the list as-is).
+            var j = idx + parseInt(btn.getAttribute('data-dir'));
+            if (j < 0 || j >= cfg.Providers.length) return;
+            cfg.Providers = collectProviders(view);
+            var moved = cfg.Providers.splice(idx, 1)[0];
+            cfg.Providers.splice(j, 0, moved);
             renderProviders(view);
             setDirty(true);
         } else if (btn.getAttribute('data-action') === 'test-provider') {
