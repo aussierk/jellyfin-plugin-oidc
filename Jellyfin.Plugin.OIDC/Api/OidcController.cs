@@ -344,6 +344,47 @@ public class OidcController : ControllerBase
         var emailVerified = string.Equals(
             ClaimParser.ExtractClaim(idToken, "email_verified"), "true", StringComparison.OrdinalIgnoreCase);
 
+        // The userinfo endpoint is a shared fallback for roles and the picture claim. Fetch it
+        // at most once, only if a token-based lookup comes up empty.
+        UserInfoResponse? userInfoResponse = null;
+        var userInfoFetched = false;
+        async Task<UserInfoResponse?> GetUserInfoOnceAsync()
+        {
+            if (userInfoFetched)
+            {
+                return userInfoResponse;
+            }
+
+            userInfoFetched = true;
+            if (string.IsNullOrEmpty(disco.UserInfoEndpoint) || string.IsNullOrEmpty(tokenResponse.AccessToken))
+            {
+                return null;
+            }
+
+            try
+            {
+                var resp = await httpClient.GetUserInfoAsync(new UserInfoRequest
+                {
+                    Address = disco.UserInfoEndpoint,
+                    Token = tokenResponse.AccessToken
+                }).ConfigureAwait(false);
+
+                if (resp.IsError)
+                {
+                    _logger.LogWarning("OIDC userinfo request failed for {Provider}: {Error}", providerId, resp.Error);
+                    return null;
+                }
+
+                userInfoResponse = resp;
+                return resp;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "OIDC userinfo request threw for {Provider}", providerId);
+                return null;
+            }
+        }
+
         // Extract roles from both ID token and access token
         var roles = ClaimParser.ExtractRoles(idToken, provider.RoleClaim);
         if (roles.Length == 0 && !string.IsNullOrEmpty(tokenResponse.AccessToken) && handler.CanReadToken(tokenResponse.AccessToken))
@@ -376,6 +417,21 @@ public class OidcController : ControllerBase
             }
         }
 
+        // Last resort: some IdPs (Entra ID, some Okta setups) only expose group/role
+        // membership from the userinfo endpoint, never in the tokens.
+        if (roles.Length == 0)
+        {
+            var userInfo = await GetUserInfoOnceAsync().ConfigureAwait(false);
+            if (userInfo != null)
+            {
+                roles = ClaimParser.ExtractRolesFromJson(userInfo.Raw, provider.RoleClaim);
+                if (roles.Length > 0)
+                {
+                    _logger.LogDebug("OIDC roles for {Provider} resolved from the userinfo endpoint", providerId);
+                }
+            }
+        }
+
         // Optionally extract the profile-image URL (standard OIDC "picture" claim). Like roles,
         // check the ID token first and fall back to the access token, since providers differ
         // in which token carries the claim.
@@ -391,25 +447,11 @@ public class OidcController : ControllerBase
 
             // Many providers (e.g. Authentik) expose the picture only via the userinfo
             // endpoint, not in the tokens. Fall back to userinfo when it's in neither token.
-            if (string.IsNullOrEmpty(pictureUrl)
-                && !string.IsNullOrEmpty(disco.UserInfoEndpoint)
-                && !string.IsNullOrEmpty(tokenResponse.AccessToken))
+            if (string.IsNullOrEmpty(pictureUrl))
             {
-                var userInfo = await httpClient.GetUserInfoAsync(new UserInfoRequest
-                {
-                    Address = disco.UserInfoEndpoint,
-                    Token = tokenResponse.AccessToken
-                }).ConfigureAwait(false);
-
-                if (userInfo.IsError)
-                {
-                    _logger.LogWarning("OIDC userinfo request failed for {Provider}: {Error}", providerId, userInfo.Error);
-                }
-                else
-                {
-                    pictureUrl = userInfo.Claims
-                        .FirstOrDefault(c => c.Type == provider.PictureClaim)?.Value;
-                }
+                var userInfo = await GetUserInfoOnceAsync().ConfigureAwait(false);
+                pictureUrl = userInfo?.Claims
+                    .FirstOrDefault(c => c.Type == provider.PictureClaim)?.Value;
             }
         }
 
@@ -420,13 +462,13 @@ public class OidcController : ControllerBase
         {
             _logger.LogWarning(
                 "OIDC audit: decision=deny provider={Provider} subject={Subject} user={User} reason=admission-{Reason}",
-                providerId, subject, username, admissionDenied);
+                providerId, ClaimParser.RedactSubject(subject), username, admissionDenied);
             return BadRequest("Your account is not permitted to sign in to this server.");
         }
 
         _logger.LogInformation(
             "OIDC audit: decision=authorize provider={Provider} subject={Subject} user={User} roles=[{Roles}]",
-            providerId, subject, username, string.Join(", ", roles));
+            providerId, ClaimParser.RedactSubject(subject), username, string.Join(", ", roles));
 
         var sessionToken = _stateManager.StoreAuthorizedSession(new AuthorizedSession
         {

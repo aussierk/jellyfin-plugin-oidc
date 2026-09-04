@@ -31,6 +31,58 @@ public static class ClaimParser
         return ExtractFromNestedClaim(token, parts);
     }
 
+    /// <summary>
+    /// Extracts roles from a raw JSON object body (e.g. an OIDC userinfo response) using the
+    /// same dot-separated <paramref name="roleClaim"/> path semantics as
+    /// <see cref="ExtractRoles(JwtSecurityToken, string)"/>. Returns an empty array when the
+    /// body is missing, not an object, or the path resolves to nothing.
+    /// </summary>
+    public static string[] ExtractRolesFromJson(string? json, string roleClaim)
+    {
+        if (string.IsNullOrWhiteSpace(json) || string.IsNullOrWhiteSpace(roleClaim))
+        {
+            return Array.Empty<string>();
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var current = doc.RootElement;
+
+            foreach (var segment in roleClaim.Split('.'))
+            {
+                if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(segment, out var next))
+                {
+                    return Array.Empty<string>();
+                }
+
+                current = next;
+            }
+
+            if (current.ValueKind == JsonValueKind.Array)
+            {
+                return current.EnumerateArray()
+                    .Where(e => e.ValueKind == JsonValueKind.String)
+                    .Select(e => e.GetString()!)
+                    .ToArray();
+            }
+
+            if (current.ValueKind == JsonValueKind.String)
+            {
+                var s = current.GetString()!;
+                return s.TrimStart().StartsWith('[') && ParseJsonStringArray(s) is { Length: > 0 } arr
+                    ? arr
+                    : new[] { s };
+            }
+
+            return Array.Empty<string>();
+        }
+        catch (JsonException)
+        {
+            return Array.Empty<string>();
+        }
+    }
+
     public static string ExtractClaim(JwtSecurityToken token, string claimType)
     {
         return token.Claims.FirstOrDefault(c => c.Type == claimType)?.Value ?? string.Empty;

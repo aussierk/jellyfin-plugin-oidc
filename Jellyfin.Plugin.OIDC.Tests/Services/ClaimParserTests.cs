@@ -173,4 +173,57 @@ public class ClaimParserTests
         Assert.Single(roles);
         Assert.Equal("admin", roles[0]);
     }
+
+    // ── ExtractRolesFromJson (userinfo endpoint body) ─────────────────────────
+
+    [Fact]
+    public void ExtractRolesFromJson_FlatArray_ReturnsAllRoles()
+        => Assert.Equal(
+            new[] { "admin", "user" },
+            ClaimParser.ExtractRolesFromJson("{\"groups\":[\"admin\",\"user\"]}", "groups"));
+
+    [Fact]
+    public void ExtractRolesFromJson_NestedPath_ReturnsRoles()
+        => Assert.Equal(
+            new[] { "admin" },
+            ClaimParser.ExtractRolesFromJson("{\"realm_access\":{\"roles\":[\"admin\"]}}", "realm_access.roles"));
+
+    [Fact]
+    public void ExtractRolesFromJson_SingleStringValue_ReturnsSingleRole()
+        => Assert.Equal(
+            new[] { "only-role" },
+            ClaimParser.ExtractRolesFromJson("{\"role\":\"only-role\"}", "role"));
+
+    [Fact]
+    public void ExtractRolesFromJson_StringifiedJsonArray_IsExpanded()
+        => Assert.Equal(
+            new[] { "a", "b" },
+            ClaimParser.ExtractRolesFromJson("{\"groups\":\"[\\\"a\\\",\\\"b\\\"]\"}", "groups"));
+
+    [Fact]
+    public void ExtractRolesFromJson_MissingPath_ReturnsEmpty()
+        => Assert.Empty(ClaimParser.ExtractRolesFromJson("{\"sub\":\"x\"}", "groups"));
+
+    [Fact]
+    public void ExtractRolesFromJson_MissingNestedSegment_ReturnsEmpty()
+        => Assert.Empty(ClaimParser.ExtractRolesFromJson("{\"realm_access\":{\"other\":1}}", "realm_access.roles"));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("not json")]
+    [InlineData("[\"array\",\"root\"]")]
+    public void ExtractRolesFromJson_UnusableBody_ReturnsEmpty(string? json)
+        => Assert.Empty(ClaimParser.ExtractRolesFromJson(json, "groups"));
+
+    [Fact]
+    public void ExtractRolesFromJson_EmptyRoleClaim_ReturnsEmpty()
+        => Assert.Empty(ClaimParser.ExtractRolesFromJson("{\"groups\":[\"a\"]}", ""));
+
+    [Fact]
+    public void ExtractRolesFromJson_ArrayWithNonStrings_SkipsThem()
+        => Assert.Equal(
+            new[] { "admin" },
+            ClaimParser.ExtractRolesFromJson("{\"groups\":[\"admin\",42,null]}", "groups"));
 }

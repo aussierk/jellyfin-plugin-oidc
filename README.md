@@ -227,7 +227,7 @@ Browser                    Jellyfin Plugin              Identity Provider
 2. Plugin redirects to the IdP's authorization endpoint (with PKCE)
 3. User authenticates at the IdP
 4. IdP redirects back with an authorization code
-5. Plugin exchanges the code for tokens, extracts roles from the configured claim path
+5. Plugin exchanges the code for tokens and reads roles from the configured claim path — trying the ID token, then the access token, then the `userinfo` endpoint
 6. Plugin syncs the Jellyfin user (creates or updates) and applies role-based permissions via `UpdatePolicyAsync`
 7. Plugin issues a Jellyfin session token and redirects to the dashboard
 
@@ -314,11 +314,11 @@ The **Role Claim Path** supports:
 
 | Path                   | Token Structure                                  | Provider     |
 |------------------------|--------------------------------------------------|--------------|
-| `groups`               | `{"groups": ["admin", "users"]}`                 | Authentik    |
+| `groups`               | `{"groups": ["admin", "users"]}`                 | Authentik, Okta |
 | `realm_access.roles`   | `{"realm_access": {"roles": ["admin"]}}`         | Keycloak     |
-| `roles`                | `{"roles": ["admin"]}`                           | Custom/Azure |
+| `roles`                | `{"roles": ["admin"]}`                           | Custom/Entra |
 
-The plugin checks both the ID token and access token for role claims.
+The plugin resolves the role claim from the **ID token** first, then the **access token**, then the **`userinfo` endpoint** — stopping at the first source that yields a value. The `userinfo` lookup covers IdPs (Entra ID, some Okta configs) that only expose group membership there; it also uses the same nested-path syntax. A single `userinfo` request is shared with the profile-image lookup.
 
 ## Reverse proxy / redirect_uri
 
