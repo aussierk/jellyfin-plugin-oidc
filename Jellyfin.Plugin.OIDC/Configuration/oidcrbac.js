@@ -408,6 +408,23 @@ function ratingOptions(m) {
     return opts;
 }
 
+// Greys out the role-mapping list + fallback role and shows a hint while "Manage user policy
+// from role mappings" is off, since neither has any effect in that state.
+function updateRbacManagementUi(view) {
+    var managed = view.querySelector('#manageUserPolicy').checked;
+    var list = view.querySelector('#roleMappingList');
+    var fallback = view.querySelector('#defaultRoleName');
+    var addBtn = view.querySelector('#btnAddRoleMapping');
+    var hint = view.querySelector('#roleMappingsInactiveHint');
+    [list, fallback, addBtn].forEach(function (el) {
+        if (el) el.style.opacity = managed ? '' : '0.5';
+    });
+    if (list) list.style.pointerEvents = managed ? '' : 'none';
+    if (fallback) fallback.disabled = !managed;
+    if (addBtn) addBtn.disabled = !managed;
+    if (hint) hint.hidden = managed;
+}
+
 function renderRoleMappings(view) {
     var container = view.querySelector('#roleMappingList');
     container.innerHTML = '';
@@ -668,6 +685,7 @@ export default function (view) {
         if (e.target && e.target.id && e.target.id.indexOf('role_name_') === 0) renderDefaultRoleOptions(view);
     }, true);
     view.addEventListener('change', function () { setDirty(true); }, true);
+    view.querySelector('#manageUserPolicy').addEventListener('change', function () { updateRbacManagementUi(view); });
 
     // The save bar is position:fixed (a Jellyfin overflow:hidden wrapper breaks
     // position:sticky here), so keep it lined up with the content column and reserve
@@ -723,6 +741,9 @@ export default function (view) {
             view.querySelector('#allowedGroups').value = listToText(cfg.AllowedGroups);
             view.querySelector('#requireVerifiedEmail').checked = cfg.RequireVerifiedEmail === true;
             view.querySelector('#linkExistingUsersByEmail').checked = cfg.LinkExistingUsersByEmail === true;
+            view.querySelector('#manageUserPolicy').checked = cfg.ManageUserPolicy !== false;
+            view.querySelector('#libraryAccessMode').value = cfg.LibraryAccessMode || 'Replace';
+            updateRbacManagementUi(view);
             view.querySelector('#manageLoginButtonBranding').checked = cfg.ManageLoginButtonBranding !== false;
             view.querySelector('#hideManualLogin').checked = cfg.HideManualLogin === true;
             view.querySelector('#loginTitle').value = cfg.LoginTitle || 'Please sign in';
@@ -829,6 +850,8 @@ export default function (view) {
         cfg.AllowedGroups = textToList(gval(view, 'allowedGroups'));
         cfg.RequireVerifiedEmail = gchk(view, 'requireVerifiedEmail');
         cfg.LinkExistingUsersByEmail = gchk(view, 'linkExistingUsersByEmail');
+        cfg.ManageUserPolicy = gchk(view, 'manageUserPolicy');
+        cfg.LibraryAccessMode = gval(view, 'libraryAccessMode') || 'Replace';
         cfg.ManageLoginButtonBranding = gchk(view, 'manageLoginButtonBranding');
         cfg.HideManualLogin = gchk(view, 'hideManualLogin');
         cfg.LoginTitle = gval(view, 'loginTitle') || 'Please sign in';

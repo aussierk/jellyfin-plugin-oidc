@@ -45,6 +45,25 @@ public class PluginConfiguration : BasePluginConfiguration
     public string DefaultRoleName { get; set; } = string.Empty;
 
     /// <summary>
+    /// When true (default), OIDC login applies role-mapping-derived permissions via
+    /// <c>UpdatePolicyAsync</c> on every login, and a login whose roles match no mapping
+    /// (and no valid fallback) is denied (fail-closed). When false, the plugin never touches
+    /// the user's Jellyfin policy — RBAC and its fail-closed behaviour are both off; the admin
+    /// manages permissions and libraries entirely in Jellyfin. The admission gate
+    /// (<see cref="AllowedGroups"/>, <see cref="RequireVerifiedEmail"/>) still applies either way.
+    /// </summary>
+    public bool ManageUserPolicy { get; set; } = true;
+
+    /// <summary>
+    /// Controls whether RBAC manages library access, when <see cref="ManageUserPolicy"/> is on.
+    /// <see cref="Configuration.LibraryAccessMode.Replace"/> (default) sets libraries from the
+    /// matched role mapping(s) on every login. <see cref="Configuration.LibraryAccessMode.Ignore"/>
+    /// leaves the user's current library access untouched — useful when an admin wants RBAC to
+    /// manage permissions/admin status from the IdP but assign libraries by hand in Jellyfin.
+    /// </summary>
+    public LibraryAccessMode LibraryAccessMode { get; set; } = LibraryAccessMode.Replace;
+
+    /// <summary>
     /// When true, saving the plugin config also keeps a marker-fenced SSO login-button block
     /// in sync inside Jellyfin's Branding settings (Login Disclaimer + Custom CSS), matching
     /// the enabled providers. Web client only — native/TV apps use Quick Connect. The block
@@ -225,4 +244,11 @@ public class RoleMapping
     /// <see cref="MaxParentalRatingName"/> and clears this.
     /// </summary>
     public int? MaxParentalRating { get; set; }
+}
+
+/// <summary>See <see cref="PluginConfiguration.LibraryAccessMode"/>.</summary>
+public enum LibraryAccessMode
+{
+    Replace,
+    Ignore
 }

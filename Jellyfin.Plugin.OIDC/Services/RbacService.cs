@@ -47,6 +47,17 @@ public class RbacService
             return;
         }
 
+        // The plugin's one opt-out: when off, it never touches the user's policy — no
+        // UpdatePolicyAsync call, and no fail-closed denial for an unmatched role either.
+        // The admission gate (AllowedGroups / RequireVerifiedEmail) still runs independently.
+        if (!config.ManageUserPolicy)
+        {
+            _logger.LogInformation(
+                "OIDC audit: decision=rbac-skipped provider={Provider} user={User} reason=policy-management-disabled",
+                providerId, user.Username);
+            return;
+        }
+
         // A mapping applies when its ProviderFilter is empty (global) or matches the current provider.
         var applicableMappings = config.RoleMappings
             .Where(m => string.IsNullOrEmpty(m.ProviderFilter)
@@ -79,16 +90,30 @@ public class RbacService
 
         var merged = MergeMappings(matchedMappings);
 
-        // Resolve library IDs before building policy
-        Guid[] enabledFolderIds = Array.Empty<Guid>();
-        if (!merged.EnableAllLibraries)
+        // LibraryAccessMode.Ignore: RBAC still manages permissions/admin, but leaves library
+        // access exactly as the admin set it in Jellyfin — never resolved or overwritten here.
+        var manageLibraries = config.LibraryAccessMode != LibraryAccessMode.Ignore;
+
+        bool enableAllFolders;
+        Guid[] enabledFolderIds;
+        if (manageLibraries)
         {
-            var resolvedIds = ResolveLibraryIds(merged.LibraryIds, merged.LibraryNames);
-            enabledFolderIds = resolvedIds
-                .Select(id => Guid.TryParse(id, out var g) ? g : (Guid?)null)
-                .Where(g => g.HasValue)
-                .Select(g => g!.Value)
-                .ToArray();
+            enableAllFolders = merged.EnableAllLibraries;
+            enabledFolderIds = Array.Empty<Guid>();
+            if (!merged.EnableAllLibraries)
+            {
+                var resolvedIds = ResolveLibraryIds(merged.LibraryIds, merged.LibraryNames);
+                enabledFolderIds = resolvedIds
+                    .Select(id => Guid.TryParse(id, out var g) ? g : (Guid?)null)
+                    .Where(g => g.HasValue)
+                    .Select(g => g!.Value)
+                    .ToArray();
+            }
+        }
+        else
+        {
+            enableAllFolders = user.HasPermission(PermissionKind.EnableAllFolders);
+            enabledFolderIds = user.GetPreferenceValues<Guid>(PreferenceKind.EnabledFolders);
         }
 
         // The strictest parental rating across the matched mappings, or the user's current
@@ -150,7 +175,7 @@ public class RbacService
             EnableContentDeletion = merged.EnableContentDeletion,
             EnableCollectionManagement = merged.EnableCollectionManagement,
             EnableSubtitleManagement = merged.EnableSubtitleManagement,
-            EnableAllFolders = merged.EnableAllLibraries,
+            EnableAllFolders = enableAllFolders,
             EnabledFolders = enabledFolderIds,
             MaxParentalRating = parentalScore,
             MaxParentalSubRating = parentalSubScore,
@@ -163,7 +188,7 @@ public class RbacService
             providerId,
             user.Username,
             merged.IsAdmin,
-            merged.EnableAllLibraries ? "ALL" : enabledFolderIds.Length.ToString(),
+            manageLibraries ? (enableAllFolders ? "ALL" : enabledFolderIds.Length.ToString()) : "unchanged",
             string.Join(", ", matchedMappings.Select(m => m.RoleName)));
     }
 

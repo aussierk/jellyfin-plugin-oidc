@@ -36,6 +36,23 @@
                             <label><input type="checkbox" id="linkExistingUsersByEmail" is="emby-checkbox" /> <span>Link a login to an existing account by verified email when the subject doesn't match</span></label>
                         </div>
                     </div>
+                    <div class="oidc-section-title" style="border:none;margin:1em 0 0.4em;padding:0;">RBAC management</div>
+                    <p class="oidc-hint" style="margin:0 0 0.8em;">How much of a user's Jellyfin policy this plugin controls, once they're admitted.</p>
+                    <div class="oidc-grid">
+                        <div class="oidc-field full">
+                            <label><input type="checkbox" id="manageUserPolicy" is="emby-checkbox" /> <span>Manage user policy from role mappings</span></label>
+                            <p class="fieldDescription" style="margin:0.3em 0 0 1.5em;font-size:0.85em;">
+                                On by default. Turn off to stop the plugin touching permissions entirely — fail-closed (deny on no role match) also stops applying, and every field below is inert. Use this if you'd rather manage users' Jellyfin policy by hand.
+                            </p>
+                        </div>
+                        <div class="oidc-field full">
+                            <label for="libraryAccessMode">Library access <span class="oidc-hint">(only while policy management is on)</span></label>
+                            <select id="libraryAccessMode" is="emby-select">
+                                <option value="Replace">Set from role mappings (default)</option>
+                                <option value="Ignore">Leave alone — assign libraries manually in Jellyfin</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
                 <div style="margin-bottom:1em;">
                     <button type="button" id="btnAddRoleMapping" is="emby-button" class="raised">
@@ -48,6 +65,9 @@
                     </label>
                     <select id="defaultRoleName" is="emby-select"></select>
                 </div>
+                <p id="roleMappingsInactiveHint" class="oidc-hint" hidden style="margin:0 0 0.8em;">
+                    Policy management is off — role mappings and the fallback role above are not applied.
+                </p>
                 <div id="roleMappingList"></div>
             </div>
 

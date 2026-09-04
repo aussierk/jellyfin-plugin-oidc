@@ -157,6 +157,8 @@ Go to **General tab** and configure:
 | Migrate local users to SSO        | Off     | Switch existing password accounts to SSO auth on first SSO login |
 | Sync display name (per provider)  | Off     | Rename the Jellyfin account to match the Display Name Claim on each login (sanitised; identity is keyed on the OIDC subject so this is safe) |
 | Access allowlist (Role Mappings)  | empty   | Groups permitted to sign in at all (matched against the role claim); empty admits everyone who authenticates |
+| Manage user policy (Role Mappings) | On     | When off, the plugin never touches a user's Jellyfin policy — no RBAC, no fail-closed denial. Manage permissions by hand in Jellyfin. |
+| Library access (Role Mappings)    | Set from role mappings | Set to "Leave alone" to keep RBAC managing permissions/admin status while you assign libraries manually. Only meaningful while Manage user policy is on. |
 
 ### 4. Add the Login Button
 
@@ -297,6 +299,29 @@ role mapping nor a valid fallback matches, login is denied — the plugin never 
 Jellyfin's stock default permissions or lets a user keep a policy from a previous login.
 This is deliberate: it stops a role removed at the IdP or in plugin config from silently
 leaving a user with access they should no longer have.
+
+> Fail-closed only applies while **Manage user policy** (below) is on. With it off, RBAC
+> and its fail-closed denial are both disabled — any authenticated user who passes the
+> admission gate signs in with whatever policy Jellyfin already has for them.
+
+### Turning off policy management
+
+**Manage user policy** (Role Mappings tab, default on) is the plugin's one RBAC opt-out. Off:
+- The plugin never calls `UpdatePolicyAsync` — permissions, admin status, and libraries are
+  whatever Jellyfin already has for the account, and stay that way.
+- Fail-closed no longer applies: an authenticated user who matches no role mapping still
+  signs in, instead of being denied.
+- A brand-new SSO user is auto-created with Jellyfin's stock default policy; the admin
+  grants access by hand afterward.
+- The admission gate (allowed groups, require-verified-email) is unaffected — it's a
+  separate, always-on check.
+
+Use this if you want SSO for authentication only and prefer to manage every user's
+permissions and libraries directly in Jellyfin.
+
+For a middle ground, leave **Manage user policy** on and set **Library access** to
+*"Leave alone"*: RBAC still sets admin status and playback/management permissions from
+role mappings, but never touches library assignments — assign those by hand in Jellyfin.
 
 ### Admission allowlist
 

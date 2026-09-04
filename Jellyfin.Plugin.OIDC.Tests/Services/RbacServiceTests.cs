@@ -385,6 +385,67 @@ public class RbacServiceTests
         Assert.Equal(5, policy()!.MaxParentalRating);
     }
 
+    // ── ManageUserPolicy opt-out ───────────────────────────────────────────────
+
+    [Fact]
+    public async Task ManageUserPolicy_False_SkipsRbacEntirely_EvenWithNoRoleMatch()
+    {
+        var user = MakeUser();
+        var userManager = Substitute.For<IUserManager>();
+        userManager.GetUserById(user.Id).Returns(user);
+        var svc = MakeService(userManager, Substitute.For<ILibraryManager>());
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            ManageUserPolicy = false,
+            RoleMappings = [new RoleMapping { RoleName = "admins", IsAdmin = true }]
+        });
+
+        // Roles match nothing configured; without ManageUserPolicy this must not
+        // throw (fail-closed is part of policy management) and must not touch the policy.
+        await svc.ApplyRoleMappingsAsync(user.Id, ["nobody-role"], "keycloak");
+
+        await userManager.DidNotReceive().UpdatePolicyAsync(Arg.Any<Guid>(), Arg.Any<UserPolicy>());
+    }
+
+    // ── LibraryAccessMode.Ignore ───────────────────────────────────────────────
+
+    [Fact]
+    public async Task LibraryAccessMode_Ignore_PreservesUsersCurrentLibraries()
+    {
+        var user = MakeUser();
+        var libId = Guid.NewGuid();
+        user.SetPermission(PermissionKind.EnableAllFolders, false);
+        user.SetPreference(PreferenceKind.EnabledFolders, new[] { libId });
+
+        var (svc, _) = ServiceCapturing(out var policy, user);
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            LibraryAccessMode = LibraryAccessMode.Ignore,
+            // The mapping grants ALL libraries; Ignore mode must leave the user's own set alone.
+            RoleMappings = [new RoleMapping { RoleName = "viewers", EnableAllLibraries = true }]
+        });
+
+        await svc.ApplyRoleMappingsAsync(user.Id, ["viewers"], "keycloak");
+
+        Assert.False(policy()!.EnableAllFolders);
+        Assert.Equal(new[] { libId }, policy()!.EnabledFolders);
+    }
+
+    [Fact]
+    public async Task LibraryAccessMode_Replace_IsDefault_UsesMappingLibraries()
+    {
+        var user = MakeUser();
+        var (svc, _) = ServiceCapturing(out var policy, user);
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            RoleMappings = [new RoleMapping { RoleName = "viewers", EnableAllLibraries = true }]
+        });
+
+        await svc.ApplyRoleMappingsAsync(user.Id, ["viewers"], "keycloak");
+
+        Assert.True(policy()!.EnableAllFolders);
+    }
+
     [Fact]
     public void GetAvailableLibraries_ReturnsNameToIdDictionary()
     {
