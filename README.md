@@ -21,8 +21,11 @@ These changes are not present in the upstream plugin:
 | Local account takeover | OIDC silently takes over local accounts | Blocked by default; opt-in migration required |
 | redirect_uri behind reverse proxies | `Request.Host` — fails behind proxies | `IServerApplicationHost.GetSmartApiUrl()` — honours Jellyfin's Published Server URLs |
 | Callback page framing | No protection | `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'` |
-| Memory exhaustion DoS | Unbounded pending state store | Hard cap (500 pending states, 200 sessions); returns 503 when full |
+| Memory exhaustion DoS | Unbounded pending state store | Hard cap (500 pending states, 200 sessions, 5000 tracked sessions); returns 503 when full |
 | Cross-provider role escalation | Role mappings are global | Optional per-mapping `Provider Filter` restricts a mapping to one provider |
+| Auth endpoint flooding | Unauthenticated `/sso/OIDC/*` endpoints take load | Built-in per-IP rate limiting on every auth endpoint (`Start`, `Callback`, `Auth`, `BackchannelLogout`) |
+| IdP-driven logout | No way for the IdP to end a Jellyfin session | OIDC Back-Channel Logout 1.0 endpoint with signature, audience, `events`, and `jti` replay validation |
+| Account orphaned by a rename | Identity keyed on the mutable username | Identity keyed on the OIDC `sub`; legacy rows self-heal on next login |
 
 ## Features
 
@@ -33,11 +36,15 @@ These changes are not present in the upstream plugin:
 - **Per-provider role filter** — restrict a role mapping to one specific provider to prevent cross-provider privilege grants
 - **Endpoint pinning** — TOFU pins discovery endpoints on first use; editable pin fields let you pre-set expected values from your IdP docs to eliminate the first-use trust window
 - **Auto-provisioning** — create Jellyfin users on first SSO login
-- **Flexible claim parsing** — extract roles from nested JWT claims (e.g. `realm_access.roles`, `groups`)
+- **Flexible claim parsing** — extract roles from nested JWT claims (e.g. `realm_access.roles`, `groups`), resolved from the ID token, the access token, or the `userinfo` endpoint (in that order)
 - **Merge semantics** — users with multiple roles get the union of all permissions (most permissive wins)
 - **Default role fallback** — assign a baseline role to users with no matching IdP roles
 - **Fail-closed RBAC** — deny login when no IdP role or configured default role matches, preventing stale permissions from surviving role removal
-- **Admin UI** — full configuration from the Jellyfin dashboard (Providers, Role Mappings, General settings), reachable directly from the dashboard's left nav under **Plugins**
+- **Admission allowlist** — optionally gate *who may sign in at all* on an allowed-groups list plus a "require verified email" hard gate, evaluated before role mapping
+- **Back-channel logout** — implements [OIDC Back-Channel Logout 1.0](https://openid.net/specs/openid-connect-backchannel-1_0.html); a signed `logout_token` from the IdP revokes the matching Jellyfin session (`sid`) or all of the user's sessions (`sub`), with `jti` replay protection
+- **Subject-keyed identity** — each account is bound to the OIDC `sub`, so an IdP-side rename or a Jellyfin-side rename can't orphan or cross-wire the account
+- **Audit trail** — every allow/deny decision emits a single structured `OIDC audit: decision=… provider=… subject=… reason=…` log line
+- **Admin UI** — full configuration from the Jellyfin dashboard (Providers, Role Mappings, Login Page settings), reachable directly from the dashboard's left nav under **Plugins**
 - **Login button injection** — paste one HTML snippet into Jellyfin's Login Disclaimer; buttons appear automatically
 - **Native/mobile app login** — sign in Android, iOS, and TV apps via Jellyfin [Quick Connect](#mobile--native-apps-quick-connect)
 - **Profile image sync** — set the Jellyfin avatar from the IdP's `picture` claim on each login
@@ -149,7 +156,7 @@ Go to **General tab** and configure:
 | Fallback role (Role Mappings tab) | —       | Role applied when no IdP role matches a mapping; login is denied if neither a role nor a valid fallback matches |
 | Migrate local users to SSO        | Off     | Switch existing password accounts to SSO auth on first SSO login |
 | Sync display name (per provider)  | Off     | Rename the Jellyfin account to match the Display Name Claim on each login (sanitised; identity is keyed on the OIDC subject so this is safe) |
-| Access allowlist (Role Mappings)  | empty   | Groups / email domains / emails permitted to sign in at all; empty admits everyone who authenticates |
+| Access allowlist (Role Mappings)  | empty   | Groups permitted to sign in at all (matched against the role claim); empty admits everyone who authenticates |
 
 ### 4. Add the Login Button
 
@@ -284,9 +291,9 @@ leaving a user with access they should no longer have.
 ### Admission allowlist
 
 Separate from RBAC, the **Access** section (top of the Role Mappings tab) gates *who may
-sign in at all*: allowed groups (matched against the role claim), allowed email domains,
-allowed exact emails, and an optional "require verified email". Leave the lists empty to
-admit everyone who authenticates; a user passes if they match **any** rule.
+sign in at all*: allowed groups (matched against the role claim), plus an optional
+"require verified email" (`email_verified`) hard gate. Leave *Allowed groups* empty to
+admit everyone who authenticates.
 
 ### Multi-provider role isolation
 
@@ -382,6 +389,7 @@ If SSO logins start failing after an IdP upgrade:
 | POST   | `/sso/OIDC/Auth/{providerId}`     | Complete authentication (web client) |
 | GET    | `/sso/OIDC/QuickConnect/{providerId}` | Initiate OIDC flow for a native app via Quick Connect |
 | POST   | `/sso/OIDC/QuickConnect/Authorize/{providerId}` | Authorize a Quick Connect code after OIDC login |
+| POST   | `/sso/OIDC/BackchannelLogout/{providerId}` | OIDC Back-Channel Logout 1.0 — IdP posts a signed `logout_token`; revokes the matching Jellyfin session(s) |
 | GET    | `/sso/OIDC/Providers`             | List enabled providers             |
 | GET    | `/sso/OIDC/LoginButtons`          | JS snippet for login button auto-injection |
 | GET    | `/sso/OIDC/BrandingSnippet`       | `{ Html, Css }` for Login Disclaimer + Custom CSS |
@@ -394,12 +402,11 @@ These are architectural constraints rather than bugs. They are documented here s
 
 | Limitation | Impact | Mitigation |
 |---|---|---|
-| Client secret stored as plaintext | Anyone with filesystem read access to the Jellyfin data directory can extract OIDC client secrets | Restrict filesystem permissions on the Jellyfin data directory; use a dedicated service account |
-| No rate limiting on auth endpoints | `/sso/OIDC/Start` is unauthenticated and could be used to generate load | Place a rate-limiting reverse proxy (nginx, Traefik, Caddy) in front of Jellyfin |
-| No back-channel logout | If a user is disabled at the IdP, their active Jellyfin session remains valid until it expires | Use Jellyfin's built-in user disable to immediately block access; set a shorter session timeout |
-| No refresh token support | OIDC role changes at the IdP are not reflected until the user logs in again | Users must re-authenticate to pick up permission changes |
-| In-memory state only | Pending auth states and sessions are lost on server restart; any login in progress at restart time must be retried | Transient; retry is seamless |
-| Single-node only | The in-memory state store means the OIDC callback must reach the same Jellyfin instance that initiated the login | If running multiple Jellyfin nodes, ensure sticky sessions at the load balancer |
+| **Single-node only** | Pending auth state, one-time sessions, and the back-channel-logout correlation table are all in-memory. The OIDC callback must reach the same Jellyfin instance that started the login, and a restart drops that state: a login in progress must be retried, and a `sid`-scoped back-channel logout received after a restart falls back to revoking all of the subject's sessions. | Single instance, or sticky sessions at the load balancer. Restart impact is transient. |
+| Client secret stored as plaintext | Anyone with filesystem read access to the Jellyfin data directory can read the OIDC client secret from the plugin config (this is how all Jellyfin plugin configs work) | Restrict permissions on the Jellyfin data directory; run Jellyfin as a dedicated service account |
+| No refresh tokens | Role/permission changes at the IdP apply on the user's next login, not mid-session. RBAC is re-evaluated on every login. | Users re-authenticate to pick up changes; a back-channel logout or an admin disable forces that immediately |
+| Session lifetime is Jellyfin's, not the IdP's | A Jellyfin session minted via OIDC is not capped at the `id_token` expiry | Use back-channel logout for IdP-driven revocation; set a shorter Jellyfin session timeout |
+| Group claim must be reachable | Role claims are read from the ID token, then the access token, then the `userinfo` endpoint — in that order. An IdP that exposes groups by none of those routes (e.g. only via a separate directory API) is not supported. | Configure the IdP to emit the group/role claim in a token or in `userinfo` (a Keycloak client-scope mapper, an Entra groups claim, an Okta groups claim) |
 
 ## Building
 

@@ -687,8 +687,6 @@ export default function (view) {
             view.querySelector('#migrateLocalUsers').checked = cfg.MigrateLocalUsers === true;
             view.querySelector('#blockPrivateNetworkAuthorities').checked = cfg.BlockPrivateNetworkAuthorities === true;
             view.querySelector('#allowedGroups').value = listToText(cfg.AllowedGroups);
-            view.querySelector('#allowedEmailDomains').value = listToText(cfg.AllowedEmailDomains);
-            view.querySelector('#allowedEmails').value = listToText(cfg.AllowedEmails);
             view.querySelector('#requireVerifiedEmail').checked = cfg.RequireVerifiedEmail === true;
             view.querySelector('#linkExistingUsersByEmail').checked = cfg.LinkExistingUsersByEmail === true;
             view.querySelector('#manageLoginButtonBranding').checked = cfg.ManageLoginButtonBranding !== false;
@@ -795,8 +793,6 @@ export default function (view) {
         cfg.MigrateLocalUsers = gchk(view, 'migrateLocalUsers');
         cfg.BlockPrivateNetworkAuthorities = gchk(view, 'blockPrivateNetworkAuthorities');
         cfg.AllowedGroups = textToList(gval(view, 'allowedGroups'));
-        cfg.AllowedEmailDomains = textToList(gval(view, 'allowedEmailDomains'));
-        cfg.AllowedEmails = textToList(gval(view, 'allowedEmails'));
         cfg.RequireVerifiedEmail = gchk(view, 'requireVerifiedEmail');
         cfg.LinkExistingUsersByEmail = gchk(view, 'linkExistingUsersByEmail');
         cfg.ManageLoginButtonBranding = gchk(view, 'manageLoginButtonBranding');

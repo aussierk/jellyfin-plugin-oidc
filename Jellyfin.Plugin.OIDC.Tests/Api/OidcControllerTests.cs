@@ -1,6 +1,9 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Reflection;
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading.Tasks;
 using IdentityModel;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.OIDC.Api;
@@ -203,35 +206,99 @@ public class OidcControllerTests
 
     // ── CheckAdmission (allowlist gate) ────────────────────────────────────────
 
-    private static string? CheckAdmission(PluginConfiguration cfg, string[] roles, string email, bool verified)
+    private static string? CheckAdmission(PluginConfiguration cfg, string[] roles, bool verified)
         => (string?)typeof(OidcController)
             .GetMethod("CheckAdmission", BindingFlags.NonPublic | BindingFlags.Static)!
-            .Invoke(null, [cfg, roles, email, verified]);
+            .Invoke(null, [cfg, roles, verified]);
 
     [Fact]
     public void CheckAdmission_NoAllowlist_Admits()
-        => Assert.Null(CheckAdmission(new PluginConfiguration(), ["anything"], "a@b.com", false));
+        => Assert.Null(CheckAdmission(new PluginConfiguration(), ["anything"], false));
 
     [Fact]
     public void CheckAdmission_RequireVerifiedEmail_DeniesUnverified()
         => Assert.Equal("email-not-verified",
-            CheckAdmission(new PluginConfiguration { RequireVerifiedEmail = true }, [], "a@b.com", false));
+            CheckAdmission(new PluginConfiguration { RequireVerifiedEmail = true }, [], false));
 
     [Fact]
     public void CheckAdmission_GroupMatch_Admits()
         => Assert.Null(CheckAdmission(
-            new PluginConfiguration { AllowedGroups = ["staff"] }, ["Staff"], "", false));
+            new PluginConfiguration { AllowedGroups = ["staff"] }, ["Staff"], false));
 
     [Fact]
-    public void CheckAdmission_DomainMatch_Admits()
-        => Assert.Null(CheckAdmission(
-            new PluginConfiguration { AllowedEmailDomains = ["example.com"] }, [], "alice@Example.com", true));
-
-    [Fact]
-    public void CheckAdmission_NoRuleMatched_Denies()
+    public void CheckAdmission_NoGroupMatch_Denies()
         => Assert.Equal("not-on-allowlist", CheckAdmission(
-            new PluginConfiguration { AllowedGroups = ["staff"], AllowedEmailDomains = ["corp.com"] },
-            ["guests"], "bob@other.com", true));
+            new PluginConfiguration { AllowedGroups = ["staff"] }, ["guests"], true));
+
+    // ── BackchannelLogout: pre-network request validation ─────────────────────
+
+    private static string Body(ActionResult result)
+        => System.Text.Json.JsonSerializer.Serialize(
+            Assert.IsType<BadRequestObjectResult>(result).Value);
+
+    [Fact]
+    public async Task BackchannelLogout_MissingToken_Returns400()
+    {
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers = [new OidcProviderConfig { ProviderId = "keycloak", Enabled = true }]
+        });
+
+        var result = await MakeController().BackchannelLogout("keycloak", logoutToken: null);
+
+        Assert.Contains("logout_token missing", Body(result));
+    }
+
+    [Fact]
+    public async Task BackchannelLogout_UnknownProvider_Returns400()
+    {
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers = [new OidcProviderConfig { ProviderId = "keycloak", Enabled = true }]
+        });
+
+        var result = await MakeController().BackchannelLogout("does-not-exist", "eyJ.header.sig");
+
+        Assert.Contains("unknown provider", Body(result));
+    }
+
+    // ── BackchannelLogout: logout_token claim rules (spec §2.4) ───────────────
+    // Runs against an already signature-validated token, so tests build the claims directly.
+
+    private static string? ValidateLogoutTokenClaims(params Claim[] claims)
+        => (string?)typeof(OidcController)
+            .GetMethod("ValidateLogoutTokenClaims", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, [new JwtSecurityToken(claims: claims)]);
+
+    private static Claim Events =>
+        new("events", "{\"http://schemas.openid.net/event/backchannel-logout\":{}}");
+
+    [Fact]
+    public void ValidateLogoutTokenClaims_NoncePresent_Rejected()
+        => Assert.Equal("nonce prohibited in logout_token",
+            ValidateLogoutTokenClaims(Events, new Claim("sub", "u1"), new Claim("nonce", "n")));
+
+    [Fact]
+    public void ValidateLogoutTokenClaims_MissingEventsClaim_Rejected()
+        => Assert.Equal("missing back-channel logout event",
+            ValidateLogoutTokenClaims(new Claim("sub", "u1")));
+
+    [Fact]
+    public void ValidateLogoutTokenClaims_WrongEventUri_Rejected()
+        => Assert.Equal("missing back-channel logout event",
+            ValidateLogoutTokenClaims(new Claim("events", "{\"http://example.com/other\":{}}"), new Claim("sub", "u1")));
+
+    [Fact]
+    public void ValidateLogoutTokenClaims_NoSubOrSid_Rejected()
+        => Assert.Equal("sub or sid required", ValidateLogoutTokenClaims(Events));
+
+    [Fact]
+    public void ValidateLogoutTokenClaims_SubOnly_Accepted()
+        => Assert.Null(ValidateLogoutTokenClaims(Events, new Claim("sub", "u1")));
+
+    [Fact]
+    public void ValidateLogoutTokenClaims_SidOnly_Accepted()
+        => Assert.Null(ValidateLogoutTokenClaims(Events, new Claim("sid", "s1")));
 
     // ── ParseAdditionalParameters ──────────────────────────────────────────────
 

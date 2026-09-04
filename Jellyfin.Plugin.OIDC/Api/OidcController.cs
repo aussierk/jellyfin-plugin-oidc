@@ -278,10 +278,19 @@ public class OidcController : ControllerBase
         var handler = new JwtSecurityTokenHandler();
         handler.InboundClaimTypeMap.Clear();
 
-        var rawIdToken = tokenResponse.IdentityToken ?? tokenResponse.AccessToken;
+        // The identity assertion must be a real id_token. An access token is not an
+        // authentication statement (wrong audience semantics, no nonce) — never validate one
+        // as identity. Roles are still read from the access token separately, further down.
+        var rawIdToken = tokenResponse.IdentityToken;
         if (string.IsNullOrEmpty(rawIdToken))
         {
-            return BadRequest("No token in IdP response");
+            _logger.LogWarning("Token response for provider {Provider} carried no id_token", providerId);
+            return BadRequest("IdP returned no id_token. Ensure the 'openid' scope is configured for this client.");
+        }
+
+        if (!handler.CanReadToken(rawIdToken))
+        {
+            return BadRequest("Token validation failed: id_token is not a well-formed JWT");
         }
 
         JwtSecurityToken idToken;
@@ -301,7 +310,7 @@ public class OidcController : ControllerBase
             handler.ValidateToken(rawIdToken, idTokenValidation, out var validated);
             idToken = (JwtSecurityToken)validated;
         }
-        catch (SecurityTokenException ex)
+        catch (Exception ex) when (ex is SecurityTokenException or ArgumentException)
         {
             _logger.LogWarning("Token validation failed for provider {Provider}: {Message}", providerId, ex.Message);
             return BadRequest("Token validation failed");
@@ -406,7 +415,7 @@ public class OidcController : ControllerBase
 
         // Admission gate — who may sign in at all, independent of RBAC. This is the single
         // choke point shared by the web and Quick Connect flows.
-        var admissionDenied = CheckAdmission(OidcPlugin.Instance?.Configuration, roles, email, emailVerified);
+        var admissionDenied = CheckAdmission(OidcPlugin.Instance?.Configuration, roles, emailVerified);
         if (admissionDenied != null)
         {
             _logger.LogWarning(
@@ -501,7 +510,7 @@ public class OidcController : ControllerBase
             TrackMintedSession(session, authRequest.DeviceId!, authResult.SessionInfo?.Id, userId);
             _logger.LogInformation(
                 "OIDC audit: decision=login provider={Provider} subject={Subject} user={User} device={Device}",
-                session.ProviderId, session.Subject, session.Username, authRequest.DeviceId);
+                session.ProviderId, ClaimParser.RedactSubject(session.Subject), session.Username, authRequest.DeviceId);
 
             return Ok(authResult);
         }
@@ -509,7 +518,7 @@ public class OidcController : ControllerBase
         {
             _logger.LogWarning(
                 "OIDC audit: decision=deny provider={Provider} subject={Subject} user={User} reason=sync-{Reason}",
-                session.ProviderId, session.Subject, session.Username, ex.Message);
+                session.ProviderId, ClaimParser.RedactSubject(session.Subject), session.Username, ex.Message);
             return Forbid();
         }
         catch (Exception ex)
@@ -594,7 +603,7 @@ public class OidcController : ControllerBase
         _stateManager.InvalidateAuthorizedSession(request.Token);
         _logger.LogInformation(
             "OIDC audit: decision=login provider={Provider} subject={Subject} user={User} channel=quickconnect",
-            providerId, session.Subject, session.Username);
+            providerId, ClaimParser.RedactSubject(session.Subject), session.Username);
 
         return Ok(new { success = true });
     }
@@ -647,6 +656,11 @@ public class OidcController : ControllerBase
         var handler = new JwtSecurityTokenHandler();
         handler.InboundClaimTypeMap.Clear();
 
+        if (!handler.CanReadToken(logoutToken))
+        {
+            return BadRequest(new { error = "invalid_request", error_description = "logout_token is not a well-formed JWT" });
+        }
+
         JwtSecurityToken token;
         try
         {
@@ -663,42 +677,42 @@ public class OidcController : ControllerBase
             }, out var validated);
             token = (JwtSecurityToken)validated;
         }
-        catch (SecurityTokenException ex)
+        catch (Exception ex) when (ex is SecurityTokenException or ArgumentException)
         {
             _logger.LogWarning("OIDC back-channel logout token invalid for {Provider}: {Message}", providerId, ex.Message);
             return BadRequest(new { error = "invalid_request", error_description = "logout_token validation failed" });
         }
 
-        // Spec §2.4: no nonce; events must carry the back-channel logout event; sub or sid required.
-        if (token.Claims.Any(c => c.Type == "nonce"))
+        var claimError = ValidateLogoutTokenClaims(token);
+        if (claimError != null)
         {
-            return BadRequest(new { error = "invalid_request", error_description = "nonce prohibited in logout_token" });
-        }
-
-        var events = ClaimParser.ExtractClaim(token, "events");
-        if (!events.Contains("http://schemas.openid.net/event/backchannel-logout", StringComparison.Ordinal))
-        {
-            return BadRequest(new { error = "invalid_request", error_description = "missing back-channel logout event" });
+            return BadRequest(new { error = "invalid_request", error_description = claimError });
         }
 
         var sub = ClaimParser.ExtractClaim(token, "sub");
         var sid = ClaimParser.ExtractClaim(token, "sid");
-        if (string.IsNullOrEmpty(sub) && string.IsNullOrEmpty(sid))
-        {
-            return BadRequest(new { error = "invalid_request", error_description = "sub or sid required" });
-        }
 
+        // jti is optional here (some IdPs omit it); when present, block replay for the token's
+        // whole validity window, not a fixed few minutes.
         var jti = ClaimParser.ExtractClaim(token, "jti");
-        if (!string.IsNullOrEmpty(jti) && !_stateManager.RegisterJti(jti))
+        if (!string.IsNullOrEmpty(jti))
         {
-            return BadRequest(new { error = "invalid_request", error_description = "replayed logout_token" });
+            var forgetAfter = new DateTimeOffset(DateTime.SpecifyKind(token.ValidTo, DateTimeKind.Utc))
+                + TimeSpan.FromMinutes(5);
+            if (!_stateManager.RegisterJti(jti, forgetAfter))
+            {
+                return BadRequest(new { error = "invalid_request", error_description = "replayed logout_token" });
+            }
         }
 
         var issuer = disco.Issuer ?? provider.Authority;
         var revoked = 0;
 
-        // Prefer targeted revocation via a tracked (issuer, sid|sub) session.
-        var tracked = _stateManager.FindTracked(issuer, string.IsNullOrEmpty(sub) ? null : sub, string.IsNullOrEmpty(sid) ? null : sid);
+        // A sid targets exactly one session; a bare sub targets all of the subject's. Don't let
+        // a sid-scoped logout widen to every session just because sub is also in the token.
+        var tracked = !string.IsNullOrEmpty(sid)
+            ? _stateManager.FindTracked(issuer, sub: null, sid: sid)
+            : _stateManager.FindTracked(issuer, sub: sub, sid: null);
         foreach (var t in tracked)
         {
             try
@@ -718,10 +732,12 @@ public class OidcController : ControllerBase
             _stateManager.UntrackBySessionId(t.SessionId);
         }
 
-        // Fall back to a subject-wide revoke (covers Quick Connect sessions and post-restart state).
+        // Nothing tracked in memory — Quick Connect sessions, or state lost across a restart.
+        // Fall back to revoking all of the subject's tokens. A sid-only logout_token has no
+        // sub and so cannot reach this path.
         if (revoked == 0 && !string.IsNullOrEmpty(sub))
         {
-            var entry = OidcPlugin.Instance?.Configuration.UserProviderMap.FirstOrDefault(e =>
+            var entry = OidcPlugin.Instance?.Configuration?.UserProviderMap.FirstOrDefault(e =>
                 string.Equals(e.ProviderId, providerId, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(e.Subject, sub, StringComparison.Ordinal));
             if (entry != null && Guid.TryParse(entry.UserId, out var userId))
@@ -733,7 +749,7 @@ public class OidcController : ControllerBase
 
         _logger.LogInformation(
             "OIDC audit: decision=backchannel-logout provider={Provider} subject={Subject} sid={Sid} revoked={Revoked}",
-            providerId, sub, sid, revoked == -1 ? "all" : revoked.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            providerId, ClaimParser.RedactSubject(sub), sid, revoked == -1 ? "all" : revoked.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
         return Ok();
     }
@@ -795,12 +811,12 @@ public class OidcController : ControllerBase
     }
 
     /// <summary>
-    /// Returns a short deny reason, or null when the user is admitted. An allowlist is
-    /// satisfied if the user matches ANY configured rule (group / exact email / email
-    /// domain). <c>RequireVerifiedEmail</c> is an additional hard gate. With no allowlist
-    /// configured, anyone who authenticated is admitted (unchanged behaviour).
+    /// Returns a short deny reason, or null when the user is admitted. When
+    /// <see cref="PluginConfiguration.AllowedGroups"/> is set, the user must present a
+    /// matching group/role claim. <c>RequireVerifiedEmail</c> is an additional hard gate.
+    /// With neither configured, anyone who authenticated is admitted (unchanged behaviour).
     /// </summary>
-    private static string? CheckAdmission(PluginConfiguration? cfg, string[] roles, string email, bool emailVerified)
+    private static string? CheckAdmission(PluginConfiguration? cfg, string[] roles, bool emailVerified)
     {
         if (cfg == null)
         {
@@ -812,36 +828,43 @@ public class OidcController : ControllerBase
             return "email-not-verified";
         }
 
-        var hasGroupRule = cfg.AllowedGroups.Count > 0;
-        var hasEmailRule = cfg.AllowedEmails.Count > 0;
-        var hasDomainRule = cfg.AllowedEmailDomains.Count > 0;
-        if (!hasGroupRule && !hasEmailRule && !hasDomainRule)
+        if (cfg.AllowedGroups.Count == 0)
         {
             return null;
         }
 
-        if (hasGroupRule && roles.Any(r => cfg.AllowedGroups.Contains(r, StringComparer.OrdinalIgnoreCase)))
+        return roles.Any(r => cfg.AllowedGroups.Contains(r, StringComparer.OrdinalIgnoreCase))
+            ? null
+            : "not-on-allowlist";
+    }
+
+    /// <summary>
+    /// OIDC Back-Channel Logout 1.0 §2.4 claim rules for an already signature-validated
+    /// <c>logout_token</c>: no <c>nonce</c>, the <c>events</c> claim must carry the
+    /// back-channel logout event, and at least one of <c>sub</c> / <c>sid</c> must be present.
+    /// Returns an <c>error_description</c> string, or null when the claims are acceptable.
+    /// </summary>
+    private static string? ValidateLogoutTokenClaims(JwtSecurityToken token)
+    {
+        if (token.Claims.Any(c => c.Type == "nonce"))
         {
-            return null;
+            return "nonce prohibited in logout_token";
         }
 
-        if (!string.IsNullOrEmpty(email))
+        var events = ClaimParser.ExtractClaim(token, "events");
+        if (!events.Contains("http://schemas.openid.net/event/backchannel-logout", StringComparison.Ordinal))
         {
-            if (hasEmailRule && cfg.AllowedEmails.Contains(email, StringComparer.OrdinalIgnoreCase))
-            {
-                return null;
-            }
-
-            var at = email.LastIndexOf('@');
-            var domain = at >= 0 && at < email.Length - 1 ? email[(at + 1)..] : string.Empty;
-            if (hasDomainRule && domain.Length > 0
-                && cfg.AllowedEmailDomains.Contains(domain, StringComparer.OrdinalIgnoreCase))
-            {
-                return null;
-            }
+            return "missing back-channel logout event";
         }
 
-        return "not-on-allowlist";
+        var sub = ClaimParser.ExtractClaim(token, "sub");
+        var sid = ClaimParser.ExtractClaim(token, "sid");
+        if (string.IsNullOrEmpty(sub) && string.IsNullOrEmpty(sid))
+        {
+            return "sub or sid required";
+        }
+
+        return null;
     }
 
     private bool ValidateOrPinEndpoints(OidcProviderConfig provider, DiscoveryDocumentResponse disco)

@@ -36,6 +36,14 @@ public static class ClaimParser
         return token.Claims.FirstOrDefault(c => c.Type == claimType)?.Value ?? string.Empty;
     }
 
+    /// <summary>
+    /// Shortens an OIDC <c>sub</c> for audit logs: the tail is enough to correlate lines
+    /// without writing the full identifier. Used everywhere a subject is logged so the
+    /// controller and the sync service stay consistent.
+    /// </summary>
+    public static string RedactSubject(string? sub)
+        => string.IsNullOrEmpty(sub) ? "(none)" : (sub.Length <= 8 ? sub : "…" + sub[^6..]);
+
     private static string[] ExtractFromFlatClaim(JwtSecurityToken token, string claimType)
     {
         var claims = token.Claims.Where(c => c.Type == claimType).ToArray();

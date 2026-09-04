@@ -304,6 +304,5 @@ public class UserSyncService
     }
 
     /// <summary>Keep the tail of a subject for correlation without logging the whole identifier.</summary>
-    private static string Redact(string sub)
-        => string.IsNullOrEmpty(sub) ? "(none)" : (sub.Length <= 8 ? sub : "…" + sub[^6..]);
+    private static string Redact(string sub) => ClaimParser.RedactSubject(sub);
 }

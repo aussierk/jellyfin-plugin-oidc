@@ -221,6 +221,89 @@ public class StateManagerTests : IDisposable
         Assert.False(consumed!.QuickConnect);
     }
 
+    // ── Back-channel logout: jti replay guard ─────────────────────────────────
+
+    [Fact]
+    public void RegisterJti_FirstUse_ReturnsTrue()
+        => Assert.True(_manager.RegisterJti("jti-1", DateTimeOffset.UtcNow.AddMinutes(10)));
+
+    [Fact]
+    public void RegisterJti_SameJti_ReturnsFalse()
+    {
+        var expiry = DateTimeOffset.UtcNow.AddMinutes(10);
+        Assert.True(_manager.RegisterJti("jti-replay", expiry));
+        Assert.False(_manager.RegisterJti("jti-replay", expiry));
+    }
+
+    [Fact]
+    public void RegisterJti_EmptyJti_ReturnsFalse()
+        => Assert.False(_manager.RegisterJti("", DateTimeOffset.UtcNow.AddMinutes(10)));
+
+    // ── Back-channel logout: session correlation table ────────────────────────
+
+    [Fact]
+    public void FindTracked_BySid_ReturnsMatchingSession()
+    {
+        _manager.TrackSession(MakeTracked(sessionId: "s1", sid: "sid-1", subject: "sub-1"));
+
+        var hits = _manager.FindTracked("https://idp.example.com", sub: null, sid: "sid-1");
+
+        Assert.Single(hits);
+        Assert.Equal("s1", hits[0].SessionId);
+    }
+
+    [Fact]
+    public void FindTracked_BySub_ReturnsAllOfThatSubjectsSessions()
+    {
+        _manager.TrackSession(MakeTracked(sessionId: "s1", sid: "sid-1", subject: "sub-1"));
+        _manager.TrackSession(MakeTracked(sessionId: "s2", sid: "sid-2", subject: "sub-1"));
+        _manager.TrackSession(MakeTracked(sessionId: "s3", sid: "sid-3", subject: "sub-2"));
+
+        var hits = _manager.FindTracked("https://idp.example.com", sub: "sub-1", sid: null);
+
+        Assert.Equal(2, hits.Count);
+    }
+
+    [Fact]
+    public void FindTracked_WrongIssuer_ReturnsEmpty()
+    {
+        _manager.TrackSession(MakeTracked(sessionId: "s1", sid: "sid-1", subject: "sub-1"));
+
+        Assert.Empty(_manager.FindTracked("https://other.example.com", sub: "sub-1", sid: "sid-1"));
+    }
+
+    [Fact]
+    public void FindTracked_NeitherSubNorSid_ReturnsEmpty()
+    {
+        _manager.TrackSession(MakeTracked(sessionId: "s1", sid: "sid-1", subject: "sub-1"));
+
+        Assert.Empty(_manager.FindTracked("https://idp.example.com", sub: null, sid: null));
+    }
+
+    [Fact]
+    public void UntrackBySessionId_RemovesEntry()
+    {
+        _manager.TrackSession(MakeTracked(sessionId: "s1", sid: "sid-1", subject: "sub-1"));
+
+        _manager.UntrackBySessionId("s1");
+
+        Assert.Empty(_manager.FindTracked("https://idp.example.com", sub: "sub-1", sid: "sid-1"));
+    }
+
+    [Fact]
+    public void UntrackByDeviceId_RemovesEveryEntryForThatDevice()
+    {
+        _manager.TrackSession(MakeTracked(sessionId: "s1", sid: "sid-1", subject: "sub-1", deviceId: "dev-A"));
+        _manager.TrackSession(MakeTracked(sessionId: "s2", sid: "sid-2", subject: "sub-1", deviceId: "dev-A"));
+        _manager.TrackSession(MakeTracked(sessionId: "s3", sid: "sid-3", subject: "sub-1", deviceId: "dev-B"));
+
+        _manager.UntrackByDeviceId("dev-A");
+
+        var hits = _manager.FindTracked("https://idp.example.com", sub: "sub-1", sid: null);
+        Assert.Single(hits);
+        Assert.Equal("s3", hits[0].SessionId);
+    }
+
     // ── Lifecycle ──────────────────────────────────────────────────────────────
 
     [Fact]
@@ -250,5 +333,21 @@ public class StateManagerTests : IDisposable
         DisplayName = username,
         PictureUrl = pictureUrl,
         Roles = []
+    };
+
+    private static TrackedSession MakeTracked(
+        string sessionId,
+        string sid,
+        string subject,
+        string issuer = "https://idp.example.com",
+        string deviceId = "device-1") => new()
+    {
+        ProviderId = "provider",
+        Issuer = issuer,
+        Subject = subject,
+        Sid = sid,
+        UserId = Guid.NewGuid(),
+        DeviceId = deviceId,
+        SessionId = sessionId
     };
 }

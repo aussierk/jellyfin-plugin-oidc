@@ -23,19 +23,11 @@
             <div id="tab-roles" class="oidc-tab-content" role="tabpanel" style="display:none;">
                 <div class="oidc-card" style="margin-bottom:1.2em;">
                     <div class="oidc-section-title" style="border:none;margin:0 0 0.4em;padding:0;">Access</div>
-                    <p class="oidc-hint" style="margin:0 0 0.8em;">Who may sign in at all — evaluated before role mapping. Leave the lists empty to admit everyone who authenticates. A user passes if they match <strong>any</strong> rule.</p>
+                    <p class="oidc-hint" style="margin:0 0 0.8em;">Who may sign in at all — evaluated before role mapping. Leave the list empty to admit everyone who authenticates.</p>
                     <div class="oidc-grid">
-                        <div class="oidc-field">
+                        <div class="oidc-field full">
                             <label for="allowedGroups">Allowed groups <span class="oidc-hint">(one per line / comma-separated; matched against the role claim)</span></label>
                             <textarea id="allowedGroups" rows="2" style="width:100%;"></textarea>
-                        </div>
-                        <div class="oidc-field">
-                            <label for="allowedEmailDomains">Allowed email domains <span class="oidc-hint">(e.g. example.com)</span></label>
-                            <textarea id="allowedEmailDomains" rows="2" style="width:100%;"></textarea>
-                        </div>
-                        <div class="oidc-field full">
-                            <label for="allowedEmails">Allowed emails <span class="oidc-hint">(exact addresses)</span></label>
-                            <textarea id="allowedEmails" rows="2" style="width:100%;"></textarea>
                         </div>
                         <div class="oidc-field full">
                             <label><input type="checkbox" id="requireVerifiedEmail" is="emby-checkbox" /> <span>Require a verified email (<code>email_verified</code>)</span></label>

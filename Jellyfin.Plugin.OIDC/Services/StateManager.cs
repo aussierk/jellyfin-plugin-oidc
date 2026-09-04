@@ -75,7 +75,6 @@ public sealed class StateManager : IHostedService, IDisposable
     private static readonly TimeSpan SessionExpiry = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan TrackedSessionMaxAge = TimeSpan.FromDays(90);
-    private static readonly TimeSpan JtiRetention = TimeSpan.FromMinutes(15);
 
     // Hard caps prevent unbounded memory growth from unauthenticated flood attacks.
     private const int MaxPendingStates = 500;
@@ -85,6 +84,10 @@ public sealed class StateManager : IHostedService, IDisposable
     private readonly ConcurrentDictionary<string, OidcState> _pendingStates = new();
     private readonly ConcurrentDictionary<string, AuthorizedSession> _authorizedSessions = new();
     private readonly ConcurrentDictionary<string, TrackedSession> _trackedSessions = new();
+
+    // logout-token jti -> the instant it becomes safe to forget (the token's own expiry
+    // plus clock skew). Keeping the entry for the token's whole validity window means a
+    // captured logout_token can't be replayed even if the fixed cleanup pass is slow.
     private readonly ConcurrentDictionary<string, DateTimeOffset> _seenJti = new();
     private readonly ILogger<StateManager> _logger;
     private Timer? _cleanupTimer;
@@ -185,10 +188,22 @@ public sealed class StateManager : IHostedService, IDisposable
     {
         if (_trackedSessions.Count >= MaxTrackedSessions)
         {
-            var oldest = _trackedSessions.OrderBy(kv => kv.Value.CreatedAt).FirstOrDefault().Key;
-            if (oldest != null)
+            // Evict the oldest entry. Single pass rather than an O(n log n) sort on every
+            // insert once the cap is hit (e.g. under a login flood).
+            string? oldestKey = null;
+            var oldestAt = DateTimeOffset.MaxValue;
+            foreach (var (key, s) in _trackedSessions)
             {
-                _trackedSessions.TryRemove(oldest, out _);
+                if (s.CreatedAt < oldestAt)
+                {
+                    oldestAt = s.CreatedAt;
+                    oldestKey = key;
+                }
+            }
+
+            if (oldestKey != null)
+            {
+                _trackedSessions.TryRemove(oldestKey, out _);
             }
         }
 
@@ -215,9 +230,13 @@ public sealed class StateManager : IHostedService, IDisposable
                     || (!string.IsNullOrEmpty(sub) && string.Equals(s.Subject, sub, StringComparison.Ordinal))))
             .ToList();
 
-    /// <summary>Records a logout-token <c>jti</c>; returns false if it was already seen (replay).</summary>
-    public bool RegisterJti(string jti)
-        => !string.IsNullOrEmpty(jti) && _seenJti.TryAdd(jti, DateTimeOffset.UtcNow);
+    /// <summary>
+    /// Records a logout-token <c>jti</c>; returns false if it was already seen (replay).
+    /// <paramref name="forgetAfter"/> is when the entry may be cleaned up — pass the token's
+    /// own expiry (plus skew) so the guard covers the whole window the token is valid for.
+    /// </summary>
+    public bool RegisterJti(string jti, DateTimeOffset forgetAfter)
+        => !string.IsNullOrEmpty(jti) && _seenJti.TryAdd(jti, forgetAfter);
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -264,9 +283,9 @@ public sealed class StateManager : IHostedService, IDisposable
             }
         }
 
-        foreach (var (jti, seenAt) in _seenJti)
+        foreach (var (jti, forgetAfter) in _seenJti)
         {
-            if (now - seenAt > JtiRetention)
+            if (now > forgetAfter)
             {
                 _seenJti.TryRemove(jti, out _);
             }

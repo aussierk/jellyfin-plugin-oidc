@@ -20,7 +20,7 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// When set, a login is rejected unless the token asserts <c>email_verified</c>.
-    /// Off by default. Evaluated at the admission gate alongside <see cref="AllowedGroups"/> etc.
+    /// Off by default. Evaluated at the admission gate alongside <see cref="AllowedGroups"/>.
     /// </summary>
     public bool RequireVerifiedEmail { get; set; } = false;
 
@@ -33,12 +33,6 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>Groups/roles allowed to sign in at all (separate from RBAC). Empty ⇒ everyone who authenticates.</summary>
     public List<string> AllowedGroups { get; set; } = new();
-
-    /// <summary>Email domains allowed to sign in (e.g. "example.com"). Empty ⇒ no domain restriction.</summary>
-    public List<string> AllowedEmailDomains { get; set; } = new();
-
-    /// <summary>Exact emails allowed to sign in. Empty ⇒ no per-address restriction.</summary>
-    public List<string> AllowedEmails { get; set; } = new();
 
     /// <summary>
     /// When true, an Authority resolving to an RFC1918 private range (10/8, 172.16/12, 192.168/16)
