@@ -12,9 +12,9 @@
         "version": "1.0.7.1",
         "changelog": "Feat: the plugin's Save now keeps the SSO login button in Jellyfin's Branding in sync automatically (Login Disclaimer + Custom CSS, marker-fenced) — toggle via 'Manage the login button in Branding automatically' on the General tab; manual copy/paste of Html + Css still available. The button renders full-width just below the native Sign In button, white label, matching the active theme/skin (dark and community themes included); a customized provider Button Color colours just that button's background. Web client only — native/TV apps use Quick Connect; Jellyfin's disclaimer sanitizer may open the SSO flow in a new tab. Feat: per-provider Button Icon — a bundled glyph (Authentik, Keycloak, Google, Microsoft, Okta, Auth0, Discord, GitHub) or a custom image (paste SVG / data URI, or pick an SVG/PNG/JPEG/GIF/WebP file). Feat: optional 'Hide the username/password form' on the web login page (keeps Quick Connect, hides Forgot Password) with a configurable heading and an optional smaller sign-in instructions line; the button block uses Jellyfin's .readOnlyContent class and the text lines use .sectionTitle / .fieldDescription so custom themes style the whole block. Feat: surface the plugin's config page directly in the dashboard left nav (Plugins section).",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.7.1-rc.11/oidc-rbac.zip",
-        "checksum": "ec65d6311030cc981296ca29dd2de040",
-        "timestamp": "2026-09-03T21:30:32Z"
+        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v1.0.7.1-rc.12/oidc-rbac.zip",
+        "checksum": "5ee7bb24c5014968323d1c42dbb33442",
+        "timestamp": "2026-09-04T17:42:23Z"
       },
       {
         "version": "1.0.7.0",
