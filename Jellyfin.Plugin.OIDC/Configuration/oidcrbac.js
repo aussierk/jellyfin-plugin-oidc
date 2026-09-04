@@ -140,6 +140,13 @@ function gchk(view, id) {
     return el ? el.checked : false;
 }
 
+// Suggests a per-provider env var name so the placeholder never nudges two providers toward
+// reusing the same variable (each provider must resolve to its own secret).
+function envVarSuggestion(p) {
+    var slug = (p.ProviderId || 'PROVIDER').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    return (slug || 'PROVIDER') + '_CLIENT_SECRET';
+}
+
 function fld(label, type, id, value, placeholder, full) {
     return '<div class="oidc-field' + (full ? ' full' : '') + '">' +
         '<label for="' + id + '">' + esc(label) + '</label>' +
@@ -277,7 +284,10 @@ function renderProviders(view) {
             fld('Display Name', 'text', 'prov_name_' + idx, p.DisplayName, 'Shown on login button') +
             fld('Authority URL', 'text', 'prov_authority_' + idx, p.Authority, 'https://idp.example.com/realms/myrealm', true) +
             fld('Client ID', 'text', 'prov_clientid_' + idx, p.ClientId, '') +
-            fld('Client Secret', 'password', 'prov_secret_' + idx, p.ClientSecret, '') +
+            fld('Client Secret', 'password', 'prov_secret_' + idx, p.ClientSecret,
+                'Or reference an env var unique to THIS provider, e.g. ${' + envVarSuggestion(p) + '}') +
+            fld('Client Secret File', 'text', 'prov_secretfile_' + idx, p.ClientSecretFile,
+                'Optional: path to a file unique to THIS provider (e.g. a mounted Docker/K8s secret) — overrides Client Secret above') +
             fld('Scopes', 'text', 'prov_scopes_' + idx, p.Scopes || 'openid profile email', '');
 
         var claims =
@@ -607,6 +617,7 @@ function collectProviders(view) {
             Authority: gval(view, 'prov_authority_' + idx),
             ClientId: gval(view, 'prov_clientid_' + idx),
             ClientSecret: gval(view, 'prov_secret_' + idx),
+            ClientSecretFile: gval(view, 'prov_secretfile_' + idx),
             Scopes: gval(view, 'prov_scopes_' + idx),
             RoleClaim: gval(view, 'prov_roleclaim_' + idx),
             UsernameClaim: gval(view, 'prov_userclaim_' + idx),
@@ -797,7 +808,7 @@ export default function (view) {
         cfg.Providers = collectProviders(view);
         cfg.Providers.push({
             ProviderId: '', DisplayName: 'New Provider', Authority: '',
-            ClientId: '', ClientSecret: '', Scopes: 'openid profile email',
+            ClientId: '', ClientSecret: '', ClientSecretFile: '', Scopes: 'openid profile email',
             RoleClaim: 'groups', UsernameClaim: 'preferred_username',
             DisplayNameClaim: 'name', EmailClaim: 'email', PictureClaim: 'picture',
             SyncProfileImage: true, SyncDisplayName: false,

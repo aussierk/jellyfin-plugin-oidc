@@ -251,7 +251,7 @@ public class OidcController : ControllerBase
         {
             Address = disco.TokenEndpoint,
             ClientId = provider.ClientId,
-            ClientSecret = provider.ClientSecret,
+            ClientSecret = ClientSecretResolver.Resolve(provider, _logger),
             Code = code,
             RedirectUri = oidcState.RedirectUri,
             CodeVerifier = oidcState.CodeVerifier

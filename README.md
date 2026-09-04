@@ -36,6 +36,7 @@ These changes are not present in the upstream plugin:
 - **Per-provider role filter** — restrict a role mapping to one specific provider to prevent cross-provider privilege grants
 - **Endpoint pinning** — TOFU pins discovery endpoints on first use; editable pin fields let you pre-set expected values from your IdP docs to eliminate the first-use trust window
 - **Auto-provisioning** — create Jellyfin users on first SSO login
+- **Client secret out of the config file** — point Client Secret File at a mounted secret, or reference an environment variable, instead of storing the secret in plaintext
 - **Flexible claim parsing** — extract roles from nested JWT claims (e.g. `realm_access.roles`, `groups`), resolved from the ID token, the access token, or the `userinfo` endpoint (in that order)
 - **Merge semantics** — users with multiple roles get the union of all permissions (most permissive wins)
 - **Default role fallback** — assign a baseline role to users with no matching IdP roles
@@ -96,6 +97,7 @@ Go to **Admin Dashboard → Plugins → SSO-OIDC Authentication → Providers ta
 | Authority URL      | `https://auth.example.com/application/o/jellyfin/`        |
 | Client ID          | *(from your IdP)*                                          |
 | Client Secret      | *(from your IdP)*                                          |
+| Client Secret File | *(optional — see below)*                                   |
 | Scopes             | `openid profile email`                                     |
 | Role Claim Path    | `groups`                                                   |
 | Username Claim     | `preferred_username`                                       |
@@ -105,6 +107,27 @@ Go to **Admin Dashboard → Plugins → SSO-OIDC Authentication → Providers ta
 | Server Base URL    | *(optional, e.g. `https://jellyfin.example.com`)*          |
 
 > **Server Base URL** is only needed if Jellyfin can't resolve its public URL on its own (e.g. behind a reverse proxy whose `X-Forwarded-*` headers aren't trusted). See [Reverse proxy / redirect_uri](#reverse-proxy--redirect_uri).
+
+> **Keeping the client secret out of the plugin config:** the plaintext **Client Secret**
+> field still works and is the default, but you don't have to use it:
+> - **Client Secret File** — point it at a file (e.g. a Docker/Kubernetes-mounted secret) and
+>   the plugin reads the secret from there instead. Takes priority over Client Secret when set
+>   and readable.
+> - **Environment variable** — set **Client Secret** to `${VAR_NAME}` and the plugin resolves it
+>   from that environment variable at login time. The literal `${VAR_NAME}` — not the real
+>   secret — is what ends up on disk in the plugin's config.
+>
+> **With more than one provider, give each one its own file/variable** — e.g.
+> `${KEYCLOAK_CLIENT_SECRET}` and `${AUTHENTIK_CLIENT_SECRET}`, or
+> `/run/secrets/keycloak_client_secret` and `/run/secrets/authentik_client_secret`. Two
+> providers pointed at the same one authenticate with the same secret; since each provider is
+> registered with its own client ID at its own IdP, the IdP rejects the token exchange for
+> whichever provider it doesn't actually belong to (a loud `invalid_client` failure, not a
+> silent security issue, but still a config mistake worth avoiding). The config page suggests a
+> provider-specific variable name for exactly this reason.
+>
+> Either way, the actual secret is only ever read at the moment it's needed and is never
+> written back into the plugin config.
 
 ### Profile image sync
 
@@ -438,7 +461,7 @@ These are architectural constraints rather than bugs. They are documented here s
 | Limitation | Impact | Mitigation |
 |---|---|---|
 | **Single-node only** | Pending auth state, one-time sessions, and the back-channel-logout correlation table are all in-memory. The OIDC callback must reach the same Jellyfin instance that started the login, and a restart drops that state: a login in progress must be retried, and a `sid`-scoped back-channel logout received after a restart falls back to revoking all of the subject's sessions. | Single instance, or sticky sessions at the load balancer. Restart impact is transient. |
-| Client secret stored as plaintext | Anyone with filesystem read access to the Jellyfin data directory can read the OIDC client secret from the plugin config (this is how all Jellyfin plugin configs work) | Restrict permissions on the Jellyfin data directory; run Jellyfin as a dedicated service account |
+| Client secret in the plugin config, by default | The **Client Secret** field is plaintext in the plugin config (this is how all Jellyfin plugin configs work) | Use **Client Secret File** (a mounted Docker/Kubernetes secret) or set Client Secret to `${ENV_VAR_NAME}` — see [Configure a Provider](#1-configure-a-provider) — so the real secret never has to live in the config; failing that, restrict permissions on the Jellyfin data directory |
 | No refresh tokens | Role/permission changes at the IdP apply on the user's next login, not mid-session. RBAC is re-evaluated on every login. | Users re-authenticate to pick up changes; a back-channel logout or an admin disable forces that immediately |
 | Session lifetime is Jellyfin's, not the IdP's | A Jellyfin session minted via OIDC is not capped at the `id_token` expiry | Use back-channel logout for IdP-driven revocation; set a shorter Jellyfin session timeout |
 | Group claim must be reachable | Role claims are read from the ID token, then the access token, then the `userinfo` endpoint — in that order. An IdP that exposes groups by none of those routes (e.g. only via a separate directory API) is not supported. | Configure the IdP to emit the group/role claim in a token or in `userinfo` (a Keycloak client-scope mapper, an Entra groups claim, an Okta groups claim) |

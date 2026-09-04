@@ -141,6 +141,14 @@ public class OidcProviderConfig
 
     public string ClientSecret { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Optional path to a file holding the client secret (e.g. a mounted Docker/Kubernetes
+    /// secret). When set and readable, this is used instead of <see cref="ClientSecret"/>, so
+    /// the actual secret never has to live in the plugin's own on-disk config. See also
+    /// <see cref="Services.ClientSecretResolver"/>.
+    /// </summary>
+    public string ClientSecretFile { get; set; } = string.Empty;
+
     public string Scopes { get; set; } = "openid profile email";
 
     // "groups" is the most portable default (Authentik, Google, Okta, Auth0, generic OIDC).
