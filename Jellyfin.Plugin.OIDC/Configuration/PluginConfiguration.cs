@@ -213,5 +213,16 @@ public class RoleMapping
 
     public bool EnableSubtitleManagement { get; set; }
 
+    /// <summary>
+    /// A Jellyfin parental-rating name (e.g. "PG-13"), resolved to a score at apply time via
+    /// <c>ILocalizationManager</c>. Empty ⇒ this mapping does not restrict the rating.
+    /// </summary>
+    public string MaxParentalRatingName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Legacy numeric parental-rating score. Written by pre-name configs; still honoured as a
+    /// fallback when <see cref="MaxParentalRatingName"/> is empty. The config page now writes
+    /// <see cref="MaxParentalRatingName"/> and clears this.
+    /// </summary>
     public int? MaxParentalRating { get; set; }
 }

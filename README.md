@@ -142,7 +142,7 @@ Go to **Role Mappings tab** and create mappings:
 **Example — Kids:**
 - Role Name: `jellyfin-kids`
 - Libraries: Kids only
-- Max Parental Rating: 7
+- Max Parental Rating: pick `PG` (or your country's equivalent) from the dropdown
 
 > **Multiple providers configured?** Use the **Provider Filter** dropdown on each role mapping to restrict it to a specific provider. Without a filter, a role mapping applies to users from *all* providers — so if two providers both issue a role named `admin`, users from either will get admin access. See [Multi-provider role isolation](#multi-provider-role-isolation).
 
@@ -277,7 +277,17 @@ When a user matches multiple role mappings, permissions are **merged (union)**:
 - Boolean permissions: `true` if **any** matched role has it enabled
 - Libraries: union of all matched roles' library sets
 - `EnableAllLibraries`: `true` if any role enables it
-- `MaxParentalRating`: highest value across all matched roles
+- **Max Parental Rating: strictest (lowest) wins** across matched roles. Picked by name
+  (`PG-13`, `TV-14`, …) from the list your Jellyfin server recognises for its metadata
+  country, and resolved to the same numeric score Jellyfin's own user screen uses.
+
+> Older configs stored a raw parental-rating number; that value is still honoured until you
+> re-pick the rating by name and save.
+
+Every user-policy field the plugin does **not** manage — access schedules, blocked/allowed
+tags, unrated-item blocks, bitrate and session caps, SyncPlay level, per-channel/device
+lists — is carried through from the user's current Jellyfin settings on each OIDC login,
+not reset.
 
 ### Fallback role
 

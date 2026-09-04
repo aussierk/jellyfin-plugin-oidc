@@ -1,4 +1,5 @@
 using Jellyfin.Data;
+using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.OIDC.Configuration;
@@ -6,6 +7,7 @@ using Jellyfin.Plugin.OIDC.Services;
 using Jellyfin.Plugin.OIDC.Tests.Fixtures;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Globalization;
 using MediaBrowser.Model.Users;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -32,8 +34,10 @@ public class RbacServiceTests
         return user;
     }
 
-    private static RbacService MakeService(IUserManager userManager, ILibraryManager libraryManager)
-        => new(userManager, libraryManager, NullLogger<RbacService>.Instance);
+    private static RbacService MakeService(
+        IUserManager userManager, ILibraryManager libraryManager, ILocalizationManager? localization = null)
+        => new(userManager, libraryManager, localization ?? Substitute.For<ILocalizationManager>(),
+            NullLogger<RbacService>.Instance);
 
     // ── early-exit when user not found ─────────────────────────────────────────
 
@@ -280,6 +284,106 @@ public class RbacServiceTests
     }
 
     // ── library name resolution ────────────────────────────────────────────────
+
+    // ── non-RBAC policy fields survive an OIDC login ──────────────────────────
+
+    private static (RbacService Svc, IUserManager Um) ServiceCapturing(out System.Func<UserPolicy?> captured, User user, ILocalizationManager? loc = null)
+    {
+        var userManager = Substitute.For<IUserManager>();
+        userManager.GetUserById(user.Id).Returns(user);
+        UserPolicy? cap = null;
+        userManager.UpdatePolicyAsync(Arg.Any<Guid>(), Arg.Do<UserPolicy>(p => cap = p)).Returns(Task.CompletedTask);
+        captured = () => cap;
+        return (MakeService(userManager, Substitute.For<ILibraryManager>(), loc), userManager);
+    }
+
+    [Fact]
+    public async Task NonRbacPolicyFields_ArePreserved()
+    {
+        var user = MakeUser();
+        user.AccessSchedules.Add(new AccessSchedule(DynamicDayOfWeek.Everyday, 0, 12, user.Id));
+        user.SetPreference(PreferenceKind.BlockedTags, ["horror"]);
+        user.SetPreference(PreferenceKind.BlockUnratedItems, [UnratedItem.Movie.ToString()]);
+        user.RemoteClientBitrateLimit = 5_000_000;
+        user.MaxActiveSessions = 3;
+        user.SyncPlayAccess = SyncPlayUserAccessType.None;
+        user.MaxParentalRatingScore = 10;
+
+        var (svc, _) = ServiceCapturing(out var policy, user);
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            RoleMappings = [new RoleMapping { RoleName = "viewers", EnableMediaPlayback = true }]
+        });
+
+        await svc.ApplyRoleMappingsAsync(user.Id, ["viewers"], "keycloak");
+
+        var p = policy()!;
+        Assert.Single(p.AccessSchedules);
+        Assert.Contains("horror", p.BlockedTags);
+        Assert.Contains(UnratedItem.Movie, p.BlockUnratedItems);
+        Assert.Equal(5_000_000, p.RemoteClientBitrateLimit);
+        Assert.Equal(3, p.MaxActiveSessions);
+        Assert.Equal(SyncPlayUserAccessType.None, p.SyncPlayAccess);
+        Assert.Equal(10, p.MaxParentalRating); // carried forward — no mapping restricts it
+    }
+
+    // ── parental rating: name -> score via ILocalizationManager, strictest wins ──
+
+    [Fact]
+    public async Task ParentalRating_ResolvesNameToScore()
+    {
+        var user = MakeUser();
+        var loc = Substitute.For<ILocalizationManager>();
+        loc.GetRatingScore("PG-13", Arg.Any<string>()).Returns(new ParentalRatingScore(9, null));
+
+        var (svc, _) = ServiceCapturing(out var policy, user, loc);
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            RoleMappings = [new RoleMapping { RoleName = "teens", MaxParentalRatingName = "PG-13" }]
+        });
+
+        await svc.ApplyRoleMappingsAsync(user.Id, ["teens"], "keycloak");
+
+        Assert.Equal(9, policy()!.MaxParentalRating);
+        Assert.Null(policy()!.MaxParentalSubRating);
+    }
+
+    [Fact]
+    public async Task ParentalRating_LegacyNumericStillHonoured()
+    {
+        var user = MakeUser();
+        var (svc, _) = ServiceCapturing(out var policy, user);
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            RoleMappings = [new RoleMapping { RoleName = "kids", MaxParentalRating = 7 }]
+        });
+
+        await svc.ApplyRoleMappingsAsync(user.Id, ["kids"], "keycloak");
+
+        Assert.Equal(7, policy()!.MaxParentalRating);
+    }
+
+    [Fact]
+    public async Task ParentalRating_StrictestWins_AcrossMappings()
+    {
+        var user = MakeUser();
+        var loc = Substitute.For<ILocalizationManager>();
+        loc.GetRatingScore("PG-13", Arg.Any<string>()).Returns(new ParentalRatingScore(9, null));
+
+        var (svc, _) = ServiceCapturing(out var policy, user, loc);
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            RoleMappings =
+            [
+                new RoleMapping { RoleName = "a", MaxParentalRatingName = "PG-13" }, // score 9
+                new RoleMapping { RoleName = "b", MaxParentalRating = 5 }             // score 5 (stricter)
+            ]
+        });
+
+        await svc.ApplyRoleMappingsAsync(user.Id, ["a", "b"], "keycloak");
+
+        Assert.Equal(5, policy()!.MaxParentalRating);
+    }
 
     [Fact]
     public void GetAvailableLibraries_ReturnsNameToIdDictionary()

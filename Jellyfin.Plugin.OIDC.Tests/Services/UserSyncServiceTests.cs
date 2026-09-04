@@ -9,6 +9,7 @@ using Jellyfin.Plugin.OIDC.Tests.Fixtures;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
+using MediaBrowser.Model.Globalization;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
@@ -29,7 +30,8 @@ public class UserSyncServiceTests
     private UserSyncService MakeService(IUserManager userManager)
     {
         var libraryManager = Substitute.For<ILibraryManager>();
-        var rbac = new RbacService(userManager, libraryManager, NullLogger<RbacService>.Instance);
+        var rbac = new RbacService(
+            userManager, libraryManager, Substitute.For<ILocalizationManager>(), NullLogger<RbacService>.Instance);
         // Not exercised by these tests (no profile-image sync coverage here).
         HttpClient PinnedClientFactory(IPAddress address, bool allowAutoRedirect) => new();
 

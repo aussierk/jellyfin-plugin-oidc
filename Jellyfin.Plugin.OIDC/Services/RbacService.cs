@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Jellyfin.Data;
+using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.OIDC.Configuration;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Globalization;
 using MediaBrowser.Model.Users;
 using Microsoft.Extensions.Logging;
 
@@ -15,15 +17,18 @@ public class RbacService
 {
     private readonly IUserManager _userManager;
     private readonly ILibraryManager _libraryManager;
+    private readonly ILocalizationManager _localization;
     private readonly ILogger<RbacService> _logger;
 
     public RbacService(
         IUserManager userManager,
         ILibraryManager libraryManager,
+        ILocalizationManager localization,
         ILogger<RbacService> logger)
     {
         _userManager = userManager;
         _libraryManager = libraryManager;
+        _localization = localization;
         _logger = logger;
     }
 
@@ -86,18 +91,27 @@ public class RbacService
                 .ToArray();
         }
 
-        // Build a policy from the current user state and override with RBAC values.
-        // Using UpdatePolicyAsync ensures Jellyfin refreshes its runtime user state
-        // (not just the database), so the session created by AuthenticateDirect
-        // picks up the correct admin flag.
+        // The strictest parental rating across the matched mappings, or the user's current
+        // one when no mapping restricts it. Lower score = more restrictive.
+        var (parentalScore, parentalSubScore) = ResolveParentalRating(matchedMappings)
+            ?? (user.MaxParentalRatingScore, user.MaxParentalRatingSubScore);
+
+        // Build the policy by carrying EVERY field forward from the user's current entity
+        // state, then overriding ONLY the fields the plugin owns (the "RBAC-controlled"
+        // block below). Anything not in that block — access schedules, blocked/allowed tags,
+        // unrated-item blocks, bitrate/session caps, SyncPlay level, channel/device lists —
+        // is the Jellyfin admin's to set and must survive an OIDC login untouched.
+        //
+        // Using UpdatePolicyAsync (not UpdateUserAsync) so Jellyfin refreshes its runtime
+        // user state, not just the DB row — the session minted right after by
+        // AuthenticateDirect then sees the correct admin flag.
         var policy = new UserPolicy
         {
-            // Preserve identity fields
+            // ── carried forward from current user state (NOT plugin-managed) ──
             AuthenticationProviderId = user.AuthenticationProviderId,
             PasswordResetProviderId = user.PasswordResetProviderId,
-
-            // Preserve non-RBAC permissions from current user state
             IsHidden = user.HasPermission(PermissionKind.IsHidden),
+            IsDisabled = user.HasPermission(PermissionKind.IsDisabled), // never re-enable a disabled user
             EnableUserPreferenceAccess = true,
             EnableRemoteControlOfOtherUsers = user.HasPermission(PermissionKind.EnableRemoteControlOfOtherUsers),
             EnableSharedDeviceControl = user.HasPermission(PermissionKind.EnableSharedDeviceControl),
@@ -107,11 +121,26 @@ public class RbacService
             EnableMediaConversion = user.HasPermission(PermissionKind.EnableMediaConversion),
             EnableAllDevices = user.HasPermission(PermissionKind.EnableAllDevices),
             EnableAllChannels = user.HasPermission(PermissionKind.EnableAllChannels),
-            MaxParentalRating = user.MaxParentalRatingScore,
+            ForceRemoteSourceTranscoding = user.HasPermission(PermissionKind.ForceRemoteSourceTranscoding),
+            EnablePublicSharing = user.HasPermission(PermissionKind.EnablePublicSharing),
+            EnableLyricManagement = user.HasPermission(PermissionKind.EnableLyricManagement),
+            BlockedTags = user.GetPreference(PreferenceKind.BlockedTags),
+            AllowedTags = user.GetPreference(PreferenceKind.AllowedTags),
+            EnabledDevices = user.GetPreference(PreferenceKind.EnabledDevices),
+            EnableContentDeletionFromFolders = user.GetPreference(PreferenceKind.EnableContentDeletionFromFolders),
+            EnabledChannels = user.GetPreferenceValues<Guid>(PreferenceKind.EnabledChannels),
+            BlockedChannels = user.GetPreferenceValues<Guid>(PreferenceKind.BlockedChannels),
+            BlockedMediaFolders = user.GetPreferenceValues<Guid>(PreferenceKind.BlockedMediaFolders),
+            BlockUnratedItems = user.GetPreferenceValues<UnratedItem>(PreferenceKind.BlockUnratedItems),
+            AccessSchedules = user.AccessSchedules.ToArray(),
+            MaxActiveSessions = user.MaxActiveSessions,
+            LoginAttemptsBeforeLockout = user.LoginAttemptsBeforeLockout ?? -1,
+            InvalidLoginAttemptCount = user.InvalidLoginAttemptCount,
+            RemoteClientBitrateLimit = user.RemoteClientBitrateLimit ?? 0,
+            SyncPlayAccess = user.SyncPlayAccess,
 
-            // RBAC-controlled fields
+            // ── RBAC-controlled: the ONLY fields the plugin owns ──
             IsAdministrator = merged.IsAdmin,
-            IsDisabled = user.HasPermission(PermissionKind.IsDisabled), // preserve — never re-enable a disabled user
             EnableMediaPlayback = merged.EnableMediaPlayback,
             EnableRemoteAccess = merged.EnableRemoteAccess,
             EnableAudioPlaybackTranscoding = merged.EnableTranscoding,
@@ -123,12 +152,9 @@ public class RbacService
             EnableSubtitleManagement = merged.EnableSubtitleManagement,
             EnableAllFolders = merged.EnableAllLibraries,
             EnabledFolders = enabledFolderIds,
+            MaxParentalRating = parentalScore,
+            MaxParentalSubRating = parentalSubScore,
         };
-
-        if (merged.MaxParentalRating.HasValue)
-        {
-            policy.MaxParentalRating = merged.MaxParentalRating;
-        }
 
         await _userManager.UpdatePolicyAsync(userId, policy).ConfigureAwait(false);
 
@@ -189,11 +215,8 @@ public class RbacService
             EnableContentDeletion = mappings.Any(m => m.EnableContentDeletion),
             EnableCollectionManagement = mappings.Any(m => m.EnableCollectionManagement),
             EnableSubtitleManagement = mappings.Any(m => m.EnableSubtitleManagement),
-            MaxParentalRating = mappings
-                .Where(m => m.MaxParentalRating.HasValue)
-                .Select(m => m.MaxParentalRating)
-                .DefaultIfEmpty(null)
-                .Max(),
+            // Parental rating is resolved separately (name -> score) and merged strictest-wins;
+            // see ResolveParentalRating.
             LibraryIds = mappings
                 .SelectMany(m => m.LibraryIds)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -203,5 +226,56 @@ public class RbacService
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList()
         };
+    }
+
+    /// <summary>
+    /// The strictest parental rating across the matched mappings, or null when none restrict it.
+    /// Each mapping's <see cref="RoleMapping.MaxParentalRatingName"/> is resolved through
+    /// Jellyfin's own <see cref="ILocalizationManager"/> (server metadata country); the legacy
+    /// numeric <see cref="RoleMapping.MaxParentalRating"/> is honoured as a fallback. "Strictest"
+    /// = lowest <c>(Score, SubScore)</c>.
+    /// </summary>
+    private (int? Score, int? SubScore)? ResolveParentalRating(List<RoleMapping> mappings)
+    {
+        (int Score, int? SubScore)? strictest = null;
+
+        foreach (var mapping in mappings)
+        {
+            (int Score, int? SubScore)? candidate = null;
+
+            if (!string.IsNullOrWhiteSpace(mapping.MaxParentalRatingName))
+            {
+                var resolved = _localization.GetRatingScore(mapping.MaxParentalRatingName.Trim(), string.Empty);
+                if (resolved != null)
+                {
+                    candidate = (resolved.Score, resolved.SubScore);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "OIDC RBAC: parental rating '{Rating}' not recognised by this server; ignoring it for the merge",
+                        mapping.MaxParentalRatingName);
+                }
+            }
+            else if (mapping.MaxParentalRating.HasValue)
+            {
+                candidate = (mapping.MaxParentalRating.Value, null);
+            }
+
+            if (candidate == null)
+            {
+                continue;
+            }
+
+            if (strictest == null
+                || candidate.Value.Score < strictest.Value.Score
+                || (candidate.Value.Score == strictest.Value.Score
+                    && (candidate.Value.SubScore ?? int.MaxValue) < (strictest.Value.SubScore ?? int.MaxValue)))
+            {
+                strictest = candidate;
+            }
+        }
+
+        return strictest == null ? null : (strictest.Value.Score, strictest.Value.SubScore);
     }
 }

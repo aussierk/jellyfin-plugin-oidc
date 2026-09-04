@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using IdentityModel.Client;
 using Jellyfin.Plugin.OIDC.Services;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Model.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -21,17 +22,20 @@ public class ConfigController : ControllerBase
         "Unable to retrieve a discovery document from the given Authority URL. Check the URL and try again; see the server log for details.";
 
     private readonly RbacService _rbacService;
+    private readonly ILocalizationManager _localization;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly Func<IPAddress, bool, HttpClient> _pinnedHttpClientFactory;
     private readonly ILogger<ConfigController> _logger;
 
     public ConfigController(
         RbacService rbacService,
+        ILocalizationManager localization,
         IHttpClientFactory httpClientFactory,
         Func<IPAddress, bool, HttpClient> pinnedHttpClientFactory,
         ILogger<ConfigController> logger)
     {
         _rbacService = rbacService;
+        _localization = localization;
         _httpClientFactory = httpClientFactory;
         _pinnedHttpClientFactory = pinnedHttpClientFactory;
         _logger = logger;
@@ -41,6 +45,31 @@ public class ConfigController : ControllerBase
     public ActionResult<Dictionary<string, string>> GetLibraries()
     {
         return Ok(_rbacService.GetAvailableLibraries());
+    }
+
+    /// <summary>
+    /// The parental ratings this server knows (from its configured metadata country), for the
+    /// role-mapping "Max Parental Rating" dropdown. Name is what the mapping stores; Score/SubScore
+    /// are informational (ordering + display).
+    /// </summary>
+    [HttpGet("Ratings")]
+    public ActionResult GetRatings()
+    {
+        var ratings = _localization.GetParentalRatings()
+            .Where(r => !string.IsNullOrWhiteSpace(r.Name))
+            .GroupBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .Select(r => new
+            {
+                r.Name,
+                Score = r.RatingScore?.Score,
+                SubScore = r.RatingScore?.SubScore
+            })
+            .OrderBy(r => r.Score ?? int.MaxValue)
+            .ThenBy(r => r.SubScore ?? int.MaxValue)
+            .ToList();
+
+        return Ok(ratings);
     }
 
     [HttpGet("Status")]

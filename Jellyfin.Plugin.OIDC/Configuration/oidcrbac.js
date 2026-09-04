@@ -1,6 +1,7 @@
 var pluginId = 'e1c020c5-3972-4b7b-9538-ee4934cc902c';
 var cfg = null;
 var libs = {};
+var ratings = []; // [{ Name, Score, SubScore }] from Jellyfin, for the Max Parental Rating picker
 
 // Unsaved-changes tracking. `dirty` flips true on any edit and false after a load or a
 // successful save; the sticky save bar and the beforeunload guard both read it.
@@ -380,6 +381,33 @@ function renderDefaultRoleOptions(view) {
     sel.value = current;
 }
 
+// Options for a role card's Max Parental Rating <select>. Value = rating name (what we store).
+// Pre-selects m.MaxParentalRatingName; falls back to matching a legacy numeric m.MaxParentalRating
+// against the rating list, and shows a disabled "Custom (n)" entry if that legacy value is unknown.
+function ratingOptions(m) {
+    var selName = (m.MaxParentalRatingName || '').trim();
+    var legacy = (typeof m.MaxParentalRating === 'number') ? m.MaxParentalRating : null;
+    if (!selName && legacy != null) {
+        var hit = ratings.find(function (r) { return r.Score === legacy; });
+        if (hit) { selName = hit.Name; }
+    }
+
+    var opts = '<option value="">— Unrestricted —</option>';
+    var known = false;
+    ratings.forEach(function (r) {
+        var sel = (r.Name.toLowerCase() === selName.toLowerCase()) ? ' selected' : '';
+        if (sel) { known = true; }
+        opts += '<option value="' + esc(r.Name) + '"' + sel + '>' + esc(r.Name) + '</option>';
+    });
+
+    if (selName && !known) {
+        opts += '<option value="' + esc(selName) + '" selected>' + esc(selName) + ' (not defined on this server)</option>';
+    } else if (!selName && legacy != null) {
+        opts += '<option value="__legacy__" selected disabled>Custom score ' + legacy + ' (re-pick to update)</option>';
+    }
+    return opts;
+}
+
 function renderRoleMappings(view) {
     var container = view.querySelector('#roleMappingList');
     container.innerHTML = '';
@@ -460,8 +488,8 @@ function renderRoleMappings(view) {
             '<div id="role_libs_' + idx + '" class="oidc-library-list"></div>' +
             '</div>' +
             '<div class="oidc-field" style="margin-top:0.5em;">' +
-            '<label>Max Parental Rating (empty = unrestricted)</label>' +
-            '<input is="emby-input" type="number" id="role_maxrating_' + idx + '" value="' + (m.MaxParentalRating != null ? m.MaxParentalRating : '') + '" />' +
+            '<label>Max Parental Rating <span class="oidc-hint">(empty = unrestricted; strictest wins when several roles match)</span></label>' +
+            '<select is="emby-select" id="role_maxrating_' + idx + '">' + ratingOptions(m) + '</select>' +
             '</div>' +
             '<div style="margin-top:0.5em;">' +
             '<button type="button" class="oidc-btn-remove" data-action="remove-role" data-idx="' + idx + '">Remove</button>' +
@@ -600,6 +628,9 @@ function collectRoleMappings(view) {
         var libIds = [];
         chips.forEach(function (c) { libIds.push(c.getAttribute('data-lib-id')); });
         var mr = gval(view, 'role_maxrating_' + idx);
+        var mrName = (mr && mr !== '__legacy__') ? mr : '';
+        // Preserve an unresolved legacy numeric score only while the admin hasn't picked a name.
+        var mrLegacy = mrName ? null : (cfg.RoleMappings[idx] ? cfg.RoleMappings[idx].MaxParentalRating : null);
         result.push({
             RoleName: gval(view, 'role_name_' + idx),
             ProviderFilter: gval(view, 'role_provfilter_' + idx),
@@ -614,7 +645,8 @@ function collectRoleMappings(view) {
             EnableContentDeletion: gchk(view, 'role_delete_' + idx),
             EnableCollectionManagement: gchk(view, 'role_collections_' + idx),
             EnableSubtitleManagement: gchk(view, 'role_subtitles_' + idx),
-            MaxParentalRating: mr ? parseInt(mr) : null
+            MaxParentalRatingName: mrName,
+            MaxParentalRating: mrLegacy
         });
     });
     return result;
@@ -671,10 +703,12 @@ export default function (view) {
         Dashboard.showLoadingMsg();
         window.addEventListener('resize', alignSaveBar);
 
-        ApiClient.getJSON(ApiClient.getUrl('sso/OIDC/Config/Libraries')).then(function (data) {
-            libs = data || {};
-        }).catch(function () {
-            libs = {};
+        Promise.all([
+            ApiClient.getJSON(ApiClient.getUrl('sso/OIDC/Config/Libraries')).catch(function () { return {}; }),
+            ApiClient.getJSON(ApiClient.getUrl('sso/OIDC/Config/Ratings')).catch(function () { return []; })
+        ]).then(function (results) {
+            libs = results[0] || {};
+            ratings = results[1] || [];
         }).then(function () {
             return ApiClient.getPluginConfiguration(pluginId);
         }).then(function (config) {
@@ -766,7 +800,7 @@ export default function (view) {
             EnableLiveTvManagement: false, EnableMediaPlayback: true,
             EnableRemoteAccess: true, EnableTranscoding: true,
             EnableContentDeletion: false, EnableCollectionManagement: false,
-            EnableSubtitleManagement: false, MaxParentalRating: null
+            EnableSubtitleManagement: false, MaxParentalRatingName: '', MaxParentalRating: null
         });
         renderRoleMappings(view);
         setDirty(true);

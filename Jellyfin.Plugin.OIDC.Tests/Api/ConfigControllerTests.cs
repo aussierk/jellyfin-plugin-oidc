@@ -5,6 +5,7 @@ using Jellyfin.Plugin.OIDC.Configuration;
 using Jellyfin.Plugin.OIDC.Services;
 using Jellyfin.Plugin.OIDC.Tests.Fixtures;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Globalization;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
@@ -33,11 +34,12 @@ public class ConfigControllerTests
         }
         """;
 
-    private static ConfigController MakeController(HttpMessageHandler handler)
+    private static ConfigController MakeController(HttpMessageHandler handler, ILocalizationManager? localization = null)
     {
         var userManager = Substitute.For<IUserManager>();
         var libraryManager = Substitute.For<ILibraryManager>();
-        var rbacService = new RbacService(userManager, libraryManager, NullLogger<RbacService>.Instance);
+        localization ??= Substitute.For<ILocalizationManager>();
+        var rbacService = new RbacService(userManager, libraryManager, localization, NullLogger<RbacService>.Instance);
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient("OidcPlugin").Returns(new HttpClient(handler));
 
@@ -46,7 +48,8 @@ public class ConfigControllerTests
         // connection, matching how the fallback ("OidcPlugin") path is already mocked above.
         HttpClient PinnedClientFactory(IPAddress _, bool __) => new(handler);
 
-        return new ConfigController(rbacService, httpClientFactory, PinnedClientFactory, NullLogger<ConfigController>.Instance);
+        return new ConfigController(
+            rbacService, localization, httpClientFactory, PinnedClientFactory, NullLogger<ConfigController>.Instance);
     }
 
     [Fact]
@@ -214,5 +217,25 @@ public class ConfigControllerTests
         Assert.Contains("\"Success\":true", json);
         Assert.Contains("https://203.0.113.10/authorize", json);
         Assert.Contains("https://203.0.113.10/jwks", json);
+    }
+
+    [Fact]
+    public void GetRatings_ProjectsNameScoreSubScore_OrderedByScore_Deduped()
+    {
+        var localization = Substitute.For<MediaBrowser.Model.Globalization.ILocalizationManager>();
+        localization.GetParentalRatings().Returns(new List<MediaBrowser.Model.Entities.ParentalRating>
+        {
+            new("PG-13", new MediaBrowser.Model.Entities.ParentalRatingScore(9, null)),
+            new("G", new MediaBrowser.Model.Entities.ParentalRatingScore(1, null)),
+            new("pg-13", new MediaBrowser.Model.Entities.ParentalRatingScore(9, null)), // dup by name
+            new(string.Empty, new MediaBrowser.Model.Entities.ParentalRatingScore(0, null)), // dropped
+        });
+
+        var controller = MakeController(new MockHttpMessageHandler(HttpStatusCode.OK, "{}"), localization);
+
+        var ok = Assert.IsType<Microsoft.AspNetCore.Mvc.OkObjectResult>(controller.GetRatings());
+        var json = System.Text.Json.JsonSerializer.Serialize(ok.Value);
+
+        Assert.Equal("[{\"Name\":\"G\",\"Score\":1,\"SubScore\":null},{\"Name\":\"PG-13\",\"Score\":9,\"SubScore\":null}]", json);
     }
 }

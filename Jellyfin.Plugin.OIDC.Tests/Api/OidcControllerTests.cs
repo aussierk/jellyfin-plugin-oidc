@@ -19,6 +19,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.QuickConnect;
 using MediaBrowser.Controller.Session;
+using MediaBrowser.Model.Globalization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -44,7 +45,8 @@ public class OidcControllerTests
         stateManager ??= new StateManager(NullLogger<StateManager>.Instance);
         userManager ??= Substitute.For<IUserManager>();
         var libraryManager = Substitute.For<ILibraryManager>();
-        var rbacService = new RbacService(userManager, libraryManager, NullLogger<RbacService>.Instance);
+        var rbacService = new RbacService(
+            userManager, libraryManager, Substitute.For<ILocalizationManager>(), NullLogger<RbacService>.Instance);
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
 
         // Not exercised by these tests — every session here has a null PictureUrl, so
