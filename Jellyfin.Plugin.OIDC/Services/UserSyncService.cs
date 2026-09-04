@@ -79,11 +79,15 @@ public class UserSyncService
                ?? _userManager.GetUserByName(entry.Username))
             : null;
 
-        // 2. opt-in email link (only for a verified email that didn't resolve by sub).
+        // 2. opt-in email link (only for a verified email that didn't resolve by sub). Both the
+        // incoming and the stored email must be verified, and the match never crosses providers —
+        // an unverified stored address, or a different provider's row, can never be a link target.
         if (user == null && config?.LinkExistingUsersByEmail == true && emailVerified && mail.Length > 0)
         {
             var byEmail = config.UserProviderMap.FirstOrDefault(e =>
-                !string.IsNullOrEmpty(e.Email) && string.Equals(e.Email, mail, StringComparison.OrdinalIgnoreCase));
+                e.EmailVerified
+                && string.Equals(e.Email, mail, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(e.ProviderId, providerId, StringComparison.OrdinalIgnoreCase));
             if (byEmail != null)
             {
                 user = (Guid.TryParse(byEmail.UserId, out var eid) ? _userManager.GetUserById(eid) : null)
@@ -118,7 +122,7 @@ public class UserSyncService
 
             if (config != null)
             {
-                UpsertOwnership(config, sub, user.Username, user.Id, providerId, mail);
+                UpsertOwnership(config, sub, user.Username, user.Id, providerId, mail, emailVerified);
             }
 
             _logger.LogInformation(
@@ -150,7 +154,7 @@ public class UserSyncService
 
                     if (config != null)
                     {
-                        UpsertOwnership(config, sub, user.Username, user.Id, providerId, mail);
+                        UpsertOwnership(config, sub, user.Username, user.Id, providerId, mail, emailVerified);
                     }
                 }
                 else
@@ -184,18 +188,21 @@ public class UserSyncService
 
                 if (owned == null)
                 {
-                    UpsertOwnership(config, sub, user.Username, user.Id, providerId, mail);
+                    UpsertOwnership(config, sub, user.Username, user.Id, providerId, mail, emailVerified);
                 }
                 else if (string.IsNullOrEmpty(owned.Subject) || string.IsNullOrEmpty(owned.UserId)
-                         || (mail.Length > 0 && !string.Equals(owned.Email, mail, StringComparison.OrdinalIgnoreCase)))
+                         || (emailVerified && mail.Length > 0
+                             && !string.Equals(owned.Email, mail, StringComparison.OrdinalIgnoreCase)))
                 {
-                    // Back-fill a legacy row / refresh the last-seen email.
+                    // Back-fill a legacy row / refresh the last-seen email. An unverified email
+                    // never overwrites a stored one — it's simply not trustworthy enough to record.
                     owned.Subject = sub.Length > 0 ? sub : owned.Subject;
                     owned.UserId = user.Id.ToString();
                     owned.Username = user.Username;
-                    if (mail.Length > 0)
+                    if (emailVerified && mail.Length > 0)
                     {
                         owned.Email = mail;
+                        owned.EmailVerified = true;
                     }
 
                     OidcPlugin.Instance?.SaveConfiguration();
@@ -265,7 +272,8 @@ public class UserSyncService
     }
 
     private static void UpsertOwnership(
-        PluginConfiguration config, string subject, string username, Guid userId, string providerId, string email)
+        PluginConfiguration config, string subject, string username, Guid userId, string providerId,
+        string email, bool emailVerified)
     {
         config.UserProviderMap.RemoveAll(e =>
             string.Equals(e.Username, username, StringComparison.OrdinalIgnoreCase)
@@ -273,13 +281,18 @@ public class UserSyncService
                 && string.Equals(e.Subject, subject, StringComparison.Ordinal)
                 && string.Equals(e.ProviderId, providerId, StringComparison.OrdinalIgnoreCase)));
 
+        // Only ever persist an email that was actually verified — an unverified one must never
+        // become a future link target (see the by-email lookup above).
+        var storeEmail = emailVerified && email.Length > 0;
+
         config.UserProviderMap.Add(new UserProviderEntry
         {
             Username = username,
             ProviderId = providerId,
             Subject = subject,
             UserId = userId.ToString(),
-            Email = email
+            Email = storeEmail ? email : string.Empty,
+            EmailVerified = storeEmail
         });
 
         OidcPlugin.Instance?.SaveConfiguration();

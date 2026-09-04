@@ -388,7 +388,8 @@ public class UserSyncServiceTests
             LinkExistingUsersByEmail = true,
             UserProviderMap = [new UserProviderEntry
             {
-                Username = "alice", ProviderId = "keycloak", Subject = "old-sub", UserId = user.Id.ToString(), Email = "alice@example.com"
+                Username = "alice", ProviderId = "keycloak", Subject = "old-sub", UserId = user.Id.ToString(),
+                Email = "alice@example.com", EmailVerified = true
             }]
         });
 
@@ -397,5 +398,99 @@ public class UserSyncServiceTests
 
         Assert.Equal(user.Id, userId);
         await userManager.DidNotReceive().CreateUserAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task LinkExistingUsersByEmail_StoredEmailNotVerified_DoesNotMatch()
+    {
+        // Arrange — the stored row's email was never verified, so it can't be a link target
+        // even though the incoming login presents a verified email that matches it exactly.
+        var user = MakeOidcUser("alice");
+        var userManager = Substitute.For<IUserManager>();
+        userManager.GetUserById(user.Id).Returns(user);
+        userManager.GetUserByName("alice2").Returns((User?)null);
+        userManager.CreateUserAsync("alice2").Returns(Task.FromResult(MakeOidcUser("alice2")));
+        userManager.UpdateUserAsync(Arg.Any<User>()).Returns(Task.CompletedTask);
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            AutoCreateUsers = true,
+            LinkExistingUsersByEmail = true,
+            UserProviderMap = [new UserProviderEntry
+            {
+                Username = "alice", ProviderId = "keycloak", Subject = "old-sub", UserId = user.Id.ToString(),
+                Email = "alice@example.com", EmailVerified = false
+            }]
+        });
+
+        var userId = await MakeService(userManager)
+            .SyncUserAsync("alice2", null, "new-sub", "alice@example.com", emailVerified: true, "keycloak");
+
+        // A brand-new account was created instead of linking to alice's.
+        Assert.NotEqual(user.Id, userId);
+        await userManager.Received(1).CreateUserAsync("alice2");
+    }
+
+    [Fact]
+    public async Task LinkExistingUsersByEmail_DifferentProvider_DoesNotMatch()
+    {
+        // Arrange — same verified email, but the stored row belongs to a different provider.
+        var user = MakeOidcUser("alice");
+        var userManager = Substitute.For<IUserManager>();
+        userManager.GetUserById(user.Id).Returns(user);
+        userManager.GetUserByName("alice2").Returns((User?)null);
+        userManager.CreateUserAsync("alice2").Returns(Task.FromResult(MakeOidcUser("alice2")));
+        userManager.UpdateUserAsync(Arg.Any<User>()).Returns(Task.CompletedTask);
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            AutoCreateUsers = true,
+            LinkExistingUsersByEmail = true,
+            UserProviderMap = [new UserProviderEntry
+            {
+                Username = "alice", ProviderId = "authentik", Subject = "old-sub", UserId = user.Id.ToString(),
+                Email = "alice@example.com", EmailVerified = true
+            }]
+        });
+
+        var userId = await MakeService(userManager)
+            .SyncUserAsync("alice2", null, "new-sub", "alice@example.com", emailVerified: true, "keycloak");
+
+        Assert.NotEqual(user.Id, userId);
+        await userManager.Received(1).CreateUserAsync("alice2");
+    }
+
+    [Fact]
+    public async Task NewUser_VerifiedEmail_IsStoredAsVerified()
+    {
+        var userManager = Substitute.For<IUserManager>();
+        userManager.GetUserByName("alice").Returns((User?)null);
+        userManager.CreateUserAsync("alice").Returns(Task.FromResult(MakeOidcUser("alice")));
+        userManager.UpdateUserAsync(Arg.Any<User>()).Returns(Task.CompletedTask);
+        var config = new PluginConfiguration { AutoCreateUsers = true };
+        _fixture.SetConfiguration(config);
+
+        await MakeService(userManager)
+            .SyncUserAsync("alice", null, "sub-1", "alice@example.com", emailVerified: true, "keycloak");
+
+        var row = Assert.Single(config.UserProviderMap);
+        Assert.Equal("alice@example.com", row.Email);
+        Assert.True(row.EmailVerified);
+    }
+
+    [Fact]
+    public async Task NewUser_UnverifiedEmail_IsNotStored()
+    {
+        var userManager = Substitute.For<IUserManager>();
+        userManager.GetUserByName("alice").Returns((User?)null);
+        userManager.CreateUserAsync("alice").Returns(Task.FromResult(MakeOidcUser("alice")));
+        userManager.UpdateUserAsync(Arg.Any<User>()).Returns(Task.CompletedTask);
+        var config = new PluginConfiguration { AutoCreateUsers = true };
+        _fixture.SetConfiguration(config);
+
+        await MakeService(userManager)
+            .SyncUserAsync("alice", null, "sub-1", "alice@example.com", emailVerified: false, "keycloak");
+
+        var row = Assert.Single(config.UserProviderMap);
+        Assert.Equal(string.Empty, row.Email);
+        Assert.False(row.EmailVerified);
     }
 }

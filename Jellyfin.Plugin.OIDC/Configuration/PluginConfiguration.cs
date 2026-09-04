@@ -26,8 +26,10 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// When set and the token's email is verified, a login whose subject/username doesn't
-    /// resolve is matched to an existing account previously seen with the same email (instead
-    /// of creating a duplicate). Off by default.
+    /// resolve is matched to an existing account previously seen — <em>on the same provider</em>,
+    /// with the same email also verified at the time it was stored (instead of creating a
+    /// duplicate). Both sides of the match must be verified, and the match never crosses
+    /// providers. Off by default.
     /// </summary>
     public bool LinkExistingUsersByEmail { get; set; } = false;
 
@@ -111,8 +113,20 @@ public class UserProviderEntry
     /// <summary>The Jellyfin user id (GUID as string). Empty on legacy rows; back-filled on next login.</summary>
     public string UserId { get; set; } = string.Empty;
 
-    /// <summary>Last-seen verified email, for <see cref="PluginConfiguration.LinkExistingUsersByEmail"/>. May be empty.</summary>
+    /// <summary>
+    /// Last-seen email, for <see cref="PluginConfiguration.LinkExistingUsersByEmail"/>. Only ever
+    /// written when the token asserted <c>email_verified</c> — see <see cref="EmailVerified"/>.
+    /// May be empty.
+    /// </summary>
     public string Email { get; set; } = string.Empty;
+
+    /// <summary>
+    /// True when <see cref="Email"/> was verified (<c>email_verified</c>) at the time it was
+    /// stored. <see cref="PluginConfiguration.LinkExistingUsersByEmail"/> only matches rows
+    /// where this is true, so a row can't become a link target on the strength of an
+    /// unverified address.
+    /// </summary>
+    public bool EmailVerified { get; set; }
 }
 
 public class OidcProviderConfig
