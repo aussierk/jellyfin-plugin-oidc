@@ -228,6 +228,19 @@ curl -s https://jellyfin.example.com/sso/OIDC/BrandingSnippet | jq -r '.Css'    
 
 Already have Jellyfin users you want to move to SSO without losing watch history? See [MIGRATION.md](MIGRATION.md) — username-match is automatic, with opt-in migration and display name sync available in the General settings tab.
 
+### Switching identity providers
+
+Retiring one IdP for another (e.g. Keycloak → Authentik) and want existing users to keep their
+accounts instead of getting a duplicate on first login? Turn on **Link a login to an existing
+account by verified email** (General/Access). A login whose subject/username doesn't resolve is
+then matched against any existing account by email — not limited to the provider that created
+it — as long as the email is verified on both the new login and the account's last-seen record.
+The first matching login re-owns the account to the new provider; from then on it behaves like
+any other account created by that provider.
+
+Without a verified-email match, an account already owned by one provider still can't be claimed
+by logging in through a different one — that protection is unconditional.
+
 ## How It Works
 
 ```

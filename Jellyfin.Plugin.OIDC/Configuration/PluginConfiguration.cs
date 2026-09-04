@@ -26,10 +26,11 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// When set and the token's email is verified, a login whose subject/username doesn't
-    /// resolve is matched to an existing account previously seen — <em>on the same provider</em>,
-    /// with the same email also verified at the time it was stored (instead of creating a
-    /// duplicate). Both sides of the match must be verified, and the match never crosses
-    /// providers. Off by default.
+    /// resolve is matched to an existing account previously seen with the same email — also
+    /// verified at the time it was stored — instead of creating a duplicate. Both sides of the
+    /// match must be verified, but the match is not limited to the provider that created the
+    /// account: this is what lets a user keep their account when an admin switches IdPs.
+    /// Off by default.
     /// </summary>
     public bool LinkExistingUsersByEmail { get; set; } = false;
 

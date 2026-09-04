@@ -236,6 +236,86 @@ public class UserSyncServiceTests
             () => MakeService(userManager).SyncUserAsync("alice", null, null, null, false, "okta"));
     }
 
+    // ── cross-provider account reclaim by verified email ──────────────────────
+
+    [Fact]
+    public async Task LinkExistingUsersByEmail_CrossProvider_ReclaimsAndReownsRow()
+    {
+        // Arrange — alice was owned by "keycloak"; the admin has switched to "authentik". Same
+        // username, matching verified email on both sides — no per-provider setup required.
+        var user = MakeOidcUser("alice");
+        var userManager = Substitute.For<IUserManager>();
+        userManager.GetUserByName("alice").Returns(user);
+        userManager.UpdateUserAsync(Arg.Any<User>()).Returns(Task.CompletedTask);
+        var config = new PluginConfiguration
+        {
+            AutoCreateUsers = true,
+            LinkExistingUsersByEmail = true,
+            UserProviderMap = [new UserProviderEntry
+            {
+                Username = "alice", ProviderId = "keycloak", Subject = "old-sub", UserId = user.Id.ToString(),
+                Email = "alice@example.com", EmailVerified = true
+            }]
+        };
+        _fixture.SetConfiguration(config);
+
+        var userId = await MakeService(userManager)
+            .SyncUserAsync("alice", null, "new-sub", "alice@example.com", emailVerified: true, "authentik");
+
+        Assert.Equal(user.Id, userId);
+        var row = Assert.Single(config.UserProviderMap);
+        Assert.Equal("authentik", row.ProviderId);
+        Assert.Equal("new-sub", row.Subject);
+    }
+
+    [Fact]
+    public async Task LinkExistingUsersByEmail_CrossProvider_DifferentUsername_Reclaims()
+    {
+        // Arrange — alice2's login resolves via the by-email link (step 2), not by username,
+        // since the username itself changed across the provider switch.
+        var user = MakeOidcUser("alice");
+        var userManager = Substitute.For<IUserManager>();
+        userManager.GetUserById(user.Id).Returns(user);
+        userManager.GetUserByName("alice2").Returns((User?)null);
+        var config = new PluginConfiguration
+        {
+            AutoCreateUsers = true,
+            LinkExistingUsersByEmail = true,
+            UserProviderMap = [new UserProviderEntry
+            {
+                Username = "alice", ProviderId = "keycloak", Subject = "old-sub", UserId = user.Id.ToString(),
+                Email = "alice@example.com", EmailVerified = true
+            }]
+        };
+        _fixture.SetConfiguration(config);
+
+        var userId = await MakeService(userManager)
+            .SyncUserAsync("alice2", null, "new-sub", "alice@example.com", emailVerified: true, "authentik");
+
+        Assert.Equal(user.Id, userId);
+        var row = Assert.Single(config.UserProviderMap);
+        Assert.Equal("authentik", row.ProviderId);
+    }
+
+    [Fact]
+    public async Task UsernameOnlyMatch_CrossProvider_WithoutVerifiedEmail_StillThrows()
+    {
+        // No verified email in play at all — the unconditional cross-provider-takeover
+        // protection must still hold when the only signal is a matching username.
+        var user = MakeOidcUser("alice");
+        var userManager = Substitute.For<IUserManager>();
+        userManager.GetUserByName("alice").Returns(user);
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            AutoCreateUsers = true,
+            LinkExistingUsersByEmail = true,
+            UserProviderMap = [new UserProviderEntry { Username = "alice", ProviderId = "keycloak" }]
+        });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => MakeService(userManager)
+            .SyncUserAsync("alice", null, "new-sub", null, emailVerified: false, "authentik"));
+    }
+
     // ── local user migration ───────────────────────────────────────────────────
 
     [Fact]
@@ -426,34 +506,6 @@ public class UserSyncServiceTests
             .SyncUserAsync("alice2", null, "new-sub", "alice@example.com", emailVerified: true, "keycloak");
 
         // A brand-new account was created instead of linking to alice's.
-        Assert.NotEqual(user.Id, userId);
-        await userManager.Received(1).CreateUserAsync("alice2");
-    }
-
-    [Fact]
-    public async Task LinkExistingUsersByEmail_DifferentProvider_DoesNotMatch()
-    {
-        // Arrange — same verified email, but the stored row belongs to a different provider.
-        var user = MakeOidcUser("alice");
-        var userManager = Substitute.For<IUserManager>();
-        userManager.GetUserById(user.Id).Returns(user);
-        userManager.GetUserByName("alice2").Returns((User?)null);
-        userManager.CreateUserAsync("alice2").Returns(Task.FromResult(MakeOidcUser("alice2")));
-        userManager.UpdateUserAsync(Arg.Any<User>()).Returns(Task.CompletedTask);
-        _fixture.SetConfiguration(new PluginConfiguration
-        {
-            AutoCreateUsers = true,
-            LinkExistingUsersByEmail = true,
-            UserProviderMap = [new UserProviderEntry
-            {
-                Username = "alice", ProviderId = "authentik", Subject = "old-sub", UserId = user.Id.ToString(),
-                Email = "alice@example.com", EmailVerified = true
-            }]
-        });
-
-        var userId = await MakeService(userManager)
-            .SyncUserAsync("alice2", null, "new-sub", "alice@example.com", emailVerified: true, "keycloak");
-
         Assert.NotEqual(user.Id, userId);
         await userManager.Received(1).CreateUserAsync("alice2");
     }

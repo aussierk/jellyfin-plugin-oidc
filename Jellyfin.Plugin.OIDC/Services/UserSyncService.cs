@@ -80,20 +80,21 @@ public class UserSyncService
             : null;
 
         // 2. opt-in email link (only for a verified email that didn't resolve by sub). Both the
-        // incoming and the stored email must be verified, and the match never crosses providers —
-        // an unverified stored address, or a different provider's row, can never be a link target.
+        // incoming and the stored email must be verified — an unverified stored address can
+        // never be a link target — but the match is NOT limited to this provider: a verified
+        // email is a strong enough signal to let a user keep their account across an IdP switch.
+        var linkedByEmail = false;
         if (user == null && config?.LinkExistingUsersByEmail == true && emailVerified && mail.Length > 0)
         {
             var byEmail = config.UserProviderMap.FirstOrDefault(e =>
-                e.EmailVerified
-                && string.Equals(e.Email, mail, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(e.ProviderId, providerId, StringComparison.OrdinalIgnoreCase));
+                e.EmailVerified && string.Equals(e.Email, mail, StringComparison.OrdinalIgnoreCase));
             if (byEmail != null)
             {
                 user = (Guid.TryParse(byEmail.UserId, out var eid) ? _userManager.GetUserById(eid) : null)
                        ?? _userManager.GetUserByName(byEmail.Username);
                 if (user != null)
                 {
+                    linkedByEmail = true;
                     _logger.LogInformation(
                         "Linked OIDC login to existing user {Username} by verified email (provider={Provider})",
                         user.Username, providerId);
@@ -173,14 +174,19 @@ public class UserSyncService
                     (sub.Length > 0 && string.Equals(e.Subject, sub, StringComparison.Ordinal))
                     || string.Equals(e.Username, user.Username, StringComparison.OrdinalIgnoreCase));
 
-                if (owned != null
+                var isProviderMismatch = owned != null
                     && !string.IsNullOrEmpty(owned.ProviderId)
-                    && !string.Equals(owned.ProviderId, providerId, StringComparison.OrdinalIgnoreCase))
+                    && !string.Equals(owned.ProviderId, providerId, StringComparison.OrdinalIgnoreCase);
+
+                // A provider mismatch is blocked UNLESS this login just cleared the verified-email
+                // link above — that's already a stronger check than username/sub, so it re-owns
+                // the account to this provider instead of being treated as a takeover attempt.
+                if (isProviderMismatch && !linkedByEmail)
                 {
                     _logger.LogWarning(
                         "Login blocked: user '{Username}' was created by provider '{RegisteredProvider}' " +
                         "but login was attempted via provider '{AttemptedProvider}'.",
-                        user.Username, owned.ProviderId, providerId);
+                        user.Username, owned!.ProviderId, providerId);
                     throw new InvalidOperationException(
                         $"User '{user.Username}' is registered to a different OIDC provider. " +
                         "Use the correct provider or contact an administrator.");
@@ -190,12 +196,22 @@ public class UserSyncService
                 {
                     UpsertOwnership(config, sub, user.Username, user.Id, providerId, mail, emailVerified);
                 }
-                else if (string.IsNullOrEmpty(owned.Subject) || string.IsNullOrEmpty(owned.UserId)
+                else if (isProviderMismatch
+                         || string.IsNullOrEmpty(owned.Subject) || string.IsNullOrEmpty(owned.UserId)
                          || (emailVerified && mail.Length > 0
                              && !string.Equals(owned.Email, mail, StringComparison.OrdinalIgnoreCase)))
                 {
-                    // Back-fill a legacy row / refresh the last-seen email. An unverified email
-                    // never overwrites a stored one — it's simply not trustworthy enough to record.
+                    if (isProviderMismatch)
+                    {
+                        _logger.LogInformation(
+                            "OIDC audit: decision=migrate-provider provider={Provider} user={User} from={OldProvider}",
+                            providerId, user.Username, owned.ProviderId);
+                    }
+
+                    // Re-own (IdP switch via verified email), back-fill a legacy row, or refresh
+                    // the last-seen email. An unverified email never overwrites a stored one —
+                    // it's simply not trustworthy enough to record.
+                    owned.ProviderId = providerId;
                     owned.Subject = sub.Length > 0 ? sub : owned.Subject;
                     owned.UserId = user.Id.ToString();
                     owned.Username = user.Username;
