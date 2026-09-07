@@ -1,6 +1,6 @@
 # Migrating Existing Jellyfin Users to OIDC
 
-If you already have Jellyfin users with watch history, favorites, playlists, etc., you can move them onto OIDC SSO without losing data — as long as the OIDC username matches the existing Jellyfin username.
+If you already have Jellyfin users with watch history, favorites, playlists, etc., you can move them onto OIDC SSO without losing data - as long as the OIDC username matches the existing Jellyfin username.
 
 ## How it works
 
@@ -9,7 +9,7 @@ When a user completes SSO for the first time, the plugin (`UserSyncService.SyncU
 - **Existing user found**: that user is reused. All their existing watch state, favorites, playlists, and per-user preferences are preserved.
 - **No match**: a new user is created (when `AutoCreateUsers` is enabled).
 
-The match is by **exact username**. Case sensitivity follows whatever `IUserManager.GetUserByName` does in your Jellyfin version (currently case-insensitive in 10.11.x).
+The match is by **exact username**. Case sensitivity follows whatever `IUserManager.GetUserByName` does in your Jellyfin version (currently case-insensitive in Jellyfin 12).
 
 ## What gets preserved
 
@@ -21,16 +21,30 @@ The match is by **exact username**. Case sensitivity follows whatever `IUserMana
 
 ## What gets overwritten on every SSO login
 
-The matched role mapping is re-applied each time the user logs in via SSO, so these fields are replaced by the role mapping values:
+By default, the matched role mapping is re-applied each time the user logs in via SSO, so
+these fields are replaced by the role mapping values:
 
 - `IsAdministrator`
 - `EnableMediaPlayback`, `EnableRemoteAccess`, audio/video transcoding flags
 - `EnableLiveTvAccess`, `EnableLiveTvManagement`
 - `EnableContentDeletion`, `EnableCollectionManagement`, `EnableSubtitleManagement`
 - `EnableAllFolders` and the list of enabled folders (library access)
-- `MaxParentalRatingScore` (only when a role provides one)
+- Max Parental Rating (only when a role provides one; strictest wins across matched roles)
 
-Plan your role mappings to match the access you want users to have **before** they log in — otherwise their first SSO login can silently strip permissions or library access.
+**Everything else is preserved** - access schedules, blocked/allowed tags, unrated-item
+blocks, bitrate and session caps, SyncPlay level, and per-channel/device lists all carry
+through from the user's current Jellyfin settings untouched. Plan your role mappings to
+match the access you want users to have **before** they log in - otherwise their first SSO
+login can still change the fields listed above.
+
+If you'd rather not have SSO touch permissions at all for a batch of existing accounts,
+turn **Manage user policy** off before migrating them (Role Mappings tab) - see
+[Configuration → Turning off policy management](CONFIGURATION.md#turning-off-policy-management).
+With it off, an SSO login only provisions/matches the account; nothing about their existing
+Jellyfin policy changes. Turn it back on once you're ready for RBAC to take over. For
+library access specifically, unchecking **Manage library access from role mappings** does
+the same thing while still letting RBAC manage admin status and permissions - see
+[Configuration → Role Mappings](CONFIGURATION.md#role-mappings).
 
 ## Migration steps
 
@@ -41,8 +55,8 @@ Plan your role mappings to match the access you want users to have **before** th
 2. **Align the names**
 
    If the OIDC username differs from the Jellyfin username, pick one to change:
-   - **Rename the Jellyfin user** — Dashboard → Users → click the user → change Username → Save.
-   - **Or change the IdP attribute** — set the user's `preferred_username` in the IdP to match the existing Jellyfin name. (Keycloak: under user attributes; Authentik: under the user's profile.)
+   - **Rename the Jellyfin user** - Dashboard → Users → click the user → change Username → Save.
+   - **Or change the IdP attribute** - set the user's `preferred_username` in the IdP to match the existing Jellyfin name. (Keycloak: under user attributes; Authentik: under the user's profile.)
 
 3. **Create role mappings that grant the same access the user has today**
 
@@ -66,13 +80,44 @@ When enabled, the first time an existing local-password user successfully logs i
 
 When disabled (default), existing users can still log in via SSO and have RBAC applied, but their password login remains active. You can disable it manually in the Jellyfin dashboard after migration if needed.
 
-### Sync display name from OIDC token (SyncDisplayName)
+### Sync display name from OIDC token (per-provider `SyncDisplayName`)
 
-**Not yet available** — this setting is visible in the UI but disabled. It requires Jellyfin to expose a stable external subject ID on the `User` entity so the plugin can look up accounts by identity rather than by a mutable name.
+**Available.** The plugin now keys each account on the OIDC `sub` claim in its own
+`UserProviderMap` (with the Jellyfin user id), so a rename can no longer orphan an account -
+the next login still resolves by subject, not by the mutable name.
 
-The core problem: in Jellyfin, username and display name are the same field. Renaming an account to match the IdP display name means the next SSO login can no longer find the account by `preferred_username`. Any fallback lookup by display name risks accidentally matching an unrelated local Jellyfin user, which is both a correctness and security issue.
+In Jellyfin the username *is* the display name, so enabling this **renames the Jellyfin
+account** to match the Display Name Claim on every login. The claim is folded to Jellyfin's
+allowed username characters and truncated to 255; a name that still collides with another
+user is skipped (logged, login continues). Off by default, opt-in per provider in the
+provider card's Claim mapping section.
 
-The correct fix is an upstream Jellyfin change to store the OIDC `sub` (subject) claim — a stable, never-changing identifier — alongside the user record. Once that lands, display name sync can be implemented safely.
+Existing `UserProviderMap` rows written before sub-keying keep working and self-heal
+(back-fill `Subject`/`UserId`) on the user's next login.
+
+The map itself now lives in its own file next to the plugin config
+(`plugins/configurations/Jellyfin.Plugin.OIDC.UserProviderMap.json`) so a login that touches
+it no longer rewrites the whole plugin config. Any rows still in the old config location are
+moved into that file automatically the first time the plugin starts after upgrading - no
+action needed.
+
+### Reclaim accounts across an IdP switch (LinkExistingUsersByEmail)
+
+Retiring one IdP for another (e.g. Keycloak → Authentik) and want existing users to keep
+their accounts instead of getting a duplicate on first login? Turn on **Link existing users
+by verified email** (General tab) **and** tick **Trusted for email-based account linking** on
+the new provider. A login whose subject/username doesn't resolve is then matched against an
+existing account by email, as long as the email is verified on both the new login and the
+account's stored record. The first matching login re-owns the account to the new provider.
+
+The **Trusted for email-based account linking** flag is required because a verified email is
+only as trustworthy as the IdP asserting it - many IdPs let a user set their own address.
+Tick it only for a provider you fully control. With it off, the option has no effect for that
+provider (logins still work, they just won't auto-link).
+
+Two protections are unconditional: an **administrator** account can only be matched by OIDC
+subject (never by email or username), and an account already bound to one OIDC identity is
+never automatically repointed onto a **different** Jellyfin user.
 
 ## Caveats
 
@@ -82,7 +127,7 @@ If a user logs in via SSO before you've aligned usernames, the plugin will creat
 
 ### Disabled users are blocked from SSO login
 
-If a Jellyfin admin disables a user account, that user cannot log in via SSO — they will receive a `403 Forbidden` response. The plugin respects the disabled flag and will not re-enable it. To permanently lock someone out of SSO, disable them in Jellyfin or remove them from the IdP group.
+If a Jellyfin admin disables a user account, that user cannot log in via SSO - they will receive a `403 Forbidden` response. The plugin respects the disabled flag and will not re-enable it. To permanently lock someone out of SSO, disable them in Jellyfin or remove them from the IdP group.
 
 ### Password login for non-migrated users
 
