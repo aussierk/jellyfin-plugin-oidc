@@ -1,0 +1,17 @@
+{
+  "name": "jellyfin-plugin-oidc-web-tests",
+  "private": true,
+  "description": "Unit tests for the plugin's admin config page (Jellyfin.Plugin.OIDC/Configuration/oidcrbac.js). Not part of the .NET build.",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild Jellyfin.Plugin.OIDC/Configuration/src/index.js --bundle --format=esm --outfile=Jellyfin.Plugin.OIDC/Configuration/oidcrbac.js",
+    "verify-build": "npm run build && git diff --exit-code Jellyfin.Plugin.OIDC/Configuration/oidcrbac.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "jsdom": "^26.1.0",
+    "vitest": "^5.0.0"
+  }
+}
