@@ -8,23 +8,23 @@ using Microsoft.AspNetCore.Mvc.Filters;
 
 namespace Jellyfin.Plugin.OIDC.Services;
 
-/// <summary>
+/// 
 /// Fixed-window per-IP rate limit applied as an MVC action filter.
 /// Works inside Jellyfin's plugin model without requiring access to IApplicationBuilder.
-/// </summary>
+/// 
 [AttributeUsage(AttributeTargets.Method)]
 public sealed class RateLimitAttribute : Attribute, IAsyncActionFilter
 {
     // Shared across all instances: key = "policyName:clientIP"
     private static readonly ConcurrentDictionary<string, RateLimitEntry> _counters = new();
 
-    // Kept well above the largest windowSeconds configured on any [RateLimit] usage (60s today),
-    // so cleanup never evicts an entry that's still relevant to active rate limiting.
+    // Hard cap prevents unbounded memory growth from a flood of distinct client IPs.
+    private const int MaxCounters = 20_000;
+
+    // Well above the largest windowSeconds configured on any [RateLimit] usage (60s today).
     private static readonly TimeSpan MaxStaleAge = TimeSpan.FromSeconds(600);
     private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(5);
 
-    // Without this, every distinct "policyName:IP" that ever hits a rate-limited endpoint would
-    // leak permanently — unbounded memory growth over the life of the process.
     private static readonly Timer _cleanupTimer = new(Cleanup, null, CleanupInterval, CleanupInterval);
 
     private readonly int _maxRequests;
@@ -45,6 +45,13 @@ public sealed class RateLimitAttribute : Attribute, IAsyncActionFilter
         var now = DateTimeOffset.UtcNow;
         var window = TimeSpan.FromSeconds(_windowSeconds);
 
+        if (!_counters.ContainsKey(key) && _counters.Count >= MaxCounters)
+        {
+            // Sample-and-evict, not a full O(n) scan: this path runs on every request once the cap
+            // is hit, i.e. mid-flood. The Cleanup timer does the thorough sweep.
+            SampledEviction.EvictSampled(_counters, e => e.WindowStart);
+        }
+
         var entry = _counters.AddOrUpdate(
             key,
             _ => new RateLimitEntry { Count = 1, WindowStart = now },
@@ -52,7 +59,7 @@ public sealed class RateLimitAttribute : Attribute, IAsyncActionFilter
             {
                 if (now - existing.WindowStart >= window)
                 {
-                    // Window has expired — start a new one.
+                    // Window has expired - start a new one.
                     return new RateLimitEntry { Count = 1, WindowStart = now };
                 }
 
@@ -70,12 +77,9 @@ public sealed class RateLimitAttribute : Attribute, IAsyncActionFilter
         await next().ConfigureAwait(false);
     }
 
+    // Jellyfin's own middleware already resolves X-Forwarded-For into RemoteIpAddress for trusted proxies.
     private static string GetClientIp(HttpContext context)
-    {
-        // Jellyfin honours X-Forwarded-For for trusted proxies, which updates
-        // RemoteIpAddress via its own middleware. Use it directly.
-        return context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-    }
+        => context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
     internal static void Cleanup(object? state)
     {

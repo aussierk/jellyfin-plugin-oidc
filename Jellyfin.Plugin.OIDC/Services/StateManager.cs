@@ -105,33 +105,10 @@ public sealed class StateManager : IHostedService, IDisposable
         _logger = logger;
     }
 
-    /// <summary>
-    /// Removes the one entry whose <paramref name="timestamp"/> is earliest, in a single pass
-    /// (no per-insert sort). Used by every capped table here to make room under a flood.
-    /// Returns whether an entry was actually removed.
-    /// </summary>
-    private static bool EvictLowest<TValue>(
-        ConcurrentDictionary<string, TValue> map, Func<TValue, DateTimeOffset> timestamp)
-    {
-        string? lowestKey = null;
-        var lowest = DateTimeOffset.MaxValue;
-        foreach (var (key, value) in map)
-        {
-            var candidate = timestamp(value);
-            if (candidate < lowest)
-            {
-                lowest = candidate;
-                lowestKey = key;
-            }
-        }
-
-        return lowestKey != null && map.TryRemove(lowestKey, out _);
-    }
-
     public string? StoreState(OidcState state)
     {
         if (_pendingStates.Count >= MaxPendingStates
-            && EvictLowest(_pendingStates, s => s.CreatedAt))
+            && SampledEviction.EvictSampled(_pendingStates, s => s.CreatedAt))
         {
             // Oldest pending state is past StateExpiry anyway; evicting it beats rejecting a real login.
             _logger.LogWarning("Pending OIDC state cap ({Max}) reached - evicted oldest pending state", MaxPendingStates);
@@ -214,7 +191,7 @@ public sealed class StateManager : IHostedService, IDisposable
     {
         if (_trackedSessions.Count >= MaxTrackedSessions)
         {
-            EvictLowest(_trackedSessions, s => s.CreatedAt);
+            SampledEviction.EvictSampled(_trackedSessions, s => s.CreatedAt);
         }
 
         _trackedSessions[session.SessionId] = session;
@@ -241,7 +218,7 @@ public sealed class StateManager : IHostedService, IDisposable
         if (_seenJti.Count >= MaxSeenJti)
         {
             // Evict the entry expiring soonest - it was about to be cleaned up anyway.
-            EvictLowest(_seenJti, forgetAt => forgetAt);
+            SampledEviction.EvictSampled(_seenJti, forgetAt => forgetAt);
         }
 
         return _seenJti.TryAdd(jti, forgetAfter);

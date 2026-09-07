@@ -57,26 +57,23 @@ public class StateManagerTests : IDisposable
     }
 
     [Fact]
-    public void StoreState_AtCap_EvictsOldestAndStillSucceeds()
+    public void StoreState_AtCap_EvictsSomethingAndStillSucceeds()
     {
         // Mirrors TrackSession/RegisterJti: at the cap, a real login must still get through by
-        // evicting the oldest (near-certainly-abandoned, given the 10-minute expiry) pending
-        // state rather than rejecting it outright.
-        var oldest = MakeState();
-        typeof(OidcState).GetProperty(nameof(OidcState.CreatedAt))!
-            .SetValue(oldest, DateTimeOffset.UtcNow.AddMinutes(-5));
-        var firstKey = _manager.StoreState(oldest);
-
-        for (var i = 0; i < 499; i++)
-            _manager.StoreState(MakeState());
+        // evicting some entry rather than rejecting it outright. Eviction samples (see
+        // SampledEviction) instead of scanning every entry, so this asserts something was evicted
+        // to make room - not that it was specifically the single oldest of the 500.
+        var keys = new List<string>();
+        for (var i = 0; i < 500; i++)
+        {
+            keys.Add(_manager.StoreState(MakeState())!);
+        }
 
         var newKey = _manager.StoreState(MakeState());
 
         Assert.NotNull(newKey);
-        // The unambiguously-oldest entry was evicted to make room for the new one.
-        Assert.Null(_manager.ConsumeState(firstKey!));
-        // The just-stored state is still there.
         Assert.NotNull(_manager.ConsumeState(newKey!));
+        Assert.Contains(keys, k => _manager.ConsumeState(k) == null);
     }
 
     // ── AuthorizedSession ──────────────────────────────────────────────────────
