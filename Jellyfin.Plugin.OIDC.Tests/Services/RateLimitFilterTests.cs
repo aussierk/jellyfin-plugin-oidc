@@ -76,11 +76,9 @@ public class RateLimitFilterTests
         var policy = NextPolicy();
         var filter = new RateLimitAttribute(policy, maxRequests: 3, windowSeconds: 60);
 
-        // Fire 3 requests (all allowed)
         for (var i = 0; i < 3; i++)
             await filter.OnActionExecutionAsync(MakeContext(), MakeDelegate());
 
-        // 4th request should be rejected
         var over = MakeContext();
         await filter.OnActionExecutionAsync(over, MakeDelegate());
 
@@ -110,10 +108,8 @@ public class RateLimitFilterTests
         var policy = NextPolicy();
         var filter = new RateLimitAttribute(policy, maxRequests: 1, windowSeconds: 60);
 
-        // IP-A uses its 1 allowed request
         await filter.OnActionExecutionAsync(MakeContext("1.2.3.4"), MakeDelegate());
 
-        // IP-B should still get through (fresh counter)
         var ipBContext = MakeContext("5.6.7.8");
         var ipBCalled = false;
         ActionExecutionDelegate ipBNext = () =>
@@ -133,16 +129,11 @@ public class RateLimitFilterTests
     public async Task AfterWindowExpires_CounterResets()
     {
         var policy = NextPolicy();
-        // 1-second window so we can actually wait it out in a unit test
         var filter = new RateLimitAttribute(policy, maxRequests: 1, windowSeconds: 1);
 
-        // Use the single allowed request
         await filter.OnActionExecutionAsync(MakeContext(), MakeDelegate());
-
-        // Wait for the window to expire
         await Task.Delay(TimeSpan.FromSeconds(1.2));
 
-        // Should be allowed again
         var afterReset = MakeContext();
         var called = false;
         ActionExecutionDelegate next = () =>
@@ -170,7 +161,7 @@ public class RateLimitFilterTests
         var staleFilter = new RateLimitAttribute(stalePolicy, maxRequests: 5, windowSeconds: 60);
         await staleFilter.OnActionExecutionAsync(MakeContext("2.2.2.2"), MakeDelegate());
 
-        // Rewrite the stale entry's WindowStart far in the past via reflection — the only way
+        // Rewrite the stale entry's WindowStart far in the past via reflection - the only way
         // to simulate staleness without an actual 10+ minute sleep in the test.
         var countersField = typeof(RateLimitAttribute).GetField("_counters", BindingFlags.NonPublic | BindingFlags.Static)!;
         var counters = (System.Collections.IDictionary)countersField.GetValue(null)!;
