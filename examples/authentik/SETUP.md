@@ -72,7 +72,7 @@ Go to **Applications > Applications > Create with Provider**
 **Advanced Protocol Settings:**
 - Scopes: `openid`, `email`, `profile` (all three selected)
 - Subject mode: `Based on the User's username`
-- **Include claims in ID token: ENABLED** (critical — the plugin reads claims from the ID token)
+- **Include claims in ID token: ENABLED** (critical - the plugin reads claims from the ID token)
 
 ### 2.3 Verify the Discovery Endpoint
 
@@ -85,7 +85,7 @@ You should see all the OIDC endpoints.
 ### 2.4 (Optional) Custom Property Mapping for Roles
 
 By default, Authentik's `profile` scope includes a `groups` claim with all group names.
-This works out of the box — set `RoleClaim` to `groups` in the plugin config.
+This works out of the box - set `RoleClaim` to `groups` in the plugin config.
 
 If you want a filtered `roles` claim instead (only jellyfin-related groups):
 
@@ -226,8 +226,8 @@ Click **+ Add Role Mapping** for each role:
 | Default Provider                  | `authentik`      |
 | Default Role                      | `jellyfin-users` |
 | Auto-create users                 | checked          |
-| Migrate local users to SSO        | unchecked (opt-in — enable if you want existing local accounts switched to SSO auth on first login) |
-| Sync display name from OIDC token | unchecked (opt-in — enable to keep Jellyfin account names in sync with Authentik display names) |
+| Migrate local users to SSO        | unchecked (opt-in - enable if you want existing local accounts switched to SSO auth on first login) |
+| Sync display name from OIDC token | unchecked (opt-in - enable to keep Jellyfin account names in sync with Authentik display names) |
 
 Click **Save Configuration**.
 
@@ -237,12 +237,12 @@ Go to **Jellyfin Admin Dashboard → General → Branding**
 
 Retrieve the HTML snippet from the plugin API:
 ```bash
-curl http://localhost:8096/sso/OIDC/BrandingSnippet
+curl http://localhost:8096/sso/OIDC/LoginButtonSnippet
 ```
 
-Copy the value of the `Html` field from the response and paste it into the **Login disclaimer** field. It contains a styled `<a>` link for each enabled provider — no JavaScript or CSP issues.
+Copy the value of the `Html` field from the response and paste it into the **Login disclaimer** field. It contains a styled `<a>` link for each enabled provider - no JavaScript or CSP issues.
 
-> **Note:** Do not paste a `<script>` tag — browsers block script injection via Login Disclaimer due to Content Security Policy. Use the static HTML snippet from `BrandingSnippet` instead.
+> **Note:** Do not paste a `<script>` tag - browsers block script injection via Login Disclaimer due to Content Security Policy. Use the static HTML snippet from `LoginButtonSnippet` instead.
 
 ---
 
@@ -250,10 +250,10 @@ Copy the value of the `Html` field from the response and paste it into the **Log
 
 1. Open Jellyfin in a private browser window: http://localhost:8096
 2. You should see a **"Sign in with Authentik"** button above the login form
-3. Click it — you're redirected to Authentik
+3. Click it - you're redirected to Authentik
 4. Log in with an Authentik user that belongs to one of the `jellyfin-*` groups
 5. After consent, you're redirected back to Jellyfin and logged in
-6. Check the user's library access in **Admin Dashboard > Users** — it should match the role mapping
+6. Check the user's library access in **Admin Dashboard > Users** - it should match the role mapping
 
 ---
 
@@ -264,12 +264,12 @@ Copy the value of the `Html` field from the response and paste it into the **Log
 - Test: `docker exec jellyfin curl -s <authority-url>/.well-known/openid-configuration`
 
 ### User created but no library access
-- Check the Jellyfin logs for `Applied RBAC for user` messages — they show the matched roles and whether admin was set
+- Check the Jellyfin logs for `Applied RBAC for user` messages - they show the matched roles and whether admin was set
 - Verify the role claim path matches your Authentik setup
 - Test the token content: decode the ID token at jwt.io and check the `groups` claim
 
 ### Admin flag not appearing after SSO login
-- The plugin uses `UpdatePolicyAsync` to set permissions before the session is created — check logs for `Applied RBAC for user ...: admin=True`
+- The plugin uses `UpdatePolicyAsync` to set permissions before the session is created - check logs for `Applied RBAC for user ...: admin=True`
 - If you see the log but admin still doesn't show, restart Jellyfin to clear any stale cache
 
 ### Disabled user can still log in
@@ -277,7 +277,7 @@ Copy the value of the `Html` field from the response and paste it into the **Log
 - Check the Jellyfin logs for `User '...' is disabled in Jellyfin`
 
 ### "Invalid or expired authentication state"
-- The OIDC state has a 10-minute TTL — try again
+- The OIDC state has a 10-minute TTL - try again
 - Make sure the redirect URI in Authentik exactly matches what the plugin generates
 
 ### Redirect URI mismatch
