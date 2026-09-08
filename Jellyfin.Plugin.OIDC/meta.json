@@ -4,15 +4,8 @@
   "description": "Advanced OIDC authentication with role-based library access control",
   "overview": "OpenID Connect SSO with role-to-library mapping, multi-provider support, and a full admin configuration UI.",
   "owner": "aussierk",
-  "category": "Administration",
+  "category": "Authentication",
   "versions": [
-    {
-      "version": "2.0.0.0",
-      "changelog": "BREAKING: requires Jellyfin 12.0 or newer — this build will not load on 10.10/10.11 (stay on 1.0.7.x for those). Retargeted to .NET 10 and rebuilt against the Jellyfin 12.0 plugin API. Removed the vestigial IAuthenticationProvider.HasPassword override (dropped from the interface in 12.0). No functional changes to the OIDC login, RBAC, or Quick Connect flows.",
-      "targetAbi": "12.0.0.0",
-      "sourceUrl": "",
-      "timestamp": "2026-09-08T00:00:00Z"
-    },
     {
       "version": "1.0.7.0",
       "changelog": "Security: deny OIDC login when no RBAC role mapping (and no valid Default Role) matches the user's IdP roles, instead of silently letting login through with stale or default permissions — an intentional, unconditional fail-closed behavior change. Fix: declare style-src in the callback page's CSP and nonce the Quick Connect page's inline styles, closing a gap where that page was already CSP-non-compliant. Also: cosmetic redesign of the OIDC callback page (spinner, card layout, dark theme).",

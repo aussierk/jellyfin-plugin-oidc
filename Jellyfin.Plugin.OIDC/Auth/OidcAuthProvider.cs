@@ -21,6 +21,11 @@ public class OidcAuthProvider : IAuthenticationProvider
         throw new AuthenticationException("This account uses OIDC authentication. Please use the SSO login button.");
     }
 
+    public bool HasPassword(User user)
+    {
+        return false;
+    }
+
     public Task ChangePassword(User user, string newPassword)
     {
         throw new NotSupportedException("Password changes are managed by the identity provider.");

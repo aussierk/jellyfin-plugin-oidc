@@ -1,87 +1,41 @@
 # Release process
 
-Releases are automated through GitHub Actions and driven by branch merges — no manual
-tagging.
-
-## Versioning
-
-Versions keep Jellyfin's four-part `Major.Minor.Build.Revision` format (`System.Version`,
-which `meta.json` / `manifest.json` require). From `2.0.0.0` onward the first three parts
-carry [SemVer](https://semver.org/) meaning and the fourth is reserved:
-
-- **Major** — breaking changes, including raising the minimum Jellyfin `targetAbi`.
-- **Minor** — backwards-compatible features.
-- **Build** — backwards-compatible fixes (SemVer patch).
-- **Revision** — always `0` for a code release; bump only to re-package the same code.
-
-`System.Version` can't hold a pre-release suffix, so every dev build for a given `<Version>`
-shares that number; the `-rc.<n>` counter lives only in the git tag / GitHub pre-release
-(e.g. `v2.0.0.0-rc.42`). Releases `1.0.x` predate this policy — a frozen `1.0.` prefix with
-the 3rd/4th parts acting as minor/patch.
+There's no branch protection on this repo and no other maintainers, so releases don't go through PRs — just direct pushes/merges.
 
 ## Channels
 
-- **Stable** (`main`'s `manifest.json`) — updated by `.github/workflows/release.yml` when a
-  PR is merged to `main`.
-- **Testing** (`dev`'s `manifest.json`) — updated by `.github/workflows/dev-prerelease.yml`
-  on every push/merge to `dev`.
+- **Stable** (`main`'s `manifest.json`) — updated only by full-release tags.
+- **Testing** (`dev`'s `manifest.json`) — updated by release-candidate tags. See the [README](README.md#release-channels) for the repository URLs users add in Jellyfin.
 
-See the [README](README.md#release-channels) for the repository URLs users add in Jellyfin.
+`.github/workflows/release.yml` resolves whichever branch a tag's commit lives on and updates that branch's `manifest.json` only. A non-hyphenated full-release tag additionally copies the manifest to `main` if it wasn't already on `main` — so as long as full releases are tagged from `main`, that fallback never triggers.
 
-## Testing builds — automatic
+## Cutting a testing (RC) build
 
-Every merge to `dev` runs `dev-prerelease.yml`:
+1. Do feature work on `dev` (or a short-lived branch merged into `dev` with a plain `git merge`).
+2. Bump `<Version>` in `Jellyfin.Plugin.OIDC/Jellyfin.Plugin.OIDC.csproj` and add/update the matching entry in `Jellyfin.Plugin.OIDC/meta.json`.
+3. Tag from `dev` with a hyphenated suffix and push the tag:
+   ```
+   git tag v1.0.6-rc.1
+   git push origin v1.0.6-rc.1
+   ```
+4. CI builds, tests, and updates `dev`'s `manifest.json` only. Testers on the Testing repository URL see it immediately.
+5. Iterate (`v1.0.6-rc.2`, ...) as needed. Re-pushing a tag with the same csproj `<Version>` replaces that manifest entry in place.
 
-1. Builds and tests.
-2. Publishes a GitHub **pre-release** tagged `v<Version>-rc.<run number>` (e.g.
-   `v2.0.0.0-rc.42`) with `oidc-rbac.zip`. The `-rc.<n>` suffix is **only** in the git tag
-   and release name — never in the manifest.
-3. Writes `dev`'s `manifest.json` with `version` = the plain `<Version>` from
-   `Jellyfin.Plugin.OIDC/Jellyfin.Plugin.OIDC.csproj` (e.g. `2.0.0.0`), `sourceUrl` pointing
-   at the rc pre-release asset, then commits it back to `dev` with `[skip ci]`.
+## Promoting to stable
 
-> Jellyfin parses every manifest `version` with `System.Version` (2–4 dotted integers).
-> A value like `2.0.0.0-rc.42` throws *"Version string portion was too short or too long"*
-> and breaks the entire plugin catalog. That's why the manifest version stays plain and the
-> rc counter lives only in the tag.
-
-Because the manifest version is plain, **each dev merge for the same `<Version>` replaces
-that one manifest entry in place** (new bits, same number) until `<Version>` is bumped for
-the next cycle. Once `v<Version>` has been released to Stable, `dev-prerelease.yml` refuses
-to run until `<Version>` is bumped — otherwise it would overwrite a shipped version's entry
-with untested code.
-
-Changelog and `targetAbi` come from the `<Version>` entry in `meta.json`; if it doesn't
-exist yet the changelog falls back to `Testing build from <sha>`. Add the real `meta.json`
-entry as part of your feature work so testers see meaningful notes.
-
-## Full releases — automatic on merge to `main`
-
-`release.yml` runs on every push to `main` but is **version-gated**: it only releases when
-the tag `v<Version>` does not already exist. A docs-only or chore merge that doesn't touch
-`<Version>` is a no-op.
-
-To cut a release:
-
-1. Open a PR from `dev` (or a branch) into `main` that includes:
-   - a bump to `<Version>` in `Jellyfin.Plugin.OIDC/Jellyfin.Plugin.OIDC.csproj`, and
-   - a matching entry in `Jellyfin.Plugin.OIDC/meta.json` (version + changelog + targetAbi).
-     The workflow **fails** if this entry is missing.
-2. Merge the PR. `release.yml` then:
-   - builds and tests,
-   - creates tag `v<Version>` and a GitHub **release** with `oidc-rbac.zip`,
-   - prepends the entry to `main`'s `manifest.json` (Stable) and commits it back with
-     `[skip ci]`,
-   - syncs the same entry into `dev`'s `manifest.json` so Testing never regresses behind
-     Stable.
-
-## Re-running a build
-
-Re-running a workflow with the same version replaces that entry in the target manifest
-in place rather than adding a duplicate.
+1. Merge `dev` into `main` directly (no PR):
+   ```
+   git checkout main
+   git merge dev
+   git push origin main
+   ```
+2. Tag the full release from `main` (no hyphen):
+   ```
+   git tag v1.0.6
+   git push origin v1.0.6
+   ```
+3. CI updates `main`'s `manifest.json` — Stable channel users see the new version.
 
 ## Expected state between releases
 
-Before promotion, `dev`'s manifest legitimately carries a version `main`'s doesn't (the one
-being tested). That's expected divergence, not drift to reconcile. Promotion adds that same
-version's final entry to both branches, repointing `sourceUrl` at the full-release asset.
+Once an RC has shipped but hasn't been promoted yet, `dev`'s manifest legitimately has entries `main`'s doesn't. That's expected divergence, not drift to reconcile.
