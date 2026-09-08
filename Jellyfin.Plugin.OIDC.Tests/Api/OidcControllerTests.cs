@@ -155,6 +155,27 @@ public class OidcControllerTests
     }
 
     [Fact]
+    public void GetProviders_SmartApiUrlHasTrailingSlash_StartUrlHasNoDoubleSlash()
+    {
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            Providers =
+            [
+                new OidcProviderConfig { ProviderId = "keycloak", DisplayName = "Keycloak", Enabled = true }
+            ]
+        });
+        var appHost = Substitute.For<IServerApplicationHost>();
+        appHost.GetSmartApiUrl(Arg.Any<HttpRequest>()).Returns("https://jellyfin.local/");
+
+        var result = MakeController(appHost).GetProviders();
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var json = System.Text.Json.JsonSerializer.Serialize(ok.Value);
+        Assert.Contains("https://jellyfin.local/sso/OIDC/Start/keycloak", json);
+        Assert.DoesNotContain("jellyfin.local//sso", json);
+    }
+
+    [Fact]
     public void GetProviders_DisabledProvider_NotIncluded()
     {
         _fixture.SetConfiguration(new PluginConfiguration
@@ -714,6 +735,37 @@ public class OidcControllerTests
         Assert.Equal(string.Empty, pairs[0].Value);
     }
 
+    [Fact]
+    public void ParseAdditionalParameters_PlusInValue_DecodesToSpace()
+    {
+        // Query-string convention: '+' is a space. (Bare Uri.UnescapeDataString left it literal.)
+        var result = ParseAdditional("login_hint=a+b");
+
+        Assert.NotNull(result);
+        Assert.Equal("a b", ((IEnumerable<KeyValuePair<string, string>>)result!).First().Value);
+    }
+
+    [Fact]
+    public void ParseAdditionalParameters_WhitespaceAroundTokens_IsTrimmed()
+    {
+        var result = ParseAdditional("prompt = consent");
+
+        Assert.NotNull(result);
+        var pair = ((IEnumerable<KeyValuePair<string, string>>)result!).Single();
+        Assert.Equal("prompt", pair.Key);
+        Assert.Equal("consent", pair.Value);
+    }
+
+    [Fact]
+    public void ParseAdditionalParameters_RepeatedKey_KeepsEveryValue()
+    {
+        var result = ParseAdditional("resource=a&resource=b");
+
+        var values = ((IEnumerable<KeyValuePair<string, string>>)result!)
+            .Where(p => p.Key == "resource").Select(p => p.Value).ToList();
+        Assert.Equal(["a", "b"], values);
+    }
+
     // ── BuildCsrfCookieName ────────────────────────────────────────────────────
 
     private static readonly MethodInfo _buildCsrfCookieName =
@@ -801,6 +853,37 @@ public class OidcControllerTests
         appHost.GetSmartApiUrl(Arg.Any<HttpRequest>()).Returns("https://auto.detected/");
         var controller = MakeController(appHost);
         var provider = new OidcProviderConfig { ProviderId = "kc", ServerBaseUrl = "" };
+
+        var result = (string)_buildRedirectUri.Invoke(controller, [provider])!;
+
+        Assert.Equal("https://auto.detected/sso/OIDC/Callback/kc", result);
+    }
+
+    [Theory]
+    [InlineData("https://custom.server", "https://custom.server/sso/OIDC/Callback/kc")]
+    [InlineData("https://custom.server/", "https://custom.server/sso/OIDC/Callback/kc")]
+    [InlineData("https://custom.server///", "https://custom.server/sso/OIDC/Callback/kc")]
+    [InlineData("https://custom.server/jellyfin", "https://custom.server/jellyfin/sso/OIDC/Callback/kc")]
+    [InlineData("https://custom.server/jellyfin/", "https://custom.server/jellyfin/sso/OIDC/Callback/kc")]
+    [InlineData("https://custom.server:8443", "https://custom.server:8443/sso/OIDC/Callback/kc")]
+    [InlineData("https://custom.server:443", "https://custom.server/sso/OIDC/Callback/kc")]
+    public void BuildRedirectUri_ServerBaseUrl_ComposedWithoutSlashHazards(string serverBaseUrl, string expected)
+    {
+        var controller = MakeController();
+        var provider = new OidcProviderConfig { ProviderId = "kc", ServerBaseUrl = serverBaseUrl };
+
+        var result = (string)_buildRedirectUri.Invoke(controller, [provider])!;
+
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void BuildRedirectUri_MalformedServerBaseUrl_FallsBackToSmartApiUrl()
+    {
+        var appHost = Substitute.For<IServerApplicationHost>();
+        appHost.GetSmartApiUrl(Arg.Any<HttpRequest>()).Returns("https://auto.detected");
+        var controller = MakeController(appHost);
+        var provider = new OidcProviderConfig { ProviderId = "kc", ServerBaseUrl = "not a url" };
 
         var result = (string)_buildRedirectUri.Invoke(controller, [provider])!;
 

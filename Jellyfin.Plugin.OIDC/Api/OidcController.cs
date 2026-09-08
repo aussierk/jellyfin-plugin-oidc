@@ -537,7 +537,7 @@ public class OidcController : ControllerBase
                 // Anonymous endpoint - sanitize the same way the login-button snippet does.
                 ButtonColor = ProviderButtonAssets.CustomBrandColor(p.ButtonColor),
                 ButtonIcon = ProviderButtonAssets.IconDataUri(p.ButtonIcon),
-                StartUrl = $"{baseUrl}/sso/OIDC/Start/{p.ProviderId}"
+                StartUrl = CombineRoute(baseUrl, $"sso/OIDC/Start/{p.ProviderId}")
             });
 
         return Ok(providers);
@@ -599,11 +599,32 @@ public class OidcController : ControllerBase
 
     private string BuildRedirectUri(OidcProviderConfig provider)
     {
-        var baseUrl = !string.IsNullOrWhiteSpace(provider.ServerBaseUrl)
-            ? provider.ServerBaseUrl
-            : _appHost.GetSmartApiUrl(Request);
+        var overrideOk = !string.IsNullOrWhiteSpace(provider.ServerBaseUrl)
+            && Uri.TryCreate(provider.ServerBaseUrl, UriKind.Absolute, out _);
+        if (!overrideOk && !string.IsNullOrWhiteSpace(provider.ServerBaseUrl))
+        {
+            _logger.LogWarning(
+                "OIDC provider {Provider}: ServerBaseUrl '{ServerBaseUrl}' is not an absolute URL; "
+                + "falling back to the auto-detected server address for redirect_uri.",
+                provider.ProviderId, provider.ServerBaseUrl);
+        }
 
-        return $"{baseUrl.TrimEnd('/')}/sso/OIDC/Callback/{provider.ProviderId}";
+        var baseUrl = overrideOk ? provider.ServerBaseUrl : _appHost.GetSmartApiUrl(Request);
+
+        return CombineRoute(baseUrl, $"sso/OIDC/Callback/{provider.ProviderId}");
+    }
+
+    /// <summary>
+    /// Joins a server base URL (any trailing slash, optionally carrying a reverse-proxy base
+    /// path) with a plugin-relative route via <see cref="Uri"/> composition rather than string
+    /// concatenation, so a missing or doubled '/' can't slip into a redirect URI. The only
+    /// normalization is lower-casing the host and dropping a default port; every IdP applies
+    /// the same rules when matching a registered redirect URI, so the result still matches.
+    /// </summary>
+    private static string CombineRoute(string baseUrl, string relativeRoute)
+    {
+        var baseUri = new Uri(baseUrl.TrimEnd('/') + "/", UriKind.Absolute);
+        return new Uri(baseUri, relativeRoute).AbsoluteUri;
     }
 
     private static string CreateCodeChallenge(string codeVerifier)
@@ -656,22 +677,29 @@ public class OidcController : ControllerBase
             return null;
         }
 
+        // Admin free-text in query-string form. ParseQueryString owns the '&' / '=' / percent
+        // decoding; it files a token with no '=' under a null key and an empty key ("=x") under
+        // "", so we can still warn about a likely typo. Unlike a bare Uri.UnescapeDataString this
+        // also decodes '+' to space and trims surrounding whitespace - both the conventional
+        // reading of a query string.
+        var parsed = System.Web.HttpUtility.ParseQueryString(raw);
+
         var kept = new List<KeyValuePair<string, string>>();
         var dropped = new List<string>();
 
-        foreach (var token in raw.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var key in parsed.AllKeys)
         {
-            var parts = token.Split('=', 2);
-            var key = parts[0].Trim();
-            if (parts.Length != 2 || key.Length == 0)
+            var values = parsed.GetValues(key) ?? [];
+            if (string.IsNullOrWhiteSpace(key))
             {
-                dropped.Add(token);
+                dropped.AddRange(values);
                 continue;
             }
 
-            kept.Add(new KeyValuePair<string, string>(
-                Uri.UnescapeDataString(key),
-                Uri.UnescapeDataString(parts[1].Trim())));
+            foreach (var value in values)
+            {
+                kept.Add(new KeyValuePair<string, string>(key.Trim(), (value ?? string.Empty).Trim()));
+            }
         }
 
         if (dropped.Count > 0)
