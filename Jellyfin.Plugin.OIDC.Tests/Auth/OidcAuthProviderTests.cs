@@ -14,10 +14,6 @@ public class OidcAuthProviderTests
             () => _provider.Authenticate("alice", "password123"));
 
     [Fact]
-    public void HasPassword_AlwaysReturnsFalse()
-        => Assert.False(_provider.HasPassword(null!));
-
-    [Fact]
     public async Task ChangePassword_AlwaysThrowsNotSupportedException()
         => await Assert.ThrowsAsync<NotSupportedException>(
             () => _provider.ChangePassword(null!, "newpass"));

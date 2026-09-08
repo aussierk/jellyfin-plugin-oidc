@@ -1,8 +1,8 @@
 name: CI
 
+# Push builds on main/dev are covered by release.yml / dev-prerelease.yml, so CI
+# only needs to gate pull requests.
 on:
-  push:
-    branches: ["main", "dev"]
   pull_request:
     branches: ["main", "dev"]
 
