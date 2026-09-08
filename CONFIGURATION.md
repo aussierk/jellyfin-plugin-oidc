@@ -25,10 +25,16 @@ Go to **Admin Dashboard → Plugins → SSO-OIDC Authentication → Providers ta
 | Sync profile image | *(checkbox, on by default)*                          |
 | Trusted for email-based account linking | *(checkbox, off by default - see [Account matching](#account-matching-and-linking))* |
 | Server Base URL    | *(optional, e.g. `https://jellyfin.example.com`)*    |
+| Additional Parameters | *(optional, e.g. `prompt=consent&ui_locales=en`)* |
 
 > **Server Base URL** is only needed if Jellyfin can't resolve its public URL on its own
 > (e.g. behind a reverse proxy whose `X-Forwarded-*` headers aren't trusted). See
 > [Reverse proxy / redirect_uri](#reverse-proxy--redirecturi).
+
+> **Additional Parameters** are appended to the authorization request as a query string, so
+> they follow query-string rules: `&`-separated `key=value` pairs, `%XX` is percent-decoded,
+> `+` decodes to a space, and surrounding whitespace is trimmed. A token with no `=` is
+> ignored (and logged). To send a literal `+` in a value, write it as `%2B`.
 
 After filling in the fields, click **Test Connection**. This validates the Issuer URL, fetches
 the discovery document, and pins the endpoints it returns (authorization, token, JWKS,
@@ -317,6 +323,13 @@ the URL), pick one of these:
 
 The path is always appended as `/sso/OIDC/Callback/{providerId}`, so make sure the IdP's
 allowed redirect URI matches that suffix.
+
+The plugin composes the `redirect_uri` with `System.Uri`, which applies RFC 3986
+normalization: the host is lower-cased and a default port (`:443` for https, `:80` for http)
+is dropped. Every mainstream IdP normalizes the registered value the same way before
+comparing, so this is transparent - but if you register the redirect URI with an
+upper-case host or an explicit `:443`, enter it normalized (lower-case host, no default
+port) to be safe.
 
 ## Keycloak (quick reference)
 
