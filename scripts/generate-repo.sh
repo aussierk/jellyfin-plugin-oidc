@@ -22,6 +22,7 @@ TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 META_FILE="$REPO_ROOT/Jellyfin.Plugin.OIDC/meta.json"
 VERSION=$(jq -r '.versions[0].version' "$META_FILE")
 CHANGELOG=$(jq -r '.versions[0].changelog' "$META_FILE")
+TARGET_ABI=$(jq -r '.versions[0].targetAbi' "$META_FILE")
 
 if [ -n "$REPO_URL" ]; then
     SOURCE_URL="${REPO_URL%/}/oidc-rbac.zip"
@@ -32,6 +33,7 @@ fi
 jq -n \
   --arg version    "$VERSION" \
   --arg changelog  "$CHANGELOG" \
+  --arg targetAbi  "$TARGET_ABI" \
   --arg sourceUrl  "$SOURCE_URL" \
   --arg checksum   "$CHECKSUM" \
   --arg timestamp  "$TIMESTAMP" \
@@ -46,7 +48,7 @@ jq -n \
       {
         "version": $version,
         "changelog": $changelog,
-        "targetAbi": "10.11.0.0",
+        "targetAbi": $targetAbi,
         "sourceUrl": $sourceUrl,
         "checksum": $checksum,
         "timestamp": $timestamp

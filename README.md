@@ -1,10 +1,11 @@
+> **Version 2.0** requires **Jellyfin 12.0** or newer. On Jellyfin **10.11.x**, stay on the **1.0.7.x** line.
+
 # SSO-OIDC Authentication — Jellyfin Plugin
 
 A security-hardened Jellyfin plugin providing **OpenID Connect authentication** with **role-based library access control**.
 
 Authenticate users via any OIDC-compatible identity provider (Authentik, Keycloak, Azure AD, Okta, etc.) and automatically assign Jellyfin permissions and library access based on IdP group/role claims.
 
-> **Forked from [Ezeqielle/jellyfin-plugin-oidc](https://github.com/Ezeqielle/jellyfin-plugin-oidc)** with significant security hardening. See [Security improvements](#security-improvements) for what was changed and why.
 
 ## Security improvements
 
@@ -376,7 +377,8 @@ These are architectural constraints rather than bugs. They are documented here s
 
 ### Requirements
 
-- .NET 9.0 SDK
+- .NET 10.0 SDK
+- Jellyfin 12.0 or newer (this build targets the 12.0 plugin API and will not load on 10.10/10.11)
 
 ### Build and package
 
