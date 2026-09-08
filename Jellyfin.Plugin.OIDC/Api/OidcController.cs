@@ -738,6 +738,9 @@ public class OidcController : ControllerBase
             // this callback was served at, so every link below keeps the prefix. Empty when unset.
             const basePath = window.location.pathname.replace(/\/sso\/OIDC\/Callback\/[^/]+\/?$/i, '');
 
+            // '_deviceId2' and 'jellyfin_credentials' below are jellyfin-web internals with no
+            // public "adopt this token" API. Verified against jellyfin-web 12.0 (apphost.js,
+            // lib/jellyfin-apiclient) — re-check on the next Jellyfin major.
             const deviceId = localStorage.getItem('_deviceId2') || crypto.randomUUID();
             localStorage.setItem('_deviceId2', deviceId);
 
@@ -749,7 +752,7 @@ public class OidcController : ControllerBase
                     DeviceId: deviceId,
                     DeviceName: navigator.userAgent.substring(0, 50),
                     App: 'Jellyfin Web',
-                    AppVersion: '10.11.0'
+                    AppVersion: '12.0.0'
                 })
             })
             .then(function(r) {
