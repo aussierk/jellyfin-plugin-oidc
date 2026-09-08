@@ -31,11 +31,12 @@
     <button id="submit">Authorize</button>
     <div id="msg"></div>
 </div>
+<script type="application/json" id="oidc-data">__DATA_JSON__</script>
 <script nonce="__CSP_NONCE__">
 (function() {
-    const token = __TOKEN_JSON__;
-    const providerId = __PROVIDER_ID_JSON__;
-    const basePath = window.location.pathname.replace(/\/sso\/OIDC\/Callback\/[^/]+\/?$/i, '');
+    const data = JSON.parse(document.getElementById('oidc-data').textContent);
+    // Served at .../sso/OIDC/Callback/{id}; resolve the sibling authorize endpoint relative to it.
+    const authorizeUrl = new URL('../QuickConnect/Authorize/' + encodeURIComponent(data.providerId), window.location.href);
     const codeInput = document.getElementById('code');
     const button = document.getElementById('submit');
     const msg = document.getElementById('msg');
@@ -49,10 +50,10 @@
         msg.className = '';
         msg.textContent = 'Authorizing...';
 
-        fetch(basePath + '/sso/OIDC/QuickConnect/Authorize/' + encodeURIComponent(providerId), {
+        fetch(authorizeUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ Token: token, Code: code })
+            body: JSON.stringify({ Token: data.token, Code: code })
         })
         .then(function(r) {
             return r.text().then(function(body) {

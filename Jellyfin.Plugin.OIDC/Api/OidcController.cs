@@ -715,34 +715,48 @@ public class OidcController : ControllerBase
     /// <summary>
     /// The interactive-login landing page: its inline script trades the one-time
     /// <paramref name="sessionToken"/> for a Jellyfin session and writes jellyfin-web's
-    /// localStorage credentials. Markup lives in <c>Configuration/CallbackPage.html</c>;
-    /// every injected value is JSON-encoded here so an admin-configured provider ID can't
-    /// break out of the script literal.
+    /// localStorage credentials. Markup lives in <c>Configuration/CallbackPage.html</c>; the
+    /// script's inputs are handed over as a JSON data island rather than spliced into the code.
     /// </summary>
     private static string BuildCallbackHtml(string sessionToken, string providerId, string cspNonce)
         => EmbeddedPage.Render("CallbackPage.html", new Dictionary<string, string>
         {
             ["__CSP_NONCE__"] = cspNonce,
-            ["__TOKEN_JSON__"] = System.Text.Json.JsonSerializer.Serialize(sessionToken),
-            ["__PROVIDER_ID_JSON__"] = System.Text.Json.JsonSerializer.Serialize(providerId),
-            ["__DEVICE_ID_KEY_JSON__"] = System.Text.Json.JsonSerializer.Serialize(JellyfinWebDeviceIdStorageKey),
-            ["__CREDENTIALS_KEY_JSON__"] = System.Text.Json.JsonSerializer.Serialize(JellyfinWebCredentialsStorageKey),
-            ["__APP_NAME_JSON__"] = System.Text.Json.JsonSerializer.Serialize(JellyfinWebAppName),
-            ["__APP_VERSION_JSON__"] = System.Text.Json.JsonSerializer.Serialize(JellyfinWebAppVersion)
+            ["__DATA_JSON__"] = SerializePageData(new
+            {
+                token = sessionToken,
+                providerId,
+                deviceIdKey = JellyfinWebDeviceIdStorageKey,
+                credentialsKey = JellyfinWebCredentialsStorageKey,
+                appName = JellyfinWebAppName,
+                appVersion = JellyfinWebAppVersion
+            })
         });
 
     /// <summary>
     /// The Quick Connect landing page: prompts for the device's code and POSTs it with the
     /// one-time <paramref name="sessionToken"/>. Markup lives in
-    /// <c>Configuration/QuickConnectPage.html</c>; injected values are JSON-encoded here.
+    /// <c>Configuration/QuickConnectPage.html</c>; inputs travel as a JSON data island.
     /// </summary>
     private static string BuildQuickConnectHtml(string sessionToken, string providerId, string cspNonce)
         => EmbeddedPage.Render("QuickConnectPage.html", new Dictionary<string, string>
         {
             ["__CSP_NONCE__"] = cspNonce,
-            ["__TOKEN_JSON__"] = System.Text.Json.JsonSerializer.Serialize(sessionToken),
-            ["__PROVIDER_ID_JSON__"] = System.Text.Json.JsonSerializer.Serialize(providerId)
+            ["__DATA_JSON__"] = SerializePageData(new
+            {
+                token = sessionToken,
+                providerId
+            })
         });
+
+    /// <summary>
+    /// Serializes the value dropped into a page's <c>&lt;script type="application/json"&gt;</c>
+    /// data island. The default <see cref="System.Text.Json"/> encoder escapes <c>&lt;</c>,
+    /// <c>&gt;</c> and <c>&amp;</c> to <c>\uXXXX</c>, so no field value - a provider ID included -
+    /// can spell <c>&lt;/script&gt;</c> and break out of the element.
+    /// </summary>
+    private static string SerializePageData<T>(T data)
+        => System.Text.Json.JsonSerializer.Serialize(data);
 }
 
 public class AuthenticateRequest

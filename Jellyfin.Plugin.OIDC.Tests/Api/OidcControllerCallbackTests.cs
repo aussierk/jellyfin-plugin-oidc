@@ -65,7 +65,7 @@ public class OidcControllerCallbackTests
         var content = Assert.IsType<ContentResult>(result);
         Assert.StartsWith("text/html", content.ContentType);
         Assert.Contains("Completing authentication", content.Content);
-        Assert.Contains("/sso/OIDC/Auth/", content.Content);
+        Assert.Contains("'../Auth/'", content.Content);
 
         var session = stateManager.PeekAuthorizedSession(ExtractToken(content.Content!));
         Assert.NotNull(session);
@@ -94,7 +94,7 @@ public class OidcControllerCallbackTests
 
         var content = Assert.IsType<ContentResult>(result);
         Assert.Contains("id=\"code\"", content.Content);
-        Assert.Contains("/sso/OIDC/QuickConnect/Authorize/", content.Content);
+        Assert.Contains("'../QuickConnect/Authorize/'", content.Content);
     }
 
     [Fact]
@@ -387,7 +387,7 @@ public class OidcControllerCallbackTests
 
     private static string ExtractToken(string html)
     {
-        var match = Regex.Match(html, "const token = \"([^\"]+)\"");
+        var match = Regex.Match(html, "\"token\":\"([^\"]+)\"");
         Assert.True(match.Success, "callback HTML did not carry a session token");
         return match.Groups[1].Value;
     }
