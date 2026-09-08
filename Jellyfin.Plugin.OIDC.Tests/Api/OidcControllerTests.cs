@@ -898,29 +898,29 @@ public class OidcControllerTests
             BindingFlags.NonPublic | BindingFlags.Static)!;
 
     [Fact]
-    public void BuildCallbackHtml_DerivesBasePathFromCallbackUrl_NotHardcodedRootRelative()
+    public void BuildCallbackHtml_ResolvesEndpointsRelativeToCallbackUrl_NoRegexNoHardcodedRoot()
     {
         var html = (string)_buildCallbackHtml.Invoke(null, ["token123", "keycloak", "nonce123"])!;
 
-        // Base path is derived client-side from the callback URL, not hardcoded root-relative.
-        Assert.Contains(
-            "window.location.pathname.replace(/\\/sso\\/OIDC\\/Callback\\/[^/]+\\/?$/i, '')",
-            html);
-        Assert.Contains("fetch(basePath + '/sso/OIDC/Auth/' + providerId", html);
-        Assert.Contains("ManualAddress: window.location.origin + basePath", html);
-        Assert.Contains("window.location.href = basePath + '/'", html);
+        // Endpoints resolve with the URL class against window.location - no base-path regex,
+        // no hardcoded root-relative path.
+        Assert.DoesNotContain("window.location.pathname.replace", html);
+        Assert.Contains("new URL('../Auth/' + encodeURIComponent(data.providerId), window.location.href)", html);
+        Assert.Contains("new URL('../../../', window.location.href)", html);
+        Assert.Contains("ManualAddress: appRoot.href.slice(0, -1)", html);
+        Assert.Contains("window.location.href = appRoot.href", html);
     }
 
     [Fact]
-    public void BuildCallbackHtml_TokenAndProviderId_AreJsonEncoded()
+    public void BuildCallbackHtml_ProviderIdIsConfinedToTheJsonDataIsland()
     {
-        // A provider ID with a single quote must not break out of the JS string literal.
-        const string maliciousProviderId = "kc'; alert(1); //";
+        // A provider ID that spells a </script> must not break out of <script type="application/json">.
+        const string hostileProviderId = "kc</script><script>alert(1)</script>";
 
-        var html = (string)_buildCallbackHtml.Invoke(null, ["token123", maliciousProviderId, "nonce123"])!;
+        var html = (string)_buildCallbackHtml.Invoke(null, ["token123", hostileProviderId, "nonce123"])!;
 
-        Assert.Contains(System.Text.Json.JsonSerializer.Serialize(maliciousProviderId), html);
-        Assert.DoesNotContain("const providerId = 'kc'", html);
+        Assert.DoesNotContain("<script>alert(1)</script>", html);
+        Assert.Contains(System.Text.Json.JsonSerializer.Serialize(hostileProviderId), html);
     }
 
     [Fact]
@@ -962,28 +962,26 @@ public class OidcControllerTests
             BindingFlags.NonPublic | BindingFlags.Static)!;
 
     [Fact]
-    public void BuildQuickConnectHtml_ContainsCodeEntryFormAndBasePathPrefixedAuthorizeUrl()
+    public void BuildQuickConnectHtml_ResolvesAuthorizeEndpointRelativeToCallbackUrl()
     {
         var html = (string)_buildQuickConnectHtml.Invoke(null, ["token123", "keycloak", "nonce123"])!;
 
         Assert.Contains("id=\"code\"", html);
+        Assert.DoesNotContain("window.location.pathname.replace", html);
         Assert.Contains(
-            "window.location.pathname.replace(/\\/sso\\/OIDC\\/Callback\\/[^/]+\\/?$/i, '')",
-            html);
-        Assert.Contains(
-            "fetch(basePath + '/sso/OIDC/QuickConnect/Authorize/' + encodeURIComponent(providerId)",
+            "new URL('../QuickConnect/Authorize/' + encodeURIComponent(data.providerId), window.location.href)",
             html);
     }
 
     [Fact]
-    public void BuildQuickConnectHtml_TokenAndProviderId_AreJsonEncoded()
+    public void BuildQuickConnectHtml_ProviderIdIsConfinedToTheJsonDataIsland()
     {
-        const string maliciousProviderId = "kc'; alert(1); //";
+        const string hostileProviderId = "kc</script><script>alert(1)</script>";
 
-        var html = (string)_buildQuickConnectHtml.Invoke(null, ["token123", maliciousProviderId, "nonce123"])!;
+        var html = (string)_buildQuickConnectHtml.Invoke(null, ["token123", hostileProviderId, "nonce123"])!;
 
-        Assert.Contains(System.Text.Json.JsonSerializer.Serialize(maliciousProviderId), html);
-        Assert.DoesNotContain("const providerId = 'kc'", html);
+        Assert.DoesNotContain("<script>alert(1)</script>", html);
+        Assert.Contains(System.Text.Json.JsonSerializer.Serialize(hostileProviderId), html);
     }
 
     [Fact]

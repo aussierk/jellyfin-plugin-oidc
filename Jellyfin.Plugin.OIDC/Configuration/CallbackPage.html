@@ -24,27 +24,29 @@
     <h2>Completing authentication…</h2>
     <p id="status" role="status">Please wait…</p>
 </main>
+<script type="application/json" id="oidc-data">__DATA_JSON__</script>
 <script nonce="__CSP_NONCE__">
 (function() {
-    const token = __TOKEN_JSON__;
-    const providerId = __PROVIDER_ID_JSON__;
+    const data = JSON.parse(document.getElementById('oidc-data').textContent);
 
-    // Derived from the callback URL so it carries Jellyfin's base path (Networking > Base URL).
-    const basePath = window.location.pathname.replace(/\/sso\/OIDC\/Callback\/[^/]+\/?$/i, '');
+    // The page is served at .../sso/OIDC/Callback/{id}; resolve the sibling Auth endpoint and
+    // the Jellyfin app root relative to it, so the base path (Networking > Base URL) and the
+    // reverse-proxy scheme/host come from the browser's own location, not a baked-in guess.
+    const authUrl = new URL('../Auth/' + encodeURIComponent(data.providerId), window.location.href);
+    const appRoot = new URL('../../../', window.location.href);
 
-    const deviceIdKey = __DEVICE_ID_KEY_JSON__;
-    const deviceId = localStorage.getItem(deviceIdKey) || crypto.randomUUID();
-    localStorage.setItem(deviceIdKey, deviceId);
+    const deviceId = localStorage.getItem(data.deviceIdKey) || crypto.randomUUID();
+    localStorage.setItem(data.deviceIdKey, deviceId);
 
-    fetch(basePath + '/sso/OIDC/Auth/' + providerId, {
+    fetch(authUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            Token: token,
+            Token: data.token,
             DeviceId: deviceId,
             DeviceName: navigator.userAgent.substring(0, 50),
-            App: __APP_NAME_JSON__,
-            AppVersion: __APP_VERSION_JSON__
+            App: data.appName,
+            AppVersion: data.appVersion
         })
     })
     .then(function(r) {
@@ -55,16 +57,16 @@
         var credentials = {
             Servers: [{
                 Id: auth.ServerId,
-                ManualAddress: window.location.origin + basePath,
+                ManualAddress: appRoot.href.slice(0, -1),
                 AccessToken: auth.AccessToken,
                 UserId: auth.User.Id,
                 DateLastAccessed: Date.now()
             }]
         };
-        localStorage.setItem(__CREDENTIALS_KEY_JSON__, JSON.stringify(credentials));
+        localStorage.setItem(data.credentialsKey, JSON.stringify(credentials));
 
         document.getElementById('status').textContent = 'Success! Redirecting...';
-        window.location.href = basePath + '/';
+        window.location.href = appRoot.href;
     })
     .catch(function(err) {
         document.getElementById('status').textContent = 'Error: ' + err.message;

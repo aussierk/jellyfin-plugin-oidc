@@ -10,12 +10,7 @@ public class EmbeddedPageTests
     private static readonly Dictionary<string, string> CallbackValues = new()
     {
         ["__CSP_NONCE__"] = "nonce-xyz",
-        ["__TOKEN_JSON__"] = "\"tok\"",
-        ["__PROVIDER_ID_JSON__"] = "\"kc\"",
-        ["__DEVICE_ID_KEY_JSON__"] = "\"_deviceId2\"",
-        ["__CREDENTIALS_KEY_JSON__"] = "\"jellyfin_credentials\"",
-        ["__APP_NAME_JSON__"] = "\"Jellyfin Web\"",
-        ["__APP_VERSION_JSON__"] = "\"10.11.0\""
+        ["__DATA_JSON__"] = "{\"token\":\"tok\",\"providerId\":\"kc\"}"
     };
 
     [Fact]
@@ -25,7 +20,9 @@ public class EmbeddedPageTests
 
         Assert.DoesNotContain("__", html);
         Assert.Contains("<style nonce=\"nonce-xyz\">", html);
-        Assert.Contains("const token = \"tok\";", html);
+        Assert.Contains(
+            "<script type=\"application/json\" id=\"oidc-data\">{\"token\":\"tok\",\"providerId\":\"kc\"}</script>",
+            html);
     }
 
     [Fact]
@@ -34,8 +31,7 @@ public class EmbeddedPageTests
         var html = EmbeddedPage.Render("QuickConnectPage.html", new Dictionary<string, string>
         {
             ["__CSP_NONCE__"] = "n",
-            ["__TOKEN_JSON__"] = "\"t\"",
-            ["__PROVIDER_ID_JSON__"] = "\"p\""
+            ["__DATA_JSON__"] = "{\"token\":\"t\",\"providerId\":\"p\"}"
         });
 
         Assert.Contains("id=\"code\"", html);
@@ -51,11 +47,11 @@ public class EmbeddedPageTests
     public void Render_MissingValueForDeclaredPlaceholder_Throws()
     {
         var incomplete = new Dictionary<string, string>(CallbackValues);
-        incomplete.Remove("__APP_VERSION_JSON__");
+        incomplete.Remove("__DATA_JSON__");
 
         var ex = Assert.Throws<InvalidOperationException>(
             () => EmbeddedPage.Render("CallbackPage.html", incomplete));
-        Assert.Contains("__APP_VERSION_JSON__", ex.Message);
+        Assert.Contains("__DATA_JSON__", ex.Message);
     }
 
     [Fact]
@@ -71,17 +67,17 @@ public class EmbeddedPageTests
     [Fact]
     public void Render_IsSinglePass_SubstitutedValueIsNotRescannedAsAnotherSlot()
     {
-        // The token value literally spells another slot's placeholder. A multi-pass replace
-        // would then overwrite it with the app name; a single pass leaves it intact.
-        var values = new Dictionary<string, string>(CallbackValues)
+        // The data island literally spells the nonce slot's placeholder. A multi-pass replace
+        // would then overwrite it with the nonce; a single pass leaves it intact.
+        var values = new Dictionary<string, string>
         {
-            ["__TOKEN_JSON__"] = "\"__APP_NAME_JSON__\"",
-            ["__APP_NAME_JSON__"] = "\"RealApp\""
+            ["__CSP_NONCE__"] = "realnonce",
+            ["__DATA_JSON__"] = "{\"token\":\"__CSP_NONCE__\"}"
         };
 
         var html = EmbeddedPage.Render("CallbackPage.html", values);
 
-        Assert.Contains("const token = \"__APP_NAME_JSON__\";", html);
-        Assert.Contains("App: \"RealApp\"", html);
+        Assert.Contains("{\"token\":\"__CSP_NONCE__\"}", html);
+        Assert.Contains("<style nonce=\"realnonce\">", html);
     }
 }
