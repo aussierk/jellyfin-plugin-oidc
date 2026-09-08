@@ -8,7 +8,7 @@
   "versions": [
     {
       "version": "2.0.0.0",
-      "changelog": "BREAKING: requires Jellyfin 12.0 or newer — this build will not load on 10.10/10.11 (stay on 1.0.7.x for those). Retargeted to .NET 10 and rebuilt against the Jellyfin 12.0 plugin API. Removed the vestigial IAuthenticationProvider.HasPassword override (dropped from the interface in 12.0). No functional changes to the OIDC login, RBAC, or Quick Connect flows.",
+      "changelog": "BREAKING: requires Jellyfin 12.0 or newer will not load on 10.10/10.11 (stay on 1.0.7.x for those). Retargeted to .NET 10 and rebuilt against the Jellyfin 12.0 plugin API. Removed the vestigial IAuthenticationProvider.HasPassword override (dropped from the interface in 12.0). No functional changes to the OIDC login, RBAC, or Quick Connect flows.",
       "targetAbi": "12.0.0.0",
       "sourceUrl": "",
       "timestamp": "2026-09-08T00:00:00Z"
