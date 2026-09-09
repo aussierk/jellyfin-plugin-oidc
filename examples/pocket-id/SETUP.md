@@ -30,7 +30,7 @@ Assign users to groups via **Users** → select user → **Groups**.
 | Authority URL      | `https://your-pocket-id-instance.com`                    |
 | Client ID          | *(from Pocket ID)*                                       |
 | Client Secret      | *(from Pocket ID)*                                       |
-| Scopes             | `openid profile email`                                   |
+| Scopes             | `openid profile email groups`                                   |
 | Role Claim Path    | `groups`                                                 |
 | Username Claim     | `preferred_username`                                     |
 
