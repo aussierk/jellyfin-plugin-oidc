@@ -25,3 +25,23 @@ jobs:
 
       - name: Test
         run: dotnet test --no-build -c Release --logger "console;verbosity=normal"
+
+  js-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: "npm"
+
+      - name: Install
+        run: npm ci
+
+      - name: Test admin config page (src/)
+        run: npm test
+
+      - name: Verify oidcrbac.js is up to date with src/
+        run: npm run verify-build
