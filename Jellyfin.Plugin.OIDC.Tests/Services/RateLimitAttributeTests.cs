@@ -11,7 +11,7 @@ using Xunit;
 
 namespace Jellyfin.Plugin.OIDC.Tests.Services;
 
-public class RateLimitFilterTests
+public class RateLimitAttributeTests
 {
     // Each test uses a unique policy name so the static counter dictionary
     // doesn't bleed state between tests.
