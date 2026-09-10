@@ -5,3 +5,5 @@ obj/
 .vs/
 *.DotSettings.user
 TestResults/
+dist/
+node_modules/
