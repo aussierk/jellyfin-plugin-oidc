@@ -7,7 +7,7 @@ namespace Jellyfin.Plugin.OIDC.Services;
 /// Evicts one entry from a capped <see cref="ConcurrentDictionary{TKey,TValue}"/> to make room
 /// under a flood, without an O(n) scan of the whole table: only the first <paramref
 /// name="sampleSize"/> entries the enumerator yields are ranked, and the lowest of those is
-/// removed. Shared by <see cref="StateManager"/> and <see cref="RateLimitFilter"/>.
+/// removed. Shared by <see cref="StateManager"/> and <see cref="RateLimitAttribute"/>.
 /// </summary>
 internal static class SampledEviction
 {
