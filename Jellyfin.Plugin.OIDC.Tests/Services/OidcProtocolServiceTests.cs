@@ -281,6 +281,33 @@ public class OidcProtocolServiceTests
     }
 
     [Fact]
+    public async Task ValidateOrPinEndpoints_PartialPinWithIssuerEmpty_FailsClosedInsteadOfBackfilling()
+    {
+        // Regression: `unpinned` only guarantees issuer/token/jwks aren't ALL empty, not that each
+        // is individually non-empty. A partial-pin state (reachable via a direct plugin-config API
+        // edit) with PinnedIssuer empty but PinnedTokenEndpoint/PinnedJwksUri set must still be
+        // rejected as a mismatch - the backfill step must never silently fill in issuer/token/jwks.
+        _fixture.SetConfiguration(new PluginConfiguration());
+        const string authority = "https://203.0.113.10";
+        var disco = await MakeDiscoAsync(authority);
+        var provider = new OidcProviderConfig
+        {
+            ProviderId = "p1",
+            Authority = authority,
+            PinnedAuthority = authority,
+            PinnedIssuer = string.Empty,
+            PinnedTokenEndpoint = disco.TokenEndpoint!,
+            PinnedJwksUri = disco.JwksUri!,
+            PinnedUserInfoEndpoint = string.Empty
+        };
+
+        var result = ValidateOrPinEndpoints(provider, disco);
+
+        Assert.False(result);
+        Assert.Equal(string.Empty, provider.PinnedIssuer);
+    }
+
+    [Fact]
     public async Task ValidateOrPinEndpoints_AuthorityChanged_RePinsAllFiveEndpoints()
     {
         _fixture.SetConfiguration(new PluginConfiguration());

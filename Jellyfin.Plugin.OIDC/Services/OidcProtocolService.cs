@@ -138,6 +138,17 @@ public sealed class OidcProtocolService
             .ToList();
     }
 
+    // Drives the full-pin block and the mismatch check below, which legitimately treat all 5
+    // fields identically. The backfill step does NOT use this table - see its own comment.
+    private static readonly (string Label, Func<OidcProviderConfig, string> Get, Action<OidcProviderConfig, string> Set, Func<DiscoveryDocumentResponse, string?> Disco)[] PinnedFields =
+    {
+        ("issuer", p => p.PinnedIssuer, (p, v) => p.PinnedIssuer = v, d => d.Issuer),
+        ("token", p => p.PinnedTokenEndpoint, (p, v) => p.PinnedTokenEndpoint = v, d => d.TokenEndpoint),
+        ("jwks", p => p.PinnedJwksUri, (p, v) => p.PinnedJwksUri = v, d => d.JwksUri),
+        ("userinfo", p => p.PinnedUserInfoEndpoint, (p, v) => p.PinnedUserInfoEndpoint = v, d => d.UserInfoEndpoint),
+        ("authorize", p => p.PinnedAuthorizeEndpoint, (p, v) => p.PinnedAuthorizeEndpoint = v, d => d.AuthorizeEndpoint),
+    };
+
     public bool ValidateOrPinEndpoints(OidcProviderConfig provider, DiscoveryDocumentResponse disco)
     {
         var unpinned = string.IsNullOrEmpty(provider.PinnedIssuer)
@@ -151,16 +162,22 @@ public sealed class OidcProtocolService
         if (unpinned || authorityChanged)
         {
             provider.PinnedAuthority = provider.Authority;
-            provider.PinnedIssuer = disco.Issuer ?? string.Empty;
-            provider.PinnedTokenEndpoint = disco.TokenEndpoint ?? string.Empty;
-            provider.PinnedJwksUri = disco.JwksUri ?? string.Empty;
-            provider.PinnedUserInfoEndpoint = disco.UserInfoEndpoint ?? string.Empty;
-            provider.PinnedAuthorizeEndpoint = disco.AuthorizeEndpoint ?? string.Empty;
+            foreach (var f in PinnedFields)
+            {
+                f.Set(provider, f.Disco(disco) ?? string.Empty);
+            }
+
             OidcPlugin.Instance?.PersistConfiguration();
             _logger.LogInformation("Pinned discovery endpoints for provider {Provider}", provider.ProviderId);
             return true;
         }
-        // Back-fill fields added after a provider was already pinned, instead of failing closed.
+
+        // Back-fill only userinfo/authorize - fields added after a provider was already pinned -
+        // instead of failing closed. Deliberately NOT table-driven over all 5: `unpinned` above
+        // only guarantees issuer/token/jwks aren't ALL empty, not that each individually is
+        // non-empty, so a partial-pin state (e.g. a direct plugin-config API edit leaving
+        // PinnedIssuer empty while PinnedTokenEndpoint/PinnedJwksUri are set) must still fail
+        // closed at the mismatch check below rather than being silently backfilled.
         var backfilled = false;
         if (string.IsNullOrEmpty(provider.PinnedUserInfoEndpoint) && !string.IsNullOrEmpty(disco.UserInfoEndpoint))
         {
@@ -180,19 +197,17 @@ public sealed class OidcProtocolService
             _logger.LogInformation("Back-filled newly pinned discovery endpoint(s) for provider {Provider}", provider.ProviderId);
         }
 
-        var issuerMatch = string.Equals(disco.Issuer, provider.PinnedIssuer, StringComparison.Ordinal);
-        var tokenMatch = string.Equals(disco.TokenEndpoint, provider.PinnedTokenEndpoint, StringComparison.Ordinal);
-        var jwksMatch = string.Equals(disco.JwksUri, provider.PinnedJwksUri, StringComparison.Ordinal);
-        var userInfoMatch = string.Equals(disco.UserInfoEndpoint ?? string.Empty, provider.PinnedUserInfoEndpoint, StringComparison.Ordinal);
-        var authorizeMatch = string.Equals(disco.AuthorizeEndpoint ?? string.Empty, provider.PinnedAuthorizeEndpoint, StringComparison.Ordinal);
+        var mismatches = PinnedFields
+            .Select(f => (f.Label, Expected: f.Get(provider), Actual: f.Disco(disco) ?? string.Empty))
+            .Where(m => !string.Equals(m.Expected, m.Actual, StringComparison.Ordinal))
+            .ToList();
 
-        if (!issuerMatch || !tokenMatch || !jwksMatch || !userInfoMatch || !authorizeMatch)
+        if (mismatches.Count > 0)
         {
             _logger.LogError(
-                "Discovery endpoint mismatch for {Provider} - expected issuer={Issuer} token={Token} jwks={Jwks} userinfo={UserInfo} authorize={Authorize}; got issuer={ActualIssuer} token={ActualToken} jwks={ActualJwks} userinfo={ActualUserInfo} authorize={ActualAuthorize}. Pins retained - re-run Test Connection in the admin UI to update them.",
+                "Discovery endpoint mismatch for {Provider} ({Details}). Pins retained - re-run Test Connection in the admin UI to update them.",
                 provider.ProviderId,
-                provider.PinnedIssuer, provider.PinnedTokenEndpoint, provider.PinnedJwksUri, provider.PinnedUserInfoEndpoint, provider.PinnedAuthorizeEndpoint,
-                disco.Issuer, disco.TokenEndpoint, disco.JwksUri, disco.UserInfoEndpoint, disco.AuthorizeEndpoint);
+                string.Join("; ", mismatches.Select(m => $"{m.Label}: expected={m.Expected} actual={m.Actual}")));
             return false;
         }
 
