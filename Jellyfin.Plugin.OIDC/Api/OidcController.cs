@@ -435,14 +435,57 @@ public class OidcController : ControllerBase
         }
 
         var issuer = disco.Issuer ?? provider.Authority;
-        var revokedDevices = 0;
-        var revokedAllUserTokens = false;
-        var revocationErrored = false;
 
-        // A sid-scoped logout must not widen to every session just because sub is also present.
-        var tracked = !string.IsNullOrEmpty(sid)
-            ? _stateManager.FindTracked(issuer, sub: null, sid: sid)
-            : _stateManager.FindTracked(issuer, sub: sub, sid: null);
+        // FindTracked self-enforces sid-over-sub precedence - a sid-scoped logout never widens to
+        // every session sharing the subject, even though both are passed through unmodified here.
+        var tracked = _stateManager.FindTracked(issuer, sub, sid);
+        var (revokedDevices, deviceRevocationErrored) = await RevokeTrackedDevicesAsync(tracked).ConfigureAwait(false);
+
+        // A tracked-but-deviceless session (e.g. the device row was already removed) must NOT fall
+        // through to the mapped-user fallback below - widening to every session for the user would
+        // violate the sid-scoping guarantee above.
+        var fallback = tracked.Count == 0
+            ? await RevokeViaMappedUserAsync(providerId, sub, sid, token, provider).ConfigureAwait(false)
+            : LogoutFallbackOutcome.NotAttempted;
+
+        var revoked = revokedDevices > 0 || fallback == LogoutFallbackOutcome.Revoked;
+        var errored = deviceRevocationErrored || fallback == LogoutFallbackOutcome.Errored;
+
+        if (!revoked && errored)
+        {
+            // We matched a session but every revocation attempt errored. Free the jti so the IdP's
+            // retry of this same logout_token isn't rejected as a replay, and signal a retry.
+            _stateManager.UnregisterJti(jti);
+            _logger.LogError(
+                "OIDC back-channel logout for {Provider} matched a session but revoked nothing (sub={Subject} sid={Sid}); "
+                + "returning 503 so the IdP retries.",
+                providerId, ClaimParser.RedactSubject(sub), sid);
+            return StatusCode(503, new { error = "temporarily_unavailable" });
+        }
+
+        if (!revoked && !errored && fallback == LogoutFallbackOutcome.NoMatch)
+        {
+            _logger.LogWarning(
+                "OIDC back-channel logout for {Provider} matched no session (sub={Subject} sid={Sid}); nothing "
+                + "was revoked. State may have been lost across a restart, or the account predates subject-keyed "
+                + "identity and hasn't logged in since - the IdP still gets a 200 per spec.",
+                providerId, ClaimParser.RedactSubject(sub), sid);
+        }
+
+        _logger.LogInformation(
+            "OIDC audit: decision=backchannel-logout provider={Provider} subject={Subject} sid={Sid} revoked={Revoked}",
+            providerId, ClaimParser.RedactSubject(sub), sid,
+            fallback == LogoutFallbackOutcome.Revoked ? "all" : revokedDevices.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        return Ok();
+    }
+
+    /// Deletes every device behind each tracked session, untracking it either way; returns how many
+    /// devices were revoked and whether any deletion attempt errored.
+    private async Task<(int RevokedDevices, bool Errored)> RevokeTrackedDevicesAsync(IReadOnlyList<TrackedSession> tracked)
+    {
+        var revokedDevices = 0;
+        var errored = false;
         foreach (var t in tracked)
         {
             try
@@ -456,69 +499,64 @@ public class OidcController : ControllerBase
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                revocationErrored = true;
+                errored = true;
                 _logger.LogWarning(ex, "OIDC back-channel logout: failed to delete device {Device}", t.DeviceId);
             }
 
             _stateManager.UntrackBySessionId(t.SessionId);
         }
 
-        // Nothing tracked in memory (Quick Connect session, or state lost on restart): fall back to the mapped user.
-        if (revokedDevices == 0)
+        return (revokedDevices, errored);
+    }
+
+    private enum LogoutFallbackOutcome { NotAttempted, Revoked, NoMatch, Errored }
+
+    /// Only reached when nothing was tracked in memory (Quick Connect session, or state lost on
+    /// restart): resolves the logout token to a mapped user and revokes every one of their sessions.
+    private async Task<LogoutFallbackOutcome> RevokeViaMappedUserAsync(
+        string providerId, string sub, string? sid, JwtSecurityToken token, OidcProviderConfig provider)
+    {
+        var username = ClaimParser.ExtractClaim(token, provider.UsernameClaim);
+        var entry = _mapStore.ResolveForLogout(providerId, sub, sid, username);
+        if (entry == null)
         {
-            var username = ClaimParser.ExtractClaim(token, provider.UsernameClaim);
-            var entry = _mapStore.ResolveForLogout(providerId, sub, sid, username);
-            if (entry != null)
-            {
-                // A fully-legacy row stores no UserId - fall back to the live session.
-                var userId = Guid.TryParse(entry.UserId, out var parsed)
-                    ? parsed
-                    : _sessionManager.Sessions
-                        .FirstOrDefault(s => string.Equals(s.UserName, entry.Username, StringComparison.OrdinalIgnoreCase))
-                        ?.UserId ?? Guid.Empty;
-                if (userId != Guid.Empty)
-                {
-                    try
-                    {
-                        await _sessionManager.RevokeUserTokens(userId, string.Empty).ConfigureAwait(false);
-                        revokedAllUserTokens = true;
-                    }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
-                    {
-                        revocationErrored = true;
-                        _logger.LogError(ex, "OIDC back-channel logout: failed to revoke tokens for user {UserId}", userId);
-                    }
-                }
-            }
+            return LogoutFallbackOutcome.NoMatch;
         }
 
-        if (revokedDevices == 0 && !revokedAllUserTokens && revocationErrored)
+        // A fully-legacy row stores no UserId - fall back to the live session.
+        var userId = Guid.TryParse(entry.UserId, out var parsed)
+            ? parsed
+            : _sessionManager.Sessions
+                .FirstOrDefault(s => string.Equals(s.UserName, entry.Username, StringComparison.OrdinalIgnoreCase))
+                ?.UserId ?? Guid.Empty;
+        if (userId == Guid.Empty)
         {
-            // We matched a session but every revocation attempt errored. Free the jti so the IdP's
-            // retry of this same logout_token isn't rejected as a replay, and signal a retry.
-            _stateManager.UnregisterJti(jti);
-            _logger.LogError(
-                "OIDC back-channel logout for {Provider} matched a session but revoked nothing (sub={Subject} sid={Sid}); "
-                + "returning 503 so the IdP retries.",
-                providerId, ClaimParser.RedactSubject(sub), sid);
-            return StatusCode(503, new { error = "temporarily_unavailable" });
+            return LogoutFallbackOutcome.NoMatch;
         }
 
-        if (revokedDevices == 0 && !revokedAllUserTokens)
+        if (!string.IsNullOrEmpty(sid))
         {
+            // UserProviderMapStore rows carry no DeviceId, and ISessionManager.RevokeUserTokens has
+            // no sid/device-scoped overload - so this sid-scoped logout_token, having matched no
+            // in-memory TrackedSession (restart, or a session older than this plugin version), is
+            // about to revoke every session for the user rather than just the one the IdP named.
             _logger.LogWarning(
-                "OIDC back-channel logout for {Provider} matched no session (sub={Subject} sid={Sid}); nothing "
-                + "was revoked. State may have been lost across a restart, or the account predates subject-keyed "
-                + "identity and hasn't logged in since - the IdP still gets a 200 per spec.",
-                providerId, ClaimParser.RedactSubject(sub), sid);
+                "OIDC back-channel logout for {Provider} (sid={Sid}) matched no in-memory session; "
+                + "falling back to revoking every session for user {UserId}, wider than the sid-scoped "
+                + "request. See SECURITY.md for this known limitation.",
+                providerId, sid, userId);
         }
 
-        _logger.LogInformation(
-            "OIDC audit: decision=backchannel-logout provider={Provider} subject={Subject} sid={Sid} revoked={Revoked}",
-            providerId, ClaimParser.RedactSubject(sub), sid,
-            revokedAllUserTokens ? "all" : revokedDevices.ToString(System.Globalization.CultureInfo.InvariantCulture));
-
-        return Ok();
+        try
+        {
+            await _sessionManager.RevokeUserTokens(userId, string.Empty).ConfigureAwait(false);
+            return LogoutFallbackOutcome.Revoked;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "OIDC back-channel logout: failed to revoke tokens for user {UserId}", userId);
+            return LogoutFallbackOutcome.Errored;
+        }
     }
 
     [HttpGet("Providers")]
