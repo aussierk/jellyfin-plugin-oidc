@@ -27,20 +27,24 @@ public sealed class UserProviderMapStore : IHostedService
 
     private readonly string? _path;
     private readonly ILogger<UserProviderMapStore> _logger;
+    // Guards _entries plus the debounce bookkeeping below (_flushPending/_flushScheduled); both are
+    // in-memory-only, so one lock is enough - neither is ever held across the disk write itself.
     private readonly object _gate = new();
+
+    // Deliberately unbounded/unindexed (unlike StateManager/RateLimitAttribute): every row here is
+    // added only after a *successful* OIDC login (auth-gated), not reachable by a pre-auth flood, and
+    // realistic self-hosted user counts keep a linear scan cheap. Revisit only if this store's growth
+    // pattern changes (e.g. per-login writes from an unauthenticated path).
     private readonly List<UserProviderEntry> _entries;
     private readonly bool _fileExisted;
-
-    private readonly object _flushLock = new();
     private bool _flushPending;
     private bool _flushScheduled;
 
     // Serializes the actual disk write below - PruneUser (synchronous), the debounced background
     // flush, and MigrateFromConfig (startup) can all call WriteFile independently of each other and
-    // of _gate (which only protects _entries). Without this, two overlapping writers race on the
-    // same fixed ".tmp" path: whichever's File.Move loses finds the temp file already gone and the
-    // write is silently dropped (logged as an error). One lock per store instance is enough since
-    // they never span multiple files.
+    // of _gate. Without this, two overlapping writers race on the same fixed ".tmp" path: whichever's
+    // File.Move loses finds the temp file already gone and the write is silently dropped (logged as
+    // an error). One lock per store instance is enough since they never span multiple files.
     private readonly object _fileWriteLock = new();
 
     public UserProviderMapStore(IApplicationPaths applicationPaths, ILogger<UserProviderMapStore> logger)
@@ -332,7 +336,7 @@ public sealed class UserProviderMapStore : IHostedService
 
     private void SaveDebounced()
     {
-        lock (_flushLock)
+        lock (_gate)
         {
             _flushPending = true;
             if (_flushScheduled)
@@ -346,7 +350,7 @@ public sealed class UserProviderMapStore : IHostedService
         _ = Task.Run(async () =>
         {
             await Task.Delay(FlushDelay).ConfigureAwait(false);
-            lock (_flushLock)
+            lock (_gate)
             {
                 _flushScheduled = false;
             }
@@ -365,7 +369,7 @@ public sealed class UserProviderMapStore : IHostedService
 
     private void FlushPending()
     {
-        lock (_flushLock)
+        lock (_gate)
         {
             if (!_flushPending)
             {
@@ -377,7 +381,7 @@ public sealed class UserProviderMapStore : IHostedService
 
         if (!WriteFile(SnapshotRaw()))
         {
-            lock (_flushLock)
+            lock (_gate)
             {
                 _flushPending = true;
             }
