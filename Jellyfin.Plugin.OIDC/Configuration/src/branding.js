@@ -1,6 +1,6 @@
 // Keeps the marker-fenced SSO login-button block inside Jellyfin's Branding settings (Login
 // Disclaimer + Custom CSS) in sync with the plugin's enabled providers.
-import { gchk } from './dom.js';
+import { gchk, sval } from './dom.js';
 import { cfg } from './state.js';
 
 // Markers fencing the plugin-managed block inside Branding (Login Disclaimer / Custom CSS).
@@ -37,10 +37,8 @@ export function setBrandingStatus(view, installed) {
 // Fetches the current snippet into the manual copy/paste boxes and reflects install status.
 export function loadBrandingSnippet(view) {
     ApiClient.getJSON(ApiClient.getUrl('sso/OIDC/LoginButtonSnippet')).then(function (snip) {
-        var h = view.querySelector('#brandingHtml');
-        var c = view.querySelector('#brandingCss');
-        if (h) h.value = (snip && snip.Html) || '';
-        if (c) c.value = (snip && snip.Css) || '';
+        sval(view, 'brandingHtml', (snip && snip.Html) || '');
+        sval(view, 'brandingCss', (snip && snip.Css) || '');
     }).catch(function () {});
     ApiClient.getNamedConfiguration('branding').then(function (b) {
         setBrandingStatus(view, ((b && b.LoginDisclaimer) || '').indexOf(HTML_START) !== -1);

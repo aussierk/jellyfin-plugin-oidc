@@ -39,6 +39,33 @@ export function gchk(view, id) {
     return el ? el.checked : false;
 }
 
+export function sval(view, id, value) {
+    var el = view.querySelector('#' + id);
+    if (el) el.value = value;
+}
+
+export function schk(view, id, checked) {
+    var el = view.querySelector('#' + id);
+    if (el) el.checked = checked;
+}
+
 export function emptyState(msg) {
     return el('div', { class: 'oidc-empty' }, esc(msg));
+}
+
+// Copies the #srcId field's value to the clipboard and flashes btn's text to "Copied" for 1.2s.
+// Falls back to execCommand('copy') when the async Clipboard API isn't available (older/non-secure-
+// context browsers, some embedded webviews).
+export function copyToClipboard(view, srcId, btn) {
+    var src = view.querySelector('#' + srcId);
+    if (!src) return;
+    if (typeof src.select === 'function') src.select();
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(src.value).catch(function () {});
+    } else {
+        try { document.execCommand('copy'); } catch (e) { /* ignore */ }
+    }
+    var orig = btn.textContent;
+    btn.textContent = 'Copied';
+    setTimeout(function () { btn.textContent = orig; }, 1200);
 }

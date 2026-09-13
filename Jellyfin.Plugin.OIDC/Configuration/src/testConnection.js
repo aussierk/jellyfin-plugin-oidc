@@ -1,5 +1,5 @@
 // The provider card's "Test Connection" round-trip: validates + pins discovery endpoints.
-import { gval, gchk } from './dom.js';
+import { gval, gchk, sval } from './dom.js';
 import { cfg, setDirty } from './state.js';
 
 // Sets a .oidc-test-result span's text and colour via className (oidc-status--dim/ok/warn/error)
@@ -52,18 +52,12 @@ export function testProvider(view, idx) {
             cfg.Providers[idx].PinnedUserInfoEndpoint = result.UserInfoEndpoint || '';
             cfg.Providers[idx].PinnedAuthorizeEndpoint = result.AuthorizationEndpoint || '';
 
-            var discoveryEl = view.querySelector('#prov_discovery_' + idx);
-            var pinnedAuthorityEl = view.querySelector('#prov_pinnedauthority_' + idx);
-            var tokenEl = view.querySelector('#prov_pinnedtoken_' + idx);
-            var jwksEl  = view.querySelector('#prov_pinnedjwks_'  + idx);
-            var userInfoEl = view.querySelector('#prov_pinneduserinfo_' + idx);
-            var authorizeEl = view.querySelector('#prov_pinnedauthorize_' + idx);
-            if (discoveryEl) discoveryEl.value = authority;
-            if (pinnedAuthorityEl) pinnedAuthorityEl.value = authority;
-            if (tokenEl) tokenEl.value = result.TokenEndpoint || '';
-            if (jwksEl)  jwksEl.value  = result.JwksUri || '';
-            if (userInfoEl) userInfoEl.value = result.UserInfoEndpoint || '';
-            if (authorizeEl) authorizeEl.value = result.AuthorizationEndpoint || '';
+            sval(view, 'prov_discovery_' + idx, authority);
+            sval(view, 'prov_pinnedauthority_' + idx, authority);
+            sval(view, 'prov_pinnedtoken_' + idx, result.TokenEndpoint || '');
+            sval(view, 'prov_pinnedjwks_' + idx, result.JwksUri || '');
+            sval(view, 'prov_pinneduserinfo_' + idx, result.UserInfoEndpoint || '');
+            sval(view, 'prov_pinnedauthorize_' + idx, result.AuthorizationEndpoint || '');
 
             // Show the canonical issuer in the box and mark exactly that value verified, so
             // Save persists the issuer the server will actually see at login.
