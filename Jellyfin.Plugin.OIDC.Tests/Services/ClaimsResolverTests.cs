@@ -20,7 +20,7 @@ namespace Jellyfin.Plugin.OIDC.Tests.Services;
 
 /// <summary>
 /// Direct coverage of the two 3-tier fallback ladders (roles: id_token → validated access token →
-/// userinfo; picture: id_token → raw access token → userinfo), the username fallback, the
+/// userinfo; picture: id_token → validated access token → userinfo), the username fallback, the
 /// strict-access-token failure channel, and the run-once guarantee on the userinfo call.
 /// </summary>
 [Xunit.Collection("OidcPlugin")]
@@ -132,17 +132,34 @@ public class ClaimsResolverTests
     }
 
     [Fact]
-    public async Task Picture_FromRawAccessToken_WhenIdTokenHasNone()
+    public async Task Picture_FromValidatedAccessToken_WhenIdTokenHasNone()
     {
         var key = new SymmetricSecurityKey(RandomNumberGenerator.GetBytes(32));
-        // Signed by a key NOT in signingKeys → not "validated", but still a well-formed JWT (Raw != null).
         var accessJwt = SignHs256(key, "https://resource.example", [new Claim("picture", "https://cdn/access.png")]);
         var (resolver, _) = MakeResolver();
-        var ctx = Context(IdToken(groups: ["staff"], picture: null), TokenResponseJson(accessToken: accessJwt));
+        var ctx = Context(
+            IdToken(groups: ["staff"], picture: null), TokenResponseJson(accessToken: accessJwt), signingKey: key);
 
         var result = await resolver.ResolveAsync(ctx);
 
         Assert.Equal("https://cdn/access.png", result.Identity!.PictureUrl);
+    }
+
+    [Fact]
+    public async Task Picture_UnvalidatedAccessToken_NotTrusted_FallsThroughToUserInfo()
+    {
+        var key = new SymmetricSecurityKey(RandomNumberGenerator.GetBytes(32));
+        var accessJwt = SignHs256(key, "https://resource.example", [new Claim("picture", "https://cdn/access.png")]);
+        var (resolver, handler) = MakeResolver(
+            userInfo: () => """{ "sub": "sub-1", "picture": "https://cdn/userinfo.png" }""");
+        var ctx = Context(
+            IdToken(groups: ["staff"], picture: null), TokenResponseJson(accessToken: accessJwt),
+            withUserInfoEndpoint: true);
+
+        var result = await resolver.ResolveAsync(ctx);
+
+        Assert.Equal("https://cdn/userinfo.png", result.Identity!.PictureUrl);
+        Assert.Equal(1, handler.HitCount("/userinfo"));
     }
 
     [Fact]
@@ -218,6 +235,26 @@ public class ClaimsResolverTests
         var result = await resolver.ResolveAsync(ctx);
 
         Assert.Equal("alice@corp.com", result.Identity!.Email);
+    }
+
+    [Fact]
+    public async Task Email_FromEmailsArray_DoesNotFireWhenEmailClaimIsCustomized()
+    {
+        // The "emails" fallback is an Entra-specific quirk for the spec-default claim name only -
+        // it must not override an admin's explicit EmailClaim customization.
+        var (resolver, _) = MakeResolver();
+        var provider = Provider();
+        provider.EmailClaim = "mail";
+        var idToken = new JwtSecurityToken(claims:
+        [
+            new Claim("sub", "sub-1"), new Claim("preferred_username", "alice"), new Claim("groups", "staff"),
+            new Claim("emails", "alice@corp.com"),
+        ]);
+        var ctx = Context(idToken, TokenResponseJson(accessToken: "opaque"), provider: provider);
+
+        var result = await resolver.ResolveAsync(ctx);
+
+        Assert.Equal(string.Empty, result.Identity!.Email);
     }
 
     [Fact]

@@ -46,7 +46,7 @@ public readonly record struct IdentityResolution(ResolvedIdentity? Identity, Cla
 /// Turns a validated id_token (plus the token response and discovery document) into a
 /// <see cref="ResolvedIdentity"/>: the six identity claims, then the 3-tier role fallback
 /// (id_token → validated access token → userinfo) and the 3-tier picture fallback
-/// (id_token → raw access token → userinfo). userinfo and access-token inspection each run at
+/// (id_token → validated access token → userinfo). userinfo and access-token inspection each run at
 /// most once across both ladders. Extracted verbatim from <c>OidcController.Callback</c>.
 /// </summary>
 public sealed class ClaimsResolver
@@ -83,9 +83,10 @@ public sealed class ClaimsResolver
 
         var emailClaimName = provider.EmailClaimOrDefault;
         var email = ClaimParser.ExtractFirstClaim(idToken, emailClaimName);
-        if (string.IsNullOrEmpty(email) && !string.Equals(emailClaimName, "emails", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrEmpty(email) && string.Equals(emailClaimName, "email", StringComparison.OrdinalIgnoreCase))
         {
-            // Entra external identities carry the address in an "emails" array rather than "email".
+            // Entra external identities carry the address in an "emails" array rather than "email" -
+            // only applied when the admin hasn't customized EmailClaim away from the spec default.
             email = ClaimParser.ExtractFirstClaim(idToken, "emails");
         }
 
@@ -139,9 +140,12 @@ public sealed class ClaimsResolver
         if (provider.SyncProfileImage && !string.IsNullOrWhiteSpace(provider.PictureClaim))
         {
             pictureUrl = ClaimParser.ExtractClaim(idToken, provider.PictureClaim);
-            if (string.IsNullOrEmpty(pictureUrl) && accessTokenOnce.Value.Raw is { } rawAccessToken)
+
+            // Same trust model as the role ladder above: an access token's claims are only used
+            // once its signature has validated, so an unverified token can't steer this URL.
+            if (string.IsNullOrEmpty(pictureUrl) && accessTokenOnce.Value.Validated is { } validatedAccessToken)
             {
-                pictureUrl = ClaimParser.ExtractClaim(rawAccessToken, provider.PictureClaim);
+                pictureUrl = ClaimParser.ExtractClaim(validatedAccessToken, provider.PictureClaim);
             }
 
             // Some providers (e.g. Authentik) only expose the picture via userinfo.
