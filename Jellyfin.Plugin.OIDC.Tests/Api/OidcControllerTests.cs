@@ -499,6 +499,89 @@ public class OidcControllerTests
         Assert.Equal(502, Assert.IsType<ObjectResult>(result).StatusCode);
     }
 
+    // ── BackchannelLogout: mapped-user fallback over-revoke warning ────────────
+
+    private static Claim EventsClaim =>
+        new("events", "{\"http://schemas.openid.net/event/backchannel-logout\":{}}");
+
+    private async Task<(ActionResult Result, CollectingLogger<OidcController> Logger)> RunFallbackRevokeAsync(
+        string? sub, string? sid, UserProviderEntry mapEntry)
+    {
+        const string authority = "https://203.0.113.10";
+        var key = OidcTestTokens.CreateSigningKey();
+        var provider = new OidcProviderConfig
+        {
+            ProviderId = "keycloak",
+            Authority = authority,
+            ClientId = "test-client",
+            Enabled = true,
+            PinnedAuthority = authority,
+            PinnedIssuer = authority,
+            PinnedTokenEndpoint = $"{authority}/token",
+            PinnedJwksUri = $"{authority}/jwks",
+            PinnedUserInfoEndpoint = string.Empty,
+            PinnedAuthorizeEndpoint = $"{authority}/authorize"
+        };
+        _fixture.SetConfiguration(new PluginConfiguration { Providers = [provider], UserProviderMap = [mapEntry] });
+
+        var handler = RoutingHttpMessageHandler.ForFlow(
+            discovery: () => OidcTestTokens.DiscoveryJson(authority),
+            token: () => "{}",
+            jwks: () => OidcTestTokens.JwksJson(key));
+        var logger = new CollectingLogger<OidcController>();
+        var controller = MakeController(httpHandler: handler, logger: logger);
+
+        var claims = new List<Claim> { EventsClaim };
+        if (sub != null)
+        {
+            claims.Add(new Claim("sub", sub));
+        }
+
+        if (sid != null)
+        {
+            claims.Add(new Claim("sid", sid));
+        }
+
+        var logoutToken = OidcTestTokens.SignRs256(key, authority, provider.ClientId, claims);
+
+        var result = await controller.BackchannelLogout("keycloak", logoutToken);
+        return (result, logger);
+    }
+
+    [Fact]
+    public async Task BackchannelLogout_SidScopedFallbackToMappedUser_LogsOverRevokeWarning()
+    {
+        // No in-memory TrackedSession (restart, or pre-dates this plugin version): the fallback
+        // must still warn that it's revoking every session for the user, wider than this sid.
+        var (result, logger) = await RunFallbackRevokeAsync(
+            sub: null, sid: "sid-1",
+            mapEntry: new UserProviderEntry
+            {
+                ProviderId = "keycloak", Subject = "sub-1", Username = "alice",
+                UserId = Guid.NewGuid().ToString(), LogoutSid = "sid-1"
+            });
+
+        Assert.IsType<OkResult>(result);
+        Assert.True(logger.Any(LogLevel.Warning, "wider than the sid-scoped request"));
+    }
+
+    [Fact]
+    public async Task BackchannelLogout_SubOnlyFallbackToMappedUser_DoesNotLogOverRevokeWarning()
+    {
+        // A sub-only logout_token was never scoped to a single session in the first place, so
+        // revoking every session for the user is exactly the requested scope - no warning.
+        var (result, logger) = await RunFallbackRevokeAsync(
+            sub: "sub-1", sid: null,
+            mapEntry: new UserProviderEntry
+            {
+                ProviderId = "keycloak", Subject = "sub-1", Username = "alice",
+                UserId = Guid.NewGuid().ToString()
+            });
+
+        Assert.IsType<OkResult>(result);
+        Assert.False(logger.Any(LogLevel.Warning, "wider than the sid-scoped request"));
+    }
+
     // ── BackchannelLogout: logout_token claim rules (spec §2.4) ───────────────
 
     private static string? ValidateLogoutTokenClaims(params Claim[] claims)

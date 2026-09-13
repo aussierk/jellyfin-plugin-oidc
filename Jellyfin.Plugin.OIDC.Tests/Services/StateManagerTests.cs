@@ -299,6 +299,20 @@ public class StateManagerTests : IDisposable
     }
 
     [Fact]
+    public void FindTracked_SidPresentWithMismatchedSub_DoesNotWidenToSubMatch()
+    {
+        // FindTracked must self-enforce sid-over-sub precedence even when a caller passes both
+        // unmodified (rather than relying on every caller to null out sub whenever sid is set).
+        _manager.TrackSession(MakeTracked(sessionId: "s1", sid: "sid-1", subject: "sub-1"));
+        _manager.TrackSession(MakeTracked(sessionId: "s2", sid: "sid-2", subject: "sub-1"));
+
+        var hits = _manager.FindTracked("https://idp.example.com", sub: "sub-1", sid: "sid-2");
+
+        Assert.Single(hits);
+        Assert.Equal("s2", hits[0].SessionId);
+    }
+
+    [Fact]
     public void UntrackBySessionId_RemovesEntry()
     {
         _manager.TrackSession(MakeTracked(sessionId: "s1", sid: "sid-1", subject: "sub-1"));
