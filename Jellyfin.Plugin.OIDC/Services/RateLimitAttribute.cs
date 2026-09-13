@@ -45,6 +45,8 @@ public sealed class RateLimitAttribute : Attribute, IAsyncActionFilter
         var now = DateTimeOffset.UtcNow;
         var window = TimeSpan.FromSeconds(_windowSeconds);
 
+        // Only guards against AddOrUpdate touching an existing key - the sample-and-evict below
+        // isn't needed (and shouldn't run) when this request's own key is already tracked.
         if (!_counters.ContainsKey(key) && _counters.Count >= MaxCounters)
         {
             // Sample-and-evict, not a full O(n) scan: this path runs on every request once the cap
