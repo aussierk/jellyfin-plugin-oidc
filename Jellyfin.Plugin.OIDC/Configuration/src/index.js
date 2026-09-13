@@ -1,7 +1,7 @@
 // Page controller for the plugin's admin config page. Jellyfin dynamically imports this
 // module (via the data-controller attribute on configPage.html) and calls only the default
 // export with the page's root element - everything else here is internal wiring.
-import { gval, gchk } from './dom.js';
+import { gval, gchk, sval, schk, copyToClipboard } from './dom.js';
 import {
     pluginId, cfg, libs, ratings, dirtyView, setCfg, setLibs, setRatings, setDirtyView,
     setDirty, beforeUnloadGuard
@@ -84,22 +84,22 @@ export default function (view) {
             setCfg(config);
             renderProviders(view);
             renderRoleMappings(view); // also fills the #defaultRoleName <select> from cfg
-            view.querySelector('#autoCreateUsers').checked = cfg.AutoCreateUsers !== false;
-            view.querySelector('#migrateLocalUsers').checked = cfg.MigrateLocalUsers === true;
-            view.querySelector('#blockPrivateNetworkAuthorities').checked = cfg.BlockPrivateNetworkAuthorities === true;
-            view.querySelector('#allowedGroups').value = listToText(cfg.AllowedGroups);
-            view.querySelector('#requireVerifiedEmail').checked = cfg.RequireVerifiedEmail === true;
-            view.querySelector('#allowedEmailDomains').value = listToText(cfg.AllowedEmailDomains);
-            view.querySelector('#allowedEmails').value = listToText(cfg.AllowedEmails);
-            view.querySelector('#linkExistingUsersByEmail').checked = cfg.LinkExistingUsersByEmail === true;
-            view.querySelector('#manageUserPolicy').checked = cfg.ManageUserPolicy !== false;
-            view.querySelector('#enableLibraryAccessManagement').checked = cfg.EnableLibraryAccessManagement !==false;
+            schk(view, 'autoCreateUsers', cfg.AutoCreateUsers !== false);
+            schk(view, 'migrateLocalUsers', cfg.MigrateLocalUsers === true);
+            schk(view, 'blockPrivateNetworkAuthorities', cfg.BlockPrivateNetworkAuthorities === true);
+            sval(view, 'allowedGroups', listToText(cfg.AllowedGroups));
+            schk(view, 'requireVerifiedEmail', cfg.RequireVerifiedEmail === true);
+            sval(view, 'allowedEmailDomains', listToText(cfg.AllowedEmailDomains));
+            sval(view, 'allowedEmails', listToText(cfg.AllowedEmails));
+            schk(view, 'linkExistingUsersByEmail', cfg.LinkExistingUsersByEmail === true);
+            schk(view, 'manageUserPolicy', cfg.ManageUserPolicy !== false);
+            schk(view, 'enableLibraryAccessManagement', cfg.EnableLibraryAccessManagement !== false);
             updateRbacManagementUi(view);
             updateEmailAllowlistUi(view);
-            view.querySelector('#manageLoginButtonBranding').checked = cfg.ManageLoginButtonBranding !== false;
-            view.querySelector('#hideManualLogin').checked = cfg.HideManualLogin === true;
-            view.querySelector('#loginTitle').value = cfg.LoginTitle || 'Please sign in';
-            view.querySelector('#loginSubtitle').value = cfg.LoginSubtitle || '';
+            schk(view, 'manageLoginButtonBranding', cfg.ManageLoginButtonBranding !== false);
+            schk(view, 'hideManualLogin', cfg.HideManualLogin === true);
+            sval(view, 'loginTitle', cfg.LoginTitle || 'Please sign in');
+            sval(view, 'loginSubtitle', cfg.LoginSubtitle || '');
             loadBrandingSnippet(view);
             setDirty(false);
             alignSaveBar();
@@ -129,17 +129,7 @@ export default function (view) {
     // Copy-to-clipboard buttons (manual branding snippet)
     view.querySelectorAll('[data-copy]').forEach(function (btn) {
         btn.addEventListener('click', function () {
-            var ta = view.querySelector('#' + btn.getAttribute('data-copy'));
-            if (!ta) return;
-            ta.select();
-            if (navigator.clipboard) {
-                navigator.clipboard.writeText(ta.value).catch(function () {});
-            } else {
-                try { document.execCommand('copy'); } catch (e) { /* ignore */ }
-            }
-            var orig = btn.textContent;
-            btn.textContent = 'Copied';
-            setTimeout(function () { btn.textContent = orig; }, 1200);
+            copyToClipboard(view, btn.getAttribute('data-copy'), btn);
         });
     });
 
@@ -269,11 +259,7 @@ export default function (view) {
     view.querySelector('#providerList').addEventListener('click', function (e) {
         var copyBtn = e.target.closest('[data-copy]');
         if (copyBtn) {
-            var src = view.querySelector('#' + copyBtn.getAttribute('data-copy'));
-            if (src && navigator.clipboard) { navigator.clipboard.writeText(src.value).catch(function () {}); }
-            var orig = copyBtn.textContent;
-            copyBtn.textContent = 'Copied';
-            setTimeout(function () { copyBtn.textContent = orig; }, 1200);
+            copyToClipboard(view, copyBtn.getAttribute('data-copy'), copyBtn);
             return;
         }
         var btn = e.target.closest('[data-action]');
@@ -312,10 +298,9 @@ export default function (view) {
             var preset = PROVIDER_PRESETS[t.value];
             t.value = ''; // it's a verb, not state
             if (!preset) return;
-            var setVal = function (id, v) { var el = view.querySelector('#' + id); if (el) el.value = v; };
-            setVal('prov_roleclaim_' + pidx, preset.roleClaim);
-            setVal('prov_userclaim_' + pidx, preset.usernameClaim);
-            setVal('prov_scopes_' + pidx, preset.scopes);
+            sval(view, 'prov_roleclaim_' + pidx, preset.roleClaim);
+            sval(view, 'prov_userclaim_' + pidx, preset.usernameClaim);
+            sval(view, 'prov_scopes_' + pidx, preset.scopes);
             var iconSel = view.querySelector('#prov_icon_' + pidx);
             if (iconSel) {
                 iconSel.value = preset.icon || 'none';

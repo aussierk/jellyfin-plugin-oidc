@@ -5,7 +5,7 @@
 // etc.) rather than from the built oidcrbac.js bundle - index.js (the page controller Jellyfin
 // actually loads) only exports its default, so these are the real unit boundaries.
 import { beforeEach, describe, expect, it } from 'vitest';
-import { el, emptyState, esc, gchk, gval } from './dom.js';
+import { el, emptyState, esc, gchk, gval, schk, sval } from './dom.js';
 import { __setTestState, setDirty } from './state.js';
 import { listToText, textToList } from './utils.js';
 import { spliceRegion } from './branding.js';
@@ -634,5 +634,19 @@ describe('gval / gchk', () => {
         expect(gval(view, 'missing')).toBe('');
         expect(gchk(view, 'b')).toBe(true);
         expect(gchk(view, 'missing')).toBe(false);
+    });
+});
+
+describe('sval / schk', () => {
+    it('sets an input value and a checkbox state by id, no-oping safely when missing', () => {
+        const view = makeView('<input id="a" value="" /><input id="b" type="checkbox" />');
+
+        sval(view, 'a', 'hello');
+        schk(view, 'b', true);
+
+        expect(view.querySelector('#a').value).toBe('hello');
+        expect(view.querySelector('#b').checked).toBe(true);
+        expect(() => sval(view, 'missing', 'x')).not.toThrow();
+        expect(() => schk(view, 'missing', true)).not.toThrow();
     });
 });

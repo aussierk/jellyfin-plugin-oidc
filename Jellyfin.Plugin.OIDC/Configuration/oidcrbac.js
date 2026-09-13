@@ -28,8 +28,35 @@ function gchk(view, id) {
   var el2 = view.querySelector("#" + id);
   return el2 ? el2.checked : false;
 }
+function sval(view, id, value) {
+  var el2 = view.querySelector("#" + id);
+  if (el2) el2.value = value;
+}
+function schk(view, id, checked) {
+  var el2 = view.querySelector("#" + id);
+  if (el2) el2.checked = checked;
+}
 function emptyState(msg) {
   return el("div", { class: "oidc-empty" }, esc(msg));
+}
+function copyToClipboard(view, srcId, btn) {
+  var src = view.querySelector("#" + srcId);
+  if (!src) return;
+  if (typeof src.select === "function") src.select();
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(src.value).catch(function() {
+    });
+  } else {
+    try {
+      document.execCommand("copy");
+    } catch (e) {
+    }
+  }
+  var orig = btn.textContent;
+  btn.textContent = "Copied";
+  setTimeout(function() {
+    btn.textContent = orig;
+  }, 1200);
 }
 
 // Jellyfin.Plugin.OIDC/Configuration/src/state.js
@@ -102,10 +129,8 @@ function setBrandingStatus(view, installed) {
 }
 function loadBrandingSnippet(view) {
   ApiClient.getJSON(ApiClient.getUrl("sso/OIDC/LoginButtonSnippet")).then(function(snip) {
-    var h = view.querySelector("#brandingHtml");
-    var c = view.querySelector("#brandingCss");
-    if (h) h.value = snip && snip.Html || "";
-    if (c) c.value = snip && snip.Css || "";
+    sval(view, "brandingHtml", snip && snip.Html || "");
+    sval(view, "brandingCss", snip && snip.Css || "");
   }).catch(function() {
   });
   ApiClient.getNamedConfiguration("branding").then(function(b) {
@@ -728,18 +753,12 @@ function testProvider(view, idx) {
       cfg.Providers[idx].PinnedJwksUri = result.JwksUri || "";
       cfg.Providers[idx].PinnedUserInfoEndpoint = result.UserInfoEndpoint || "";
       cfg.Providers[idx].PinnedAuthorizeEndpoint = result.AuthorizationEndpoint || "";
-      var discoveryEl = view.querySelector("#prov_discovery_" + idx);
-      var pinnedAuthorityEl = view.querySelector("#prov_pinnedauthority_" + idx);
-      var tokenEl = view.querySelector("#prov_pinnedtoken_" + idx);
-      var jwksEl = view.querySelector("#prov_pinnedjwks_" + idx);
-      var userInfoEl = view.querySelector("#prov_pinneduserinfo_" + idx);
-      var authorizeEl = view.querySelector("#prov_pinnedauthorize_" + idx);
-      if (discoveryEl) discoveryEl.value = authority;
-      if (pinnedAuthorityEl) pinnedAuthorityEl.value = authority;
-      if (tokenEl) tokenEl.value = result.TokenEndpoint || "";
-      if (jwksEl) jwksEl.value = result.JwksUri || "";
-      if (userInfoEl) userInfoEl.value = result.UserInfoEndpoint || "";
-      if (authorizeEl) authorizeEl.value = result.AuthorizationEndpoint || "";
+      sval(view, "prov_discovery_" + idx, authority);
+      sval(view, "prov_pinnedauthority_" + idx, authority);
+      sval(view, "prov_pinnedtoken_" + idx, result.TokenEndpoint || "");
+      sval(view, "prov_pinnedjwks_" + idx, result.JwksUri || "");
+      sval(view, "prov_pinneduserinfo_" + idx, result.UserInfoEndpoint || "");
+      sval(view, "prov_pinnedauthorize_" + idx, result.AuthorizationEndpoint || "");
       if (issuerEl) {
         issuerEl.value = canonicalIssuer;
         issuerEl.dataset.verified = canonicalIssuer;
@@ -842,22 +861,22 @@ function index_default(view) {
       setCfg(config);
       renderProviders(view);
       renderRoleMappings(view);
-      view.querySelector("#autoCreateUsers").checked = cfg.AutoCreateUsers !== false;
-      view.querySelector("#migrateLocalUsers").checked = cfg.MigrateLocalUsers === true;
-      view.querySelector("#blockPrivateNetworkAuthorities").checked = cfg.BlockPrivateNetworkAuthorities === true;
-      view.querySelector("#allowedGroups").value = listToText(cfg.AllowedGroups);
-      view.querySelector("#requireVerifiedEmail").checked = cfg.RequireVerifiedEmail === true;
-      view.querySelector("#allowedEmailDomains").value = listToText(cfg.AllowedEmailDomains);
-      view.querySelector("#allowedEmails").value = listToText(cfg.AllowedEmails);
-      view.querySelector("#linkExistingUsersByEmail").checked = cfg.LinkExistingUsersByEmail === true;
-      view.querySelector("#manageUserPolicy").checked = cfg.ManageUserPolicy !== false;
-      view.querySelector("#enableLibraryAccessManagement").checked = cfg.EnableLibraryAccessManagement !== false;
+      schk(view, "autoCreateUsers", cfg.AutoCreateUsers !== false);
+      schk(view, "migrateLocalUsers", cfg.MigrateLocalUsers === true);
+      schk(view, "blockPrivateNetworkAuthorities", cfg.BlockPrivateNetworkAuthorities === true);
+      sval(view, "allowedGroups", listToText(cfg.AllowedGroups));
+      schk(view, "requireVerifiedEmail", cfg.RequireVerifiedEmail === true);
+      sval(view, "allowedEmailDomains", listToText(cfg.AllowedEmailDomains));
+      sval(view, "allowedEmails", listToText(cfg.AllowedEmails));
+      schk(view, "linkExistingUsersByEmail", cfg.LinkExistingUsersByEmail === true);
+      schk(view, "manageUserPolicy", cfg.ManageUserPolicy !== false);
+      schk(view, "enableLibraryAccessManagement", cfg.EnableLibraryAccessManagement !== false);
       updateRbacManagementUi(view);
       updateEmailAllowlistUi(view);
-      view.querySelector("#manageLoginButtonBranding").checked = cfg.ManageLoginButtonBranding !== false;
-      view.querySelector("#hideManualLogin").checked = cfg.HideManualLogin === true;
-      view.querySelector("#loginTitle").value = cfg.LoginTitle || "Please sign in";
-      view.querySelector("#loginSubtitle").value = cfg.LoginSubtitle || "";
+      schk(view, "manageLoginButtonBranding", cfg.ManageLoginButtonBranding !== false);
+      schk(view, "hideManualLogin", cfg.HideManualLogin === true);
+      sval(view, "loginTitle", cfg.LoginTitle || "Please sign in");
+      sval(view, "loginSubtitle", cfg.LoginSubtitle || "");
       loadBrandingSnippet(view);
       setDirty(false);
       alignSaveBar();
@@ -883,23 +902,7 @@ function index_default(view) {
   });
   view.querySelectorAll("[data-copy]").forEach(function(btn) {
     btn.addEventListener("click", function() {
-      var ta = view.querySelector("#" + btn.getAttribute("data-copy"));
-      if (!ta) return;
-      ta.select();
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText(ta.value).catch(function() {
-        });
-      } else {
-        try {
-          document.execCommand("copy");
-        } catch (e) {
-        }
-      }
-      var orig = btn.textContent;
-      btn.textContent = "Copied";
-      setTimeout(function() {
-        btn.textContent = orig;
-      }, 1200);
+      copyToClipboard(view, btn.getAttribute("data-copy"), btn);
     });
   });
   view.querySelector("#btnAddProvider").addEventListener("click", function() {
@@ -1040,16 +1043,7 @@ function index_default(view) {
   view.querySelector("#providerList").addEventListener("click", function(e) {
     var copyBtn = e.target.closest("[data-copy]");
     if (copyBtn) {
-      var src = view.querySelector("#" + copyBtn.getAttribute("data-copy"));
-      if (src && navigator.clipboard) {
-        navigator.clipboard.writeText(src.value).catch(function() {
-        });
-      }
-      var orig = copyBtn.textContent;
-      copyBtn.textContent = "Copied";
-      setTimeout(function() {
-        copyBtn.textContent = orig;
-      }, 1200);
+      copyToClipboard(view, copyBtn.getAttribute("data-copy"), copyBtn);
       return;
     }
     var btn = e.target.closest("[data-action]");
@@ -1084,13 +1078,9 @@ function index_default(view) {
       var preset = PROVIDER_PRESETS[t.value];
       t.value = "";
       if (!preset) return;
-      var setVal = function(id, v) {
-        var el2 = view.querySelector("#" + id);
-        if (el2) el2.value = v;
-      };
-      setVal("prov_roleclaim_" + pidx, preset.roleClaim);
-      setVal("prov_userclaim_" + pidx, preset.usernameClaim);
-      setVal("prov_scopes_" + pidx, preset.scopes);
+      sval(view, "prov_roleclaim_" + pidx, preset.roleClaim);
+      sval(view, "prov_userclaim_" + pidx, preset.usernameClaim);
+      sval(view, "prov_scopes_" + pidx, preset.scopes);
       var iconSel = view.querySelector("#prov_icon_" + pidx);
       if (iconSel) {
         iconSel.value = preset.icon || "none";
