@@ -107,6 +107,42 @@ public class ProviderButtonAssetsTests
         Assert.StartsWith("<svg", decoded);
     }
 
+    // ── IconDataUri base64-SVG ────────────────────────────────────────────────
+
+    [Fact]
+    public void IconDataUri_Base64EncodedSvgWithScript_StripsScriptBeforeAccepting()
+    {
+        var svg = "<svg onload=\"alert(1)\"><script>alert(2)</script><path d=\"M0 0h1v1z\"/></svg>";
+        var base64 = "data:image/svg+xml;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(svg));
+
+        var decoded = Decode(ProviderButtonAssets.IconDataUri(base64));
+
+        Assert.DoesNotContain("onload", decoded, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("<script", decoded, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("alert", decoded);
+    }
+
+    [Fact]
+    public void IconDataUri_MalformedBase64SvgDataUri_ReturnsNullNotThrows()
+        => Assert.Null(ProviderButtonAssets.IconDataUri("data:image/svg+xml;base64,not-valid-base64!!!"));
+
+    [Fact]
+    public void IconDataUri_Base64SvgWithNoSvgTagInDecodedPayload_ReturnsNull()
+    {
+        var base64 = "data:image/svg+xml;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes("not an svg at all"));
+
+        Assert.Null(ProviderButtonAssets.IconDataUri(base64));
+    }
+
+    [Fact]
+    public void IconDataUri_Base64SvgOversizeAfterDecode_ReturnsNull()
+    {
+        var oversizeSvg = "<svg><path d=\"" + new string('M', 300_000) + "\"/></svg>";
+        var base64 = "data:image/svg+xml;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(oversizeSvg));
+
+        Assert.Null(ProviderButtonAssets.IconDataUri(base64));
+    }
+
     private static string Decode(string? dataUri)
     {
         Assert.NotNull(dataUri);

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -40,8 +41,20 @@ public static class ProviderButtonAssets
         @"^data:image/(svg\+xml|png|jpe?g|gif|webp)[;,]",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
+    // A base64-encoded SVG must be decoded before _scriptOrHandler/_dangerousSvgConstructs can see
+    // its markup - those regexes can't match script/handler text through its base64 encoding.
+    private static readonly Regex _base64SvgPrefix = new(
+        @"^data:image/svg\+xml;base64,",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
     // Cap the encoded icon so it can't bloat the Branding Custom CSS (~192 KB of image).
     private const int MaxIconDataUriLength = 262_144;
+
+    // IconDataUri is a pure function of its (trimmed) input - GetProviders and the login-button
+    // snippet endpoint both call it per-provider on every anonymous, unauthenticated hit, so memoize
+    // it rather than re-running the regex passes/base64 encode on every request. Bounded by the
+    // number of distinct icon values an admin has ever configured, which is negligible.
+    private static readonly ConcurrentDictionary<string, string?> _iconDataUriCache = new(StringComparer.Ordinal);
 
     /// The provider's brand colour when valid and non-default; null lets the theme colour the button.
     public static string? CustomBrandColor(string? color)
@@ -70,10 +83,31 @@ public static class ProviderButtonAssets
             return null;
         }
 
-        var v = buttonIcon.Trim();
+        return _iconDataUriCache.GetOrAdd(buttonIcon.Trim(), ComputeIconDataUri);
+    }
 
+    private static string? ComputeIconDataUri(string v)
+    {
         if (v.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
         {
+            var base64Prefix = _base64SvgPrefix.Match(v);
+            if (base64Prefix.Success)
+            {
+                byte[] bytes;
+                try
+                {
+                    bytes = Convert.FromBase64String(v.Substring(base64Prefix.Length));
+                }
+                catch (FormatException)
+                {
+                    return null;
+                }
+
+                var decoded = Encoding.UTF8.GetString(bytes);
+                var decodedSvgStart = decoded.IndexOf("<svg", StringComparison.OrdinalIgnoreCase);
+                return decodedSvgStart >= 0 ? SanitizeAndEncodeSvg(decoded.Substring(decodedSvgStart)) : null;
+            }
+
             return _imageDataUri.IsMatch(v)
                    && v.Length <= MaxIconDataUriLength
                    && !_scriptOrHandler.IsMatch(v)
@@ -86,15 +120,17 @@ public static class ProviderButtonAssets
 
         // Skip any <?xml?>/<!DOCTYPE> prolog a pasted .svg file may carry.
         var svgStart = v.IndexOf("<svg", StringComparison.OrdinalIgnoreCase);
-        if (svgStart >= 0)
-        {
-            var cleaned = _scriptOrHandler.Replace(v.Substring(svgStart), string.Empty);
-            cleaned = _dangerousSvgConstructs.Replace(cleaned, string.Empty);
-            var bytes = Encoding.UTF8.GetBytes(cleaned);
-            var encoded = "data:image/svg+xml;base64," + Convert.ToBase64String(bytes);
-            return encoded.Length <= MaxIconDataUriLength ? encoded : null;
-        }
+        return svgStart >= 0 ? SanitizeAndEncodeSvg(v.Substring(svgStart)) : KnownProviderIcons.TryGet(v);
+    }
 
-        return KnownProviderIcons.TryGet(v);
+    // Strips script/handler vectors from an <svg ...>...</svg> fragment and re-encodes it as a
+    // size-bounded data: URI, or null if the result would exceed MaxIconDataUriLength.
+    private static string? SanitizeAndEncodeSvg(string svgText)
+    {
+        var cleaned = _scriptOrHandler.Replace(svgText, string.Empty);
+        cleaned = _dangerousSvgConstructs.Replace(cleaned, string.Empty);
+        var bytes = Encoding.UTF8.GetBytes(cleaned);
+        var encoded = "data:image/svg+xml;base64," + Convert.ToBase64String(bytes);
+        return encoded.Length <= MaxIconDataUriLength ? encoded : null;
     }
 }
