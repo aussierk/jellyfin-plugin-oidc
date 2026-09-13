@@ -200,12 +200,23 @@ public sealed class StateManager : IHostedService, IDisposable
     // Callers pass whichever id might be the key (session id, or the device-id fallback); a miss is a no-op.
     public void UntrackBySessionId(string sessionId) => _trackedSessions.TryRemove(sessionId, out _);
 
+    // Self-enforcing precedence (sid, when present, wins outright) rather than relying on every
+    // caller to null out sub whenever sid is set - a caller passing both would otherwise silently
+    // widen a sid-scoped lookup to every session sharing that subject.
     public IReadOnlyList<TrackedSession> FindTracked(string issuer, string? sub, string? sid)
-        => _trackedSessions.Values.Where(s =>
+    {
+        if (string.IsNullOrEmpty(sid) && string.IsNullOrEmpty(sub))
+        {
+            return Array.Empty<TrackedSession>();
+        }
+
+        return _trackedSessions.Values.Where(s =>
                 string.Equals(s.Issuer, issuer, StringComparison.Ordinal)
-                && ((!string.IsNullOrEmpty(sid) && string.Equals(s.Sid, sid, StringComparison.Ordinal))
-                    || (!string.IsNullOrEmpty(sub) && string.Equals(s.Subject, sub, StringComparison.Ordinal))))
+                && (!string.IsNullOrEmpty(sid)
+                    ? string.Equals(s.Sid, sid, StringComparison.Ordinal)
+                    : string.Equals(s.Subject, sub, StringComparison.Ordinal)))
             .ToList();
+    }
 
     /// Records a logout-token <c>jti</c>; returns false if already seen (replay).
     public bool RegisterJti(string jti, DateTimeOffset forgetAfter)
