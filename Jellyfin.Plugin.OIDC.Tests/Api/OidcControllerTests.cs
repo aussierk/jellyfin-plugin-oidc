@@ -921,8 +921,9 @@ public class OidcControllerTests
     [Fact]
     public void BuildRedirectUri_ServerBaseUrlSet_UsesServerBaseUrl()
     {
+        _fixture.SetConfiguration(new PluginConfiguration { ServerBaseUrl = "https://custom.server" });
         var controller = MakeController();
-        var provider = new OidcProviderConfig { ProviderId = "kc", ServerBaseUrl = "https://custom.server" };
+        var provider = new OidcProviderConfig { ProviderId = "kc" };
 
         var result = (string)_buildRedirectUri.Invoke(controller, [provider])!;
 
@@ -932,10 +933,11 @@ public class OidcControllerTests
     [Fact]
     public void BuildRedirectUri_ServerBaseUrlNotSet_UsesSmartApiUrl()
     {
+        _fixture.SetConfiguration(new PluginConfiguration { ServerBaseUrl = "" });
         var appHost = Substitute.For<IServerApplicationHost>();
         appHost.GetSmartApiUrl(Arg.Any<HttpRequest>()).Returns("https://auto.detected/");
         var controller = MakeController(appHost);
-        var provider = new OidcProviderConfig { ProviderId = "kc", ServerBaseUrl = "" };
+        var provider = new OidcProviderConfig { ProviderId = "kc" };
 
         var result = (string)_buildRedirectUri.Invoke(controller, [provider])!;
 
@@ -952,8 +954,9 @@ public class OidcControllerTests
     [InlineData("https://custom.server:443", "https://custom.server/sso/OIDC/Callback/kc")]
     public void BuildRedirectUri_ServerBaseUrl_ComposedWithoutSlashHazards(string serverBaseUrl, string expected)
     {
+        _fixture.SetConfiguration(new PluginConfiguration { ServerBaseUrl = serverBaseUrl });
         var controller = MakeController();
-        var provider = new OidcProviderConfig { ProviderId = "kc", ServerBaseUrl = serverBaseUrl };
+        var provider = new OidcProviderConfig { ProviderId = "kc" };
 
         var result = (string)_buildRedirectUri.Invoke(controller, [provider])!;
 
@@ -963,10 +966,11 @@ public class OidcControllerTests
     [Fact]
     public void BuildRedirectUri_MalformedServerBaseUrl_FallsBackToSmartApiUrl()
     {
+        _fixture.SetConfiguration(new PluginConfiguration { ServerBaseUrl = "not a url" });
         var appHost = Substitute.For<IServerApplicationHost>();
         appHost.GetSmartApiUrl(Arg.Any<HttpRequest>()).Returns("https://auto.detected");
         var controller = MakeController(appHost);
-        var provider = new OidcProviderConfig { ProviderId = "kc", ServerBaseUrl = "not a url" };
+        var provider = new OidcProviderConfig { ProviderId = "kc" };
 
         var result = (string)_buildRedirectUri.Invoke(controller, [provider])!;
 

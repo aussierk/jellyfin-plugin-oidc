@@ -13,6 +13,12 @@ import { renderRoleMappings, renderDefaultRoleOptions, collectRoleMappings, addL
 import { updateRbacManagementUi, updateEmailAllowlistUi } from './uiToggles.js';
 import { testProvider } from './testConnection.js';
 
+function autogrowTextarea(el) {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+}
+
 export default function (view) {
     setDirtyView(view);
 
@@ -22,6 +28,7 @@ export default function (view) {
     // Any field edit marks the form dirty. Programmatic assignments don't emit input/change, so they don't.
     view.addEventListener('input', function (e) {
         setDirty(true);
+        if (e.target && e.target.classList && e.target.classList.contains('oidc-autogrow')) autogrowTextarea(e.target);
         // keep the Fallback-role dropdown in step with unsaved role renames
         if (e.target && e.target.id && e.target.id.indexOf('role_name_') === 0) renderDefaultRoleOptions(view);
         // live warning when a pinned Issuer URL is edited without re-running Test Connection
@@ -100,6 +107,8 @@ export default function (view) {
             schk(view, 'hideManualLogin', cfg.HideManualLogin === true);
             sval(view, 'loginTitle', cfg.LoginTitle || 'Please sign in');
             sval(view, 'loginSubtitle', cfg.LoginSubtitle || '');
+            autogrowTextarea(view.querySelector('#loginSubtitle'));
+            sval(view, 'serverBaseUrl', cfg.ServerBaseUrl || '');
             loadBrandingSnippet(view);
             setDirty(false);
             alignSaveBar();
@@ -242,6 +251,7 @@ export default function (view) {
         cfg.HideManualLogin = gchk(view, 'hideManualLogin');
         cfg.LoginTitle = gval(view, 'loginTitle') || 'Please sign in';
         cfg.LoginSubtitle = gval(view, 'loginSubtitle') || '';
+        cfg.ServerBaseUrl = gval(view, 'serverBaseUrl') || '';
         ApiClient.updatePluginConfiguration(pluginId, cfg).then(function (result) {
             Dashboard.processPluginConfigurationUpdateResult(result);
             return syncBranding(view);
@@ -312,17 +322,23 @@ export default function (view) {
         if (t.id.indexOf('prov_icon_') === 0 && t.tagName === 'SELECT') {
             var idx = t.id.slice('prov_icon_'.length);
             var custom = t.value === 'custom';
-            var svg = view.querySelector('#prov_icon_svg_' + idx);
             var file = view.querySelector('#prov_icon_file_' + idx);
-            if (svg) svg.classList.toggle('oidc-hidden', !custom);
             if (file) file.classList.toggle('oidc-hidden', !custom);
+            if (!custom) {
+                var svgCleared = view.querySelector('#prov_icon_svg_' + idx);
+                if (svgCleared) svgCleared.value = '';
+                var statusCleared = view.querySelector('[data-icon-status="' + idx + '"]');
+                if (statusCleared) statusCleared.textContent = '';
+            }
         } else if (t.id.indexOf('prov_icon_file_') === 0 && t.files && t.files[0]) {
             var fidx = t.id.slice('prov_icon_file_'.length);
             var f = t.files[0];
             var reader = new FileReader();
             reader.onload = function () {
-                var ta = view.querySelector('#prov_icon_svg_' + fidx);
-                if (ta) ta.value = String(reader.result || '').trim();
+                var hidden = view.querySelector('#prov_icon_svg_' + fidx);
+                if (hidden) hidden.value = String(reader.result || '').trim();
+                var status = view.querySelector('[data-icon-status="' + fidx + '"]');
+                if (status) status.textContent = 'Custom icon set (' + f.name + ')';
             };
             // SVG stays as markup; raster formats become a data: URI.
             if (/svg/i.test(f.type) || /\.svg$/i.test(f.name)) {

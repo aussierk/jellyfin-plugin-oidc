@@ -205,7 +205,7 @@ function chk(id, label, checked) {
   return el(
     "label",
     null,
-    el("input", { type: "checkbox", id, is: "emby-checkbox", checked: !!checked }) + " " + esc(label)
+    el("input", { type: "checkbox", id, is: "emby-checkbox", checked: !!checked }) + " " + el("span", null, esc(label))
   );
 }
 function permGroup(title, inner) {
@@ -258,16 +258,12 @@ function iconField(idx, cur) {
   return el(
     "div",
     { class: "oidc-field full" },
-    el("label", { for: "prov_icon_" + idx }, "Button Icon") + el("select", { is: "emby-select", id: "prov_icon_" + idx }, opts) + el("textarea", {
-      id: "prov_icon_svg_" + idx,
-      placeholder: "Paste <svg>\u2026</svg> or a data:image/\u2026 URI, or pick a file below",
-      class: "oidc-mono-box oidc-mt-sm" + (custom ? "" : " oidc-hidden")
-    }, esc(custom ? cur : "")) + el("input", {
+    el("label", { for: "prov_icon_" + idx }, "Button Icon") + el("select", { is: "emby-select", id: "prov_icon_" + idx }, opts) + el("input", { type: "hidden", id: "prov_icon_svg_" + idx, value: custom ? cur : "" }) + el("input", {
       type: "file",
       id: "prov_icon_file_" + idx,
       accept: ".svg,.png,.jpg,.jpeg,.gif,.webp,image/svg+xml,image/png,image/jpeg,image/gif,image/webp",
       class: "oidc-mt-sm" + (custom ? "" : " oidc-hidden")
-    })
+    }) + el("span", { class: "oidc-hint", "data-icon-status": idx }, custom && cur ? "Custom icon set" : "")
   );
 }
 function provGroup(title, hint, inner, open) {
@@ -286,8 +282,8 @@ function authorityHost(url) {
     return String(url).replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").split("/")[0];
   }
 }
-function backchannelLogoutUrl(p) {
-  var base = (p.ServerBaseUrl || "").replace(/\/+$/, "");
+function backchannelLogoutUrl(p, serverBaseUrl) {
+  var base = (serverBaseUrl || "").replace(/\/+$/, "");
   if (!base) {
     try {
       base = ApiClient.serverAddress().replace(/\/+$/, "");
@@ -337,14 +333,29 @@ function renderProviders(view) {
       "prov_secretfile_" + idx,
       p.ClientSecretFile,
       "Optional: path to a file unique to THIS provider (e.g. a mounted Docker/K8s secret) - overrides Client Secret above"
-    ) + fld("Scopes", "text", "prov_scopes_" + idx, p.Scopes || "openid profile email", "");
+    ) + fld("Scopes", "text", "prov_scopes_" + idx, p.Scopes || "openid profile email", "") + fld("Additional Params", "text", "prov_params_" + idx, p.AdditionalParameters || "", "key=val&key2=val2 - extra query params added to the /authorize request", true) + (p.ProviderId ? el(
+      "div",
+      { class: "oidc-field full oidc-mt-md" },
+      el("label", { class: "oidc-label-strong" }, "Back-channel logout URL " + el("span", { class: "oidc-hint" }, "- register as the client's <code>backchannel_logout_uri</code> so the IdP can revoke Jellyfin sessions")) + el(
+        "div",
+        { class: "oidc-inline-row oidc-mt-sm" },
+        el("input", {
+          is: "emby-input",
+          type: "text",
+          id: "prov_bclogout_" + idx,
+          readonly: true,
+          value: backchannelLogoutUrl(p, cfg.ServerBaseUrl),
+          class: "oidc-mono-flex"
+        }) + el("button", { type: "button", class: "oidc-btn-secondary", "data-copy": "prov_bclogout_" + idx }, "Copy")
+      )
+    ) : "");
     var claims = fld("Role Claim Path", "text", "prov_roleclaim_" + idx, p.RoleClaim || "groups", "e.g. groups or realm_access.roles") + fld("Username Claim", "text", "prov_userclaim_" + idx, p.UsernameClaim || "preferred_username", "") + fld("Display Name Claim", "text", "prov_displayclaim_" + idx, p.DisplayNameClaim || "name", "") + fld("Email Claim", "text", "prov_emailclaim_" + idx, p.EmailClaim || "email", "") + fld("Picture Claim", "text", "prov_pictureclaim_" + idx, p.PictureClaim || "picture", "e.g. picture") + el(
       "div",
       { class: "oidc-field full" },
       el(
         "label",
         null,
-        el("input", { type: "checkbox", id: "prov_syncimage_" + idx, is: "emby-checkbox", checked: p.SyncProfileImage !== false }) + " Sync profile image"
+        el("input", { type: "checkbox", id: "prov_syncimage_" + idx, is: "emby-checkbox", checked: p.SyncProfileImage !== false }) + " " + el("span", null, "Sync profile image")
       )
     ) + el(
       "div",
@@ -352,7 +363,7 @@ function renderProviders(view) {
       el(
         "label",
         null,
-        el("input", { type: "checkbox", id: "prov_syncdisplay_" + idx, is: "emby-checkbox", checked: p.SyncDisplayName === true }) + " Sync display name on login"
+        el("input", { type: "checkbox", id: "prov_syncdisplay_" + idx, is: "emby-checkbox", checked: p.SyncDisplayName === true }) + " " + el("span", null, "Sync display name on login")
       ) + el("span", { class: "oidc-hint oidc-ml-lg" }, "This <strong>renames the Jellyfin account</strong> to match the Display Name Claim on every login.")
     );
     var appearance = el(
@@ -364,62 +375,43 @@ function renderProviders(view) {
         el("input", { type: "color", id: "prov_color_" + idx, value: p.ButtonColor || DEFAULT_BUTTON_COLOR }) + el("button", { type: "button", class: "oidc-btn-secondary", "data-action": "reset-color", "data-idx": idx }, "Reset to default")
       )
     ) + iconField(idx, p.ButtonIcon || "");
-    var advanced = fld("Additional Params", "text", "prov_params_" + idx, p.AdditionalParameters || "", "key=val&key2=val2", true) + fld("Server Base URL (override)", "text", "prov_baseurl_" + idx, p.ServerBaseUrl || "", "Optional: https://jellyfin.example.com - overrides auto-detected redirect_uri host", true) + el(
+    var security = el(
       "div",
       { class: "oidc-field full" },
       el(
         "label",
         null,
-        el("input", { type: "checkbox", id: "prov_strict_access_" + idx, is: "emby-checkbox", checked: p.StrictAccessTokenValidation !== false }) + " Strict access token validation"
-      ) + el("span", { class: "oidc-hint oidc-ml-lg" }, "Only applies when the IdP issues JWT access tokens (e.g. Keycloak). Opaque access tokens (Google, default Authelia) are skipped automatically and unaffected by this setting. Uncheck if your IdP signs access tokens with a different key than the JWKS endpoint advertises.")
+        el("input", { type: "checkbox", id: "prov_strict_access_" + idx, is: "emby-checkbox", checked: p.StrictAccessTokenValidation !== false }) + " " + el("span", null, "Strict access token validation")
+      ) + el("span", { class: "oidc-hint oidc-ml-lg" }, "Validates JWT access tokens against the JWKS endpoint; opaque tokens (Google, default Authelia) are skipped automatically. Uncheck if your IdP signs with a different key.")
     ) + el(
       "div",
       { class: "oidc-field full" },
       el(
         "label",
         null,
-        el("input", { type: "checkbox", id: "prov_allow_loopback_" + idx, is: "emby-checkbox", checked: p.AllowLoopbackAuthority === true }) + " Allow loopback Authority"
-      ) + el("span", { class: "oidc-hint oidc-ml-lg" }, "By default, an Authority resolving to a loopback address (127.0.0.1, ::1) is blocked. Enable this only if your IdP is intentionally hosted at loopback.")
+        el("input", { type: "checkbox", id: "prov_allow_loopback_" + idx, is: "emby-checkbox", checked: p.AllowLoopbackAuthority === true }) + " " + el("span", null, "Allow loopback Authority")
+      ) + el("span", { class: "oidc-hint oidc-ml-lg" }, "Loopback Authorities (127.0.0.1, ::1) are blocked by default. Enable only if your IdP is intentionally hosted there.")
     ) + el(
       "div",
       { class: "oidc-field full" },
       el(
         "label",
         null,
-        el("input", { type: "checkbox", id: "prov_allow_linklocal_" + idx, is: "emby-checkbox", checked: p.AllowLinkLocalAuthority === true }) + " Allow link-local Authority"
-      ) + el("span", { class: "oidc-hint oidc-ml-lg" }, "By default, an Authority resolving to a link-local address (169.254.x.x, fe80::) is blocked. Enable this only if your IdP is intentionally hosted at a link-local address.")
+        el("input", { type: "checkbox", id: "prov_allow_linklocal_" + idx, is: "emby-checkbox", checked: p.AllowLinkLocalAuthority === true }) + " " + el("span", null, "Allow link-local Authority")
+      ) + el("span", { class: "oidc-hint oidc-ml-lg" }, "Link-local Authorities (169.254.x.x, fe80::) are blocked by default. Enable only if your IdP is intentionally hosted there.")
     ) + el(
       "div",
       { class: "oidc-field full" },
       el(
         "label",
         null,
-        el("input", { type: "checkbox", id: "prov_trusted_email_link_" + idx, is: "emby-checkbox", checked: p.TrustedForEmailLinking === true }) + " Trusted for email-based account linking"
-      ) + el("span", { class: "oidc-hint oidc-ml-lg" }, 'Only matters when "Link existing users by verified email" is on (General tab). Enable only for an IdP you fully control - a verified email from here will be trusted to link a login to an existing account. Leave off for any provider where a user can set their own email address. Never links to an administrator account.')
+        el("input", { type: "checkbox", id: "prov_trusted_email_link_" + idx, is: "emby-checkbox", checked: p.TrustedForEmailLinking === true }) + " " + el("span", null, "Trusted for email-based account linking")
+      ) + el("span", { class: "oidc-hint oidc-ml-lg" }, 'Used only when "Link existing users by verified email" is on. Enable only for an IdP you fully control - its verified emails will link logins to existing accounts (never to an admin).')
     ) + el("input", { type: "hidden", id: "prov_discovery_" + idx, value: p.Authority || "" }) + el("input", { type: "hidden", id: "prov_pinnedauthority_" + idx, value: p.PinnedAuthority || "" }) + el("input", { type: "hidden", id: "prov_pinnedtoken_" + idx, value: p.PinnedTokenEndpoint || "" }) + el("input", { type: "hidden", id: "prov_pinnedjwks_" + idx, value: p.PinnedJwksUri || "" }) + el("input", { type: "hidden", id: "prov_pinneduserinfo_" + idx, value: p.PinnedUserInfoEndpoint || "" }) + el("input", { type: "hidden", id: "prov_pinnedauthorize_" + idx, value: p.PinnedAuthorizeEndpoint || "" }) + el(
       "div",
-      { class: "oidc-field full oidc-mt-md" },
-      el("label", { class: "oidc-label-strong" }, "Endpoint Pins") + el(
-        "div",
-        { class: "oidc-hint", "data-pin-status": idx },
-        p.PinnedIssuer ? "Pinned via Test Connection - token endpoint, JWKS URI &amp; userinfo endpoint are locked to the values returned for this issuer." : "Not yet pinned - endpoints will be trusted on first login (TOFU) unless you run Test Connection first."
-      )
-    ) + (p.ProviderId ? el(
-      "div",
-      { class: "oidc-field full oidc-mt-md" },
-      el("label", { class: "oidc-label-strong" }, "Back-channel logout URL " + el("span", { class: "oidc-hint" }, "- register as the client's <code>backchannel_logout_uri</code> so the IdP can revoke Jellyfin sessions")) + el(
-        "div",
-        { class: "oidc-inline-row oidc-mt-sm" },
-        el("input", {
-          is: "emby-input",
-          type: "text",
-          id: "prov_bclogout_" + idx,
-          readonly: true,
-          value: backchannelLogoutUrl(p),
-          class: "oidc-mono-flex"
-        }) + el("button", { type: "button", class: "oidc-btn-secondary", "data-copy": "prov_bclogout_" + idx }, "Copy")
-      )
-    ) : "");
+      { class: "oidc-hidden", "data-pin-status": idx },
+      p.PinnedIssuer ? "Pinned via Test Connection - token endpoint, JWKS URI &amp; userinfo endpoint are locked to the values returned for this issuer." : "Not yet pinned - endpoints will be trusted on first login (TOFU) unless you run Test Connection first."
+    );
     var host = authorityHost(p.PinnedIssuer || p.Authority);
     card.innerHTML = el(
       "div",
@@ -429,7 +421,7 @@ function renderProviders(view) {
         { class: "oidc-enable-toggle" },
         el("span", null, "Enabled") + el("input", { type: "checkbox", id: "prov_enabled_" + idx, checked: p.Enabled !== false })
       )
-    ) + provGroup("Connection", "provider id, endpoint & client credentials", connection, !configured) + provGroup("Claim mapping", "role, username, display name & avatar", claims, false) + provGroup("Appearance", "login button colour & icon", appearance, false) + provGroup("Advanced & security", "redirect host, token validation, network guards, endpoint pins", advanced, false) + el(
+    ) + provGroup("Connection", "provider id, endpoint, client credentials & logout", connection, !configured) + provGroup("Claim mapping", "role, username, display name & avatar", claims, false) + provGroup("Appearance", "login button colour & icon", appearance, false) + provGroup("Security", "token validation, network guards, email-linking trust", security, false) + el(
       "div",
       { class: "oidc-row-actions" },
       el("button", {
@@ -483,7 +475,6 @@ function collectProviders(view) {
       SyncDisplayName: gchk(view, "prov_syncdisplay_" + idx),
       ButtonColor: gval(view, "prov_color_" + idx),
       AdditionalParameters: gval(view, "prov_params_" + idx),
-      ServerBaseUrl: gval(view, "prov_baseurl_" + idx),
       Enabled: gchk(view, "prov_enabled_" + idx),
       StrictAccessTokenValidation: gchk(view, "prov_strict_access_" + idx),
       AllowLoopbackAuthority: gchk(view, "prov_allow_loopback_" + idx),
@@ -792,11 +783,17 @@ function testProvider(view, idx) {
 }
 
 // Jellyfin.Plugin.OIDC/Configuration/src/index.js
+function autogrowTextarea(el2) {
+  if (!el2) return;
+  el2.style.height = "auto";
+  el2.style.height = el2.scrollHeight + "px";
+}
 function index_default(view) {
   setDirtyView(view);
   window.addEventListener("beforeunload", beforeUnloadGuard);
   view.addEventListener("input", function(e) {
     setDirty(true);
+    if (e.target && e.target.classList && e.target.classList.contains("oidc-autogrow")) autogrowTextarea(e.target);
     if (e.target && e.target.id && e.target.id.indexOf("role_name_") === 0) renderDefaultRoleOptions(view);
     if (e.target && e.target.id && e.target.id.indexOf("prov_pinnedissuer_") === 0) {
       var idx = e.target.id.slice("prov_pinnedissuer_".length);
@@ -877,6 +874,8 @@ function index_default(view) {
       schk(view, "hideManualLogin", cfg.HideManualLogin === true);
       sval(view, "loginTitle", cfg.LoginTitle || "Please sign in");
       sval(view, "loginSubtitle", cfg.LoginSubtitle || "");
+      autogrowTextarea(view.querySelector("#loginSubtitle"));
+      sval(view, "serverBaseUrl", cfg.ServerBaseUrl || "");
       loadBrandingSnippet(view);
       setDirty(false);
       alignSaveBar();
@@ -1028,6 +1027,7 @@ function index_default(view) {
     cfg.HideManualLogin = gchk(view, "hideManualLogin");
     cfg.LoginTitle = gval(view, "loginTitle") || "Please sign in";
     cfg.LoginSubtitle = gval(view, "loginSubtitle") || "";
+    cfg.ServerBaseUrl = gval(view, "serverBaseUrl") || "";
     ApiClient.updatePluginConfiguration(pluginId, cfg).then(function(result) {
       Dashboard.processPluginConfigurationUpdateResult(result);
       return syncBranding(view);
@@ -1092,17 +1092,23 @@ function index_default(view) {
     if (t.id.indexOf("prov_icon_") === 0 && t.tagName === "SELECT") {
       var idx = t.id.slice("prov_icon_".length);
       var custom = t.value === "custom";
-      var svg = view.querySelector("#prov_icon_svg_" + idx);
       var file = view.querySelector("#prov_icon_file_" + idx);
-      if (svg) svg.classList.toggle("oidc-hidden", !custom);
       if (file) file.classList.toggle("oidc-hidden", !custom);
+      if (!custom) {
+        var svgCleared = view.querySelector("#prov_icon_svg_" + idx);
+        if (svgCleared) svgCleared.value = "";
+        var statusCleared = view.querySelector('[data-icon-status="' + idx + '"]');
+        if (statusCleared) statusCleared.textContent = "";
+      }
     } else if (t.id.indexOf("prov_icon_file_") === 0 && t.files && t.files[0]) {
       var fidx = t.id.slice("prov_icon_file_".length);
       var f = t.files[0];
       var reader = new FileReader();
       reader.onload = function() {
-        var ta = view.querySelector("#prov_icon_svg_" + fidx);
-        if (ta) ta.value = String(reader.result || "").trim();
+        var hidden = view.querySelector("#prov_icon_svg_" + fidx);
+        if (hidden) hidden.value = String(reader.result || "").trim();
+        var status = view.querySelector('[data-icon-status="' + fidx + '"]');
+        if (status) status.textContent = "Custom icon set (" + f.name + ")";
       };
       if (/svg/i.test(f.type) || /\.svg$/i.test(f.name)) {
         reader.readAsText(f);

@@ -218,23 +218,23 @@ describe('fld / chk / permGroup / presetField / provGroup / emptyState', () => {
 });
 
 describe('iconField', () => {
-    it('shows the custom SVG/file inputs (not oidc-hidden) when the icon is not a bundled key', () => {
+    it('carries the custom SVG value in a hidden input and shows the file input when the icon is not a bundled key', () => {
         const html = iconField(0, '<svg></svg>');
         expect(html).toContain('option value="custom" selected');
-        expect(html).not.toMatch(/id="prov_icon_svg_0"[^>]*oidc-hidden/);
+        expect(html).toMatch(/type="hidden" id="prov_icon_svg_0"/);
+        expect(html).not.toMatch(/id="prov_icon_file_0"[^>]*oidc-hidden/);
     });
 
-    it('hides the custom inputs for a bundled icon key', () => {
+    it('hides the file input for a bundled icon key', () => {
         const html = iconField(0, 'keycloak');
         expect(html).toContain('option value="keycloak" selected');
-        expect(html).toMatch(/id="prov_icon_svg_0"[^>]*oidc-hidden/);
         expect(html).toMatch(/id="prov_icon_file_0"[^>]*oidc-hidden/);
     });
 });
 
 describe('backchannelLogoutUrl', () => {
-    it('uses the provider ServerBaseUrl override when set', () => {
-        expect(backchannelLogoutUrl({ ProviderId: 'kc', ServerBaseUrl: 'https://jf.example.com/' }))
+    it('uses the general Server Base URL when provided', () => {
+        expect(backchannelLogoutUrl({ ProviderId: 'kc' }, 'https://jf.example.com/'))
             .toBe('https://jf.example.com/sso/OIDC/BackchannelLogout/kc');
     });
 
@@ -244,7 +244,7 @@ describe('backchannelLogoutUrl', () => {
     });
 
     it('URL-encodes the provider id', () => {
-        expect(backchannelLogoutUrl({ ProviderId: 'a b', ServerBaseUrl: 'https://jf.example.com' }))
+        expect(backchannelLogoutUrl({ ProviderId: 'a b' }, 'https://jf.example.com'))
             .toBe('https://jf.example.com/sso/OIDC/BackchannelLogout/a%20b');
     });
 });
@@ -360,7 +360,8 @@ describe('renderProviders', () => {
 
         const cards = view.querySelectorAll('#providerList .oidc-card');
         expect(cards.length).toBe(2);
-        // 4 provGroup sections per card, each now with a real <summary> (regression guard).
+        // 4 provGroup sections per card (Connection/Claim mapping/Appearance/Security), each
+        // now with a real <summary> (regression guard).
         expect(cards[0].querySelectorAll('details.oidc-section > summary').length).toBe(4);
         expect(cards[0].querySelector('h4').textContent).toBe('Keycloak');
     });
