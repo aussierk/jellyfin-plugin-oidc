@@ -92,7 +92,7 @@ export function renderRoleMappings(view) {
                     esc(p.DisplayName || p.ProviderId));
             }).join('');
         // Collapsed summary: role name + Admin badge + a one-line scope (provider,
-        // library access, priority). A role without a name opens expanded.
+        // library access). A role without a name opens expanded.
         var provLabel = m.ProviderFilter
             ? (((cfg.Providers || []).find(function (p) { return p.ProviderId === m.ProviderFilter; }) || {}).DisplayName || m.ProviderFilter)
             : 'all providers';

@@ -1,5 +1,5 @@
-// Provider-card rendering (Connection / Claim mapping / Appearance / Advanced & security) and
-// its round-trip back into config objects.
+// Provider-card rendering (Connection / Claim mapping / Appearance / Security) and its
+// round-trip back into config objects.
 import { el, esc, emptyState, gval, gchk } from './dom.js';
 import { fld } from './fields.js';
 import { cfg } from './state.js';
@@ -58,16 +58,13 @@ export function iconField(idx, cur) {
     return el('div', { class: 'oidc-field full' },
         el('label', { for: 'prov_icon_' + idx }, 'Button Icon') +
         el('select', { is: 'emby-select', id: 'prov_icon_' + idx }, opts) +
-        el('textarea', {
-            id: 'prov_icon_svg_' + idx,
-            placeholder: 'Paste <svg>…</svg> or a data:image/… URI, or pick a file below',
-            class: 'oidc-mono-box oidc-mt-sm' + (custom ? '' : ' oidc-hidden')
-        }, esc(custom ? cur : '')) +
+        el('input', { type: 'hidden', id: 'prov_icon_svg_' + idx, value: custom ? cur : '' }) +
         el('input', {
             type: 'file', id: 'prov_icon_file_' + idx,
             accept: '.svg,.png,.jpg,.jpeg,.gif,.webp,image/svg+xml,image/png,image/jpeg,image/gif,image/webp',
             class: 'oidc-mt-sm' + (custom ? '' : ' oidc-hidden')
-        }));
+        }) +
+        el('span', { class: 'oidc-hint', 'data-icon-status': idx }, custom && cur ? 'Custom icon set' : ''));
 }
 
 // One field group inside a provider card, rendered as a <details>. `open` decides the
@@ -91,8 +88,8 @@ export function authorityHost(url) {
 }
 
 // The URL to register at the IdP as backchannel_logout_uri for this provider.
-export function backchannelLogoutUrl(p) {
-    var base = (p.ServerBaseUrl || '').replace(/\/+$/, '');
+export function backchannelLogoutUrl(p, serverBaseUrl) {
+    var base = (serverBaseUrl || '').replace(/\/+$/, '');
     if (!base) {
         try { base = ApiClient.serverAddress().replace(/\/+$/, ''); } catch (e) { base = ''; }
     }
@@ -137,7 +134,19 @@ export function renderProviders(view) {
                 'Or reference an env var unique to THIS provider, e.g. ${' + envVarSuggestion(p) + '}') +
             fld('Client Secret File', 'text', 'prov_secretfile_' + idx, p.ClientSecretFile,
                 'Optional: path to a file unique to THIS provider (e.g. a mounted Docker/K8s secret) - overrides Client Secret above') +
-            fld('Scopes', 'text', 'prov_scopes_' + idx, p.Scopes || 'openid profile email', '');
+            fld('Scopes', 'text', 'prov_scopes_' + idx, p.Scopes || 'openid profile email', '') +
+            fld('Additional Params', 'text', 'prov_params_' + idx, p.AdditionalParameters || '', 'key=val&key2=val2 - extra query params added to the /authorize request', true) +
+            (p.ProviderId
+                ? el('div', { class: 'oidc-field full oidc-mt-md' },
+                    el('label', { class: 'oidc-label-strong' }, 'Back-channel logout URL ' +
+                        el('span', { class: 'oidc-hint' }, '- register as the client\'s <code>backchannel_logout_uri</code> so the IdP can revoke Jellyfin sessions')) +
+                    el('div', { class: 'oidc-inline-row oidc-mt-sm' },
+                        el('input', {
+                            is: 'emby-input', type: 'text', id: 'prov_bclogout_' + idx, readonly: true,
+                            value: backchannelLogoutUrl(p, cfg.ServerBaseUrl), class: 'oidc-mono-flex'
+                        }) +
+                        el('button', { type: 'button', class: 'oidc-btn-secondary', 'data-copy': 'prov_bclogout_' + idx }, 'Copy')))
+                : '');
 
         var claims =
             fld('Role Claim Path', 'text', 'prov_roleclaim_' + idx, p.RoleClaim || 'groups', 'e.g. groups or realm_access.roles') +
@@ -148,11 +157,11 @@ export function renderProviders(view) {
             el('div', { class: 'oidc-field full' },
                 el('label', null,
                     el('input', { type: 'checkbox', id: 'prov_syncimage_' + idx, is: 'emby-checkbox', checked: p.SyncProfileImage !== false }) +
-                    ' Sync profile image')) +
+                    ' ' + el('span', null, 'Sync profile image'))) +
             el('div', { class: 'oidc-field full' },
                 el('label', null,
                     el('input', { type: 'checkbox', id: 'prov_syncdisplay_' + idx, is: 'emby-checkbox', checked: p.SyncDisplayName === true }) +
-                    ' Sync display name on login') +
+                    ' ' + el('span', null, 'Sync display name on login')) +
                 el('span', { class: 'oidc-hint oidc-ml-lg' }, 'This <strong>renames the Jellyfin account</strong> to match the Display Name Claim on every login.'));
 
         var appearance =
@@ -163,52 +172,37 @@ export function renderProviders(view) {
                     el('button', { type: 'button', class: 'oidc-btn-secondary', 'data-action': 'reset-color', 'data-idx': idx }, 'Reset to default'))) +
             iconField(idx, p.ButtonIcon || '');
 
-        var advanced =
-            fld('Additional Params', 'text', 'prov_params_' + idx, p.AdditionalParameters || '', 'key=val&key2=val2', true) +
-            fld('Server Base URL (override)', 'text', 'prov_baseurl_' + idx, p.ServerBaseUrl || '', 'Optional: https://jellyfin.example.com - overrides auto-detected redirect_uri host', true) +
+        var security =
             el('div', { class: 'oidc-field full' },
                 el('label', null,
                     el('input', { type: 'checkbox', id: 'prov_strict_access_' + idx, is: 'emby-checkbox', checked: p.StrictAccessTokenValidation !== false }) +
-                    ' Strict access token validation') +
-                el('span', { class: 'oidc-hint oidc-ml-lg' }, 'Only applies when the IdP issues JWT access tokens (e.g. Keycloak). Opaque access tokens (Google, default Authelia) are skipped automatically and unaffected by this setting. Uncheck if your IdP signs access tokens with a different key than the JWKS endpoint advertises.')) +
+                    ' ' + el('span', null, 'Strict access token validation')) +
+                el('span', { class: 'oidc-hint oidc-ml-lg' }, 'Validates JWT access tokens against the JWKS endpoint; opaque tokens (Google, default Authelia) are skipped automatically. Uncheck if your IdP signs with a different key.')) +
             el('div', { class: 'oidc-field full' },
                 el('label', null,
                     el('input', { type: 'checkbox', id: 'prov_allow_loopback_' + idx, is: 'emby-checkbox', checked: p.AllowLoopbackAuthority === true }) +
-                    ' Allow loopback Authority') +
-                el('span', { class: 'oidc-hint oidc-ml-lg' }, 'By default, an Authority resolving to a loopback address (127.0.0.1, ::1) is blocked. Enable this only if your IdP is intentionally hosted at loopback.')) +
+                    ' ' + el('span', null, 'Allow loopback Authority')) +
+                el('span', { class: 'oidc-hint oidc-ml-lg' }, 'Loopback Authorities (127.0.0.1, ::1) are blocked by default. Enable only if your IdP is intentionally hosted there.')) +
             el('div', { class: 'oidc-field full' },
                 el('label', null,
                     el('input', { type: 'checkbox', id: 'prov_allow_linklocal_' + idx, is: 'emby-checkbox', checked: p.AllowLinkLocalAuthority === true }) +
-                    ' Allow link-local Authority') +
-                el('span', { class: 'oidc-hint oidc-ml-lg' }, 'By default, an Authority resolving to a link-local address (169.254.x.x, fe80::) is blocked. Enable this only if your IdP is intentionally hosted at a link-local address.')) +
+                    ' ' + el('span', null, 'Allow link-local Authority')) +
+                el('span', { class: 'oidc-hint oidc-ml-lg' }, 'Link-local Authorities (169.254.x.x, fe80::) are blocked by default. Enable only if your IdP is intentionally hosted there.')) +
             el('div', { class: 'oidc-field full' },
                 el('label', null,
                     el('input', { type: 'checkbox', id: 'prov_trusted_email_link_' + idx, is: 'emby-checkbox', checked: p.TrustedForEmailLinking === true }) +
-                    ' Trusted for email-based account linking') +
-                el('span', { class: 'oidc-hint oidc-ml-lg' }, 'Only matters when "Link existing users by verified email" is on (General tab). Enable only for an IdP you fully control - a verified email from here will be trusted to link a login to an existing account. Leave off for any provider where a user can set their own email address. Never links to an administrator account.')) +
+                    ' ' + el('span', null, 'Trusted for email-based account linking')) +
+                el('span', { class: 'oidc-hint oidc-ml-lg' }, 'Used only when "Link existing users by verified email" is on. Enable only for an IdP you fully control - its verified emails will link logins to existing accounts (never to an admin).')) +
             el('input', { type: 'hidden', id: 'prov_discovery_' + idx, value: p.Authority || '' }) +
             el('input', { type: 'hidden', id: 'prov_pinnedauthority_' + idx, value: p.PinnedAuthority || '' }) +
             el('input', { type: 'hidden', id: 'prov_pinnedtoken_' + idx, value: p.PinnedTokenEndpoint || '' }) +
             el('input', { type: 'hidden', id: 'prov_pinnedjwks_' + idx, value: p.PinnedJwksUri || '' }) +
             el('input', { type: 'hidden', id: 'prov_pinneduserinfo_' + idx, value: p.PinnedUserInfoEndpoint || '' }) +
             el('input', { type: 'hidden', id: 'prov_pinnedauthorize_' + idx, value: p.PinnedAuthorizeEndpoint || '' }) +
-            el('div', { class: 'oidc-field full oidc-mt-md' },
-                el('label', { class: 'oidc-label-strong' }, 'Endpoint Pins') +
-                el('div', { class: 'oidc-hint', 'data-pin-status': idx },
-                    p.PinnedIssuer
-                        ? 'Pinned via Test Connection - token endpoint, JWKS URI &amp; userinfo endpoint are locked to the values returned for this issuer.'
-                        : 'Not yet pinned - endpoints will be trusted on first login (TOFU) unless you run Test Connection first.')) +
-            (p.ProviderId
-                ? el('div', { class: 'oidc-field full oidc-mt-md' },
-                    el('label', { class: 'oidc-label-strong' }, 'Back-channel logout URL ' +
-                        el('span', { class: 'oidc-hint' }, '- register as the client\'s <code>backchannel_logout_uri</code> so the IdP can revoke Jellyfin sessions')) +
-                    el('div', { class: 'oidc-inline-row oidc-mt-sm' },
-                        el('input', {
-                            is: 'emby-input', type: 'text', id: 'prov_bclogout_' + idx, readonly: true,
-                            value: backchannelLogoutUrl(p), class: 'oidc-mono-flex'
-                        }) +
-                        el('button', { type: 'button', class: 'oidc-btn-secondary', 'data-copy': 'prov_bclogout_' + idx }, 'Copy')))
-                : '');
+            el('div', { class: 'oidc-hidden', 'data-pin-status': idx },
+                p.PinnedIssuer
+                    ? 'Pinned via Test Connection - token endpoint, JWKS URI &amp; userinfo endpoint are locked to the values returned for this issuer.'
+                    : 'Not yet pinned - endpoints will be trusted on first login (TOFU) unless you run Test Connection first.');
 
         var host = authorityHost(p.PinnedIssuer || p.Authority);
         card.innerHTML = el('div', { class: 'oidc-card-head' },
@@ -217,10 +211,10 @@ export function renderProviders(view) {
             el('label', { class: 'oidc-enable-toggle' },
                 el('span', null, 'Enabled') +
                 el('input', { type: 'checkbox', id: 'prov_enabled_' + idx, checked: p.Enabled !== false }))) +
-            provGroup('Connection', 'provider id, endpoint & client credentials', connection, !configured) +
+            provGroup('Connection', 'provider id, endpoint, client credentials & logout', connection, !configured) +
             provGroup('Claim mapping', 'role, username, display name & avatar', claims, false) +
             provGroup('Appearance', 'login button colour & icon', appearance, false) +
-            provGroup('Advanced & security', 'redirect host, token validation, network guards, endpoint pins', advanced, false) +
+            provGroup('Security', 'token validation, network guards, email-linking trust', security, false) +
             el('div', { class: 'oidc-row-actions' },
                 el('button', {
                     type: 'button', class: 'oidc-btn-secondary oidc-btn-icon', 'data-action': 'move-provider',
@@ -271,7 +265,6 @@ export function collectProviders(view) {
             SyncDisplayName: gchk(view, 'prov_syncdisplay_' + idx),
             ButtonColor: gval(view, 'prov_color_' + idx),
             AdditionalParameters: gval(view, 'prov_params_' + idx),
-            ServerBaseUrl: gval(view, 'prov_baseurl_' + idx),
             Enabled: gchk(view, 'prov_enabled_' + idx),
             StrictAccessTokenValidation: gchk(view, 'prov_strict_access_' + idx),
             AllowLoopbackAuthority: gchk(view, 'prov_allow_loopback_' + idx),

@@ -637,17 +637,18 @@ public class OidcController : ControllerBase
 
     private string BuildRedirectUri(OidcProviderConfig provider)
     {
-        var overrideOk = !string.IsNullOrWhiteSpace(provider.ServerBaseUrl)
-            && Uri.TryCreate(provider.ServerBaseUrl, UriKind.Absolute, out _);
-        if (!overrideOk && !string.IsNullOrWhiteSpace(provider.ServerBaseUrl))
+        var serverBaseUrl = OidcPlugin.CurrentConfig.ServerBaseUrl;
+        var overrideOk = !string.IsNullOrWhiteSpace(serverBaseUrl)
+            && Uri.TryCreate(serverBaseUrl, UriKind.Absolute, out _);
+        if (!overrideOk && !string.IsNullOrWhiteSpace(serverBaseUrl))
         {
             _logger.LogWarning(
-                "OIDC provider {Provider}: ServerBaseUrl '{ServerBaseUrl}' is not an absolute URL; "
+                "OIDC: ServerBaseUrl '{ServerBaseUrl}' is not an absolute URL; "
                 + "falling back to the auto-detected server address for redirect_uri.",
-                provider.ProviderId, provider.ServerBaseUrl);
+                serverBaseUrl);
         }
 
-        var baseUrl = overrideOk ? provider.ServerBaseUrl : _appHost.GetSmartApiUrl(Request);
+        var baseUrl = overrideOk ? serverBaseUrl : _appHost.GetSmartApiUrl(Request);
 
         return CombineRoute(baseUrl, $"sso/OIDC/Callback/{provider.ProviderId}");
     }
