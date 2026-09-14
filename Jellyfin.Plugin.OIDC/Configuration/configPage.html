@@ -22,6 +22,41 @@
 
             <div id="tab-roles" class="oidc-tab-content oidc-hidden" role="tabpanel">
                 <div class="oidc-card oidc-mb-lg">
+                    <div class="oidc-section-title oidc-section-title--flush">RBAC management</div>
+                    <p class="oidc-hint oidc-mb-lg">How much of a user's Jellyfin policy this plugin controls, once they're admitted.</p>
+                    <div class="oidc-grid">
+                        <div class="oidc-field full">
+                            <label><input type="checkbox" id="manageUserPolicy" is="emby-checkbox" /> <span>Manage user policy from role mappings</span></label>
+                            <p class="fieldDescription oidc-field-note">
+                                On by default. Turn off to stop the plugin touching permissions entirely - fail-closed (deny on no role match) also stops applying, and every field below is inert. Use this if you'd rather manage users' Jellyfin policy by hand.
+                            </p>
+                        </div>
+                        <div class="oidc-field full">
+                            <label><input type="checkbox" id="enableLibraryAccessManagement" is="emby-checkbox" />
+                                <span>Manage library access from role mappings</span>
+                            <span class="oidc-hint">(only while policy management is on)</span></label>
+                        </div>
+                        <div class="oidc-field full">
+                            <label for="defaultRoleName">Fallback role
+                                <span class="oidc-hint">(applied when a user's claim matches no role below)</span>
+                            </label>
+                            <select id="defaultRoleName" is="emby-select"></select>
+                        </div>
+                    </div>
+                </div>
+                <div class="oidc-mb-lg">
+                    <button type="button" id="btnAddRoleMapping" is="emby-button" class="raised">
+                        <span>+ Add Role Mapping</span>
+                    </button>
+                </div>
+                <p id="roleMappingsInactiveHint" class="oidc-hint oidc-mb-lg" hidden>
+                    Policy management is off - role mappings and the fallback role above are not applied.
+                </p>
+                <div id="roleMappingList"></div>
+            </div>
+
+            <div id="tab-general" class="oidc-tab-content oidc-hidden" role="tabpanel">
+                <div class="oidc-card oidc-mb-lg">
                     <div class="oidc-section-title oidc-section-title--flush">Access</div>
                     <p class="oidc-hint oidc-mb-lg">Who may sign in at all - evaluated before role mapping. Leave the list empty to admit everyone who authenticates.</p>
                     <div class="oidc-grid">
@@ -49,65 +84,37 @@
                             <label><input type="checkbox" id="linkExistingUsersByEmail" is="emby-checkbox" /> <span>Link a login to an existing account by verified email when the subject doesn't match</span></label>
                         </div>
                     </div>
-                    <div class="oidc-section-title oidc-section-title--flush oidc-section-title--top">RBAC management</div>
-                    <p class="oidc-hint oidc-mb-lg">How much of a user's Jellyfin policy this plugin controls, once they're admitted.</p>
-                    <div class="oidc-grid">
-                        <div class="oidc-field full">
-                            <label><input type="checkbox" id="manageUserPolicy" is="emby-checkbox" /> <span>Manage user policy from role mappings</span></label>
-                            <p class="fieldDescription oidc-field-note">
-                                On by default. Turn off to stop the plugin touching permissions entirely - fail-closed (deny on no role match) also stops applying, and every field below is inert. Use this if you'd rather manage users' Jellyfin policy by hand.
-                            </p>
-                        </div>
-                        <div class="oidc-field full">
-                            <label><input type="checkbox" id="enableLibraryAccessManagement" is="emby-checkbox">
-                                 Manage library access from role mappings
-                            <span class="oidc-hint">(only while policy management is on)</span></label>
-                        </div>
-                    </div>
                 </div>
-                <div class="oidc-mb-lg">
-                    <button type="button" id="btnAddRoleMapping" is="emby-button" class="raised">
-                        <span>+ Add Role Mapping</span>
-                    </button>
-                </div>
-                <div class="oidc-field full oidc-field--tight-mb">
-                    <label for="defaultRoleName">Fallback role
-                        <span class="oidc-hint">(applied when a user's claim matches no role below)</span>
-                    </label>
-                    <select id="defaultRoleName" is="emby-select"></select>
-                </div>
-                <p id="roleMappingsInactiveHint" class="oidc-hint oidc-mb-lg" hidden>
-                    Policy management is off - role mappings and the fallback role above are not applied.
-                </p>
-                <div id="roleMappingList"></div>
-            </div>
-
-            <div id="tab-general" class="oidc-tab-content oidc-hidden" role="tabpanel">
                 <div class="oidc-card oidc-card--flush">
                     <div class="oidc-grid">
-                        <div class="oidc-grid-full">
+                        <div class="oidc-field full">
                             <label>
                                 <input type="checkbox" id="autoCreateUsers" is="emby-checkbox" />
                                 <span>Auto-create users on first OIDC login</span>
                             </label>
                         </div>
-                        <div class="oidc-grid-full">
+                        <div class="oidc-field full">
                             <label>
                                 <input type="checkbox" id="migrateLocalUsers" is="emby-checkbox" />
                                 <span>Migrate local users to SSO on first OIDC login</span>
                             </label>
                             <p class="fieldDescription oidc-field-note">
-                                When enabled, existing local Jellyfin accounts that log in via OIDC will have their authentication provider switched to SSO automatically. Leave off if you want users to opt in manually.
+                                Automatically switches local accounts to SSO on their first OIDC login.
                             </p>
                         </div>
-                        <div class="oidc-grid-full">
+                        <div class="oidc-field full">
                             <label>
                                 <input type="checkbox" id="blockPrivateNetworkAuthorities" is="emby-checkbox" />
                                 <span>Block RFC1918/ULA (private network) Authorities</span>
                             </label>
                             <p class="fieldDescription oidc-field-note">
-                                When enabled, no provider's Authority may resolve to an RFC1918 private range (10/8, 172.16/12, 192.168/16) or IPv6 ULA (fc00::/7), for stricter network isolation. Off by default, since self-hosted IdPs commonly live on these ranges. Loopback and link-local addresses are always blocked regardless of this setting, unless individually allowed per-provider.
+                                Blocks provider Authorities on private (RFC1918/ULA) networks. Off by default since self-hosted IdPs often use them; loopback and link-local are always blocked separately.
                             </p>
+                        </div>
+                        <div class="oidc-field full">
+                            <label for="serverBaseUrl">Server Base URL (override)</label>
+                            <input id="serverBaseUrl" type="text" is="emby-input" placeholder="https://jellyfin.example.com" />
+                            <span class="oidc-hint">Overrides the auto-detected host used to build the OIDC redirect and backchannel logout URLs for every provider.</span>
                         </div>
                     </div>
                 </div>
@@ -119,17 +126,17 @@
                         Customises the <strong>web</strong> login page. TV and mobile apps ignore these and use Quick Connect.
                     </p>
                     <div class="oidc-grid">
-                        <div class="oidc-grid-full">
+                        <div class="oidc-field full">
                             <label>
                                 <input type="checkbox" id="manageLoginButtonBranding" is="emby-checkbox" />
                                 <span>Manage the login button in Branding automatically</span>
                             </label>
                             <p class="fieldDescription oidc-field-note">
-                                On Save, keeps a marked block in <strong>Dashboard &gt; General &gt; Branding</strong> (Login Disclaimer + Custom CSS) in sync with your enabled providers - nothing else in those fields is touched. Unticking and saving offers to remove the block. <strong>Web client only</strong> - TV and mobile apps don't show it and use Quick Connect instead.
+                                Keeps a login button block in <strong>Dashboard &gt; General &gt; Branding</strong> synced with your enabled providers. <strong>Web client only</strong> - TV/mobile use Quick Connect.
                                 <br />Status: <span id="brandingStatus">-</span>
                             </p>
                             <details class="oidc-details-link oidc-branding-manual">
-                                <summary>Manual install (copy / paste)
+                                <summary>Manual install (copy / paste)</summary>
                                 <p class="fieldDescription oidc-mt-sm">
                                     Paste <strong>Login button HTML</strong> into Branding &gt; Login Disclaimer and <strong>Login button CSS</strong> into Branding &gt; Custom CSS.
                                 </p>
@@ -141,13 +148,13 @@
                                 <button type="button" class="oidc-btn-secondary oidc-mt-sm" data-copy="brandingCss">Copy CSS</button>
                             </details>
                         </div>
-                        <div class="oidc-grid-full">
+                        <div class="oidc-field full">
                             <label>
                                 <input type="checkbox" id="hideManualLogin" is="emby-checkbox" />
                                 <span>Hide the username/password form on the web login page</span>
                             </label>
                             <p class="fieldDescription oidc-field-note">
-                                Hides the password form and <strong>Forgot Password</strong> on the <strong>web</strong> login page (Quick Connect stays) and shows the heading below above the SSO button(s). Needs <em>Manage the login button in Branding automatically</em> (or a manual snippet paste).
+                                Hides the password form and <strong>Forgot Password</strong> on the web login page (Quick Connect stays). Requires branding management above, or a manual snippet paste.
                             </p>
                             <div class="oidc-ml-lg oidc-mt-sm">
                                 <label for="loginTitle" class="fieldDescription">Login page heading</label>
@@ -155,7 +162,7 @@
                             </div>
                             <div class="oidc-ml-lg oidc-mt-sm">
                                 <label for="loginSubtitle" class="fieldDescription">Sign-in instructions (smaller text, optional)</label>
-                                <input id="loginSubtitle" type="text" is="emby-input" placeholder="e.g. On a TV, choose Use Quick Connect and enter the code" />
+                                <textarea id="loginSubtitle" rows="1" class="oidc-w-full oidc-autogrow" placeholder="e.g. On a TV, choose Use Quick Connect and enter the code"></textarea>
                             </div>
                         </div>
                     </div>
@@ -268,11 +275,11 @@
         .oidc-mt-sm { margin-top:0.3em; }
         .oidc-mt-sm2 { margin-top:0.4em; }
         .oidc-mt-md { margin-top:0.5em; }
-        .oidc-mt-lg { margin-top:0.8em; }
         .oidc-mb-md { margin-bottom:0.5em; }
         .oidc-hint-tight { margin:0.1em 0 0; }
         .oidc-ml-lg { margin-left:1.5em; }
         .oidc-w-full { width:100%; box-sizing:border-box; }
+        .oidc-autogrow { resize:none; overflow:hidden; }
         .oidc-w-fit { width:fit-content; }
         .oidc-hidden { display:none !important; }
         .oidc-contents { display:contents; }

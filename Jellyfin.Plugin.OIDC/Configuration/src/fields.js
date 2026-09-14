@@ -14,7 +14,7 @@ export function fld(label, type, id, value, placeholder, full) {
 export function chk(id, label, checked) {
     return el('label', null,
         el('input', { type: 'checkbox', id: id, is: 'emby-checkbox', checked: !!checked }) +
-        ' ' + esc(label));
+        ' ' + el('span', null, esc(label)));
 }
 
 // A titled cluster of related permission checkboxes for the role card.

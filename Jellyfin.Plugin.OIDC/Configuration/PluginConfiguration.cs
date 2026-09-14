@@ -73,6 +73,10 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Optional smaller line under <see cref="LoginTitle"/>.
     public string LoginSubtitle { get; set; } = string.Empty;
 
+    /// Overrides the auto-detected host used to build the OIDC redirect_uri and backchannel
+    /// logout URL for every provider. Empty ⇒ auto-detected from the incoming request.
+    public string ServerBaseUrl { get; set; } = string.Empty;
+
     /// <summary>
     /// Legacy home of the identity → Jellyfin account map. The live map now lives in its own file
     /// (<see cref="Services.UserProviderMapStore"/>); this list is only read once on upgrade to
@@ -159,8 +163,6 @@ public class OidcProviderConfig
     public string ButtonIcon { get; set; } = string.Empty;
 
     public string AdditionalParameters { get; set; } = string.Empty;
-
-    public string ServerBaseUrl { get; set; } = string.Empty;
 
     /// Set false only for IdPs issuing unsigned/opaque access tokens.
     public bool StrictAccessTokenValidation { get; set; } = true;
