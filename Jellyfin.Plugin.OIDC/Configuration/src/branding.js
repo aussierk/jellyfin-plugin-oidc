@@ -2,6 +2,7 @@
 // Disclaimer + Custom CSS) in sync with the plugin's enabled providers.
 import { gchk, sval } from './dom.js';
 import { cfg } from './state.js';
+import { STRINGS } from './strings.js';
 
 // Markers fencing the plugin-managed block inside Branding (Login Disclaimer / Custom CSS).
 // Kept in sync with LoginButtonSnippetBuilder on the server; LoginButtonSnippetMarkerSyncTests enforces it.
@@ -31,7 +32,7 @@ export function spliceRegion(text, startMarker, endMarker, block) {
 
 export function setBrandingStatus(view, installed) {
     var el = view.querySelector('#brandingStatus');
-    if (el) el.textContent = installed ? 'Installed' : 'Not installed';
+    if (el) el.textContent = installed ? STRINGS.branding.installed : STRINGS.branding.notInstalled;
 }
 
 // Fetches the current snippet into the manual copy/paste boxes and reflects install status.
@@ -65,10 +66,7 @@ export function syncBranding(view) {
         } else if (manage) {
             action = present ? 'remove' : 'none'; // enabled toggled off entirely
         } else if (present) {
-            action = window.confirm(
-                'The plugin previously added an SSO login button to Branding '
-                + '(Login Disclaimer + Custom CSS).\n\nRemove it now? Cancel leaves it in place.'
-            ) ? 'remove' : 'none';
+            action = window.confirm(STRINGS.branding.removeConfirm) ? 'remove' : 'none';
         } else {
             action = 'none';
         }

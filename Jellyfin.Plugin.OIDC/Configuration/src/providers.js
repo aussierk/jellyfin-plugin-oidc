@@ -1,8 +1,9 @@
 // Provider-card rendering (Connection / Claim mapping / Appearance / Security) and its
 // round-trip back into config objects.
 import { el, esc, emptyState, gval, gchk } from './dom.js';
-import { fld } from './fields.js';
+import { fld, chkWithDesc } from './fields.js';
 import { cfg } from './state.js';
+import { STRINGS } from './strings.js';
 
 // Matches OidcProviderConfig.ButtonColor / ProviderButtonAssets.DefaultButtonColor.
 export var DEFAULT_BUTTON_COLOR = '#4285F4';
@@ -21,42 +22,42 @@ export function iconIsCustom(v) {
     return !!v && ICON_KEYS.indexOf(v) === -1;
 }
 
-var ICON_LABELS = { auth0: 'Auth0', github: 'GitHub' };
+var ICON_LABELS = STRINGS.iconLabels;
 
 // One-shot "prefill for <IdP>" helper on the provider card. Sets claim paths / scopes /
 // icon only - never Authority or client credentials. Values follow each IdP's common
 // convention; some (Google/Okta groups, Auth0 roles) still need IdP-side config.
 export var PROVIDER_PRESETS = {
-    keycloak:  { label: 'Keycloak',            roleClaim: 'realm_access.roles', usernameClaim: 'preferred_username', scopes: 'openid profile email',        icon: 'keycloak'  },
-    authentik: { label: 'Authentik',           roleClaim: 'groups',             usernameClaim: 'preferred_username', scopes: 'openid profile email',        icon: 'authentik' },
-    authelia:  { label: 'Authelia',            roleClaim: 'groups',             usernameClaim: 'preferred_username', scopes: 'openid profile email groups', icon: ''          },
-    entra:     { label: 'Microsoft Entra ID',  roleClaim: 'roles',             usernameClaim: 'preferred_username', scopes: 'openid profile email',        icon: 'microsoft' },
-    google:    { label: 'Google Workspace',    roleClaim: 'groups',             usernameClaim: 'email',              scopes: 'openid profile email',        icon: 'google'    },
-    okta:      { label: 'Okta',                roleClaim: 'groups',             usernameClaim: 'preferred_username', scopes: 'openid profile email groups', icon: 'okta'      },
-    auth0:     { label: 'Auth0',               roleClaim: '',                  usernameClaim: 'nickname',           scopes: 'openid profile email',        icon: 'auth0'     }
+    keycloak:  { label: STRINGS.presetLabels.keycloak, roleClaim: 'realm_access.roles', usernameClaim: 'preferred_username', scopes: 'openid profile email',        icon: 'keycloak'  },
+    authentik: { label: STRINGS.presetLabels.authentik, roleClaim: 'groups',             usernameClaim: 'preferred_username', scopes: 'openid profile email',        icon: 'authentik' },
+    authelia:  { label: STRINGS.presetLabels.authelia, roleClaim: 'groups',             usernameClaim: 'preferred_username', scopes: 'openid profile email groups', icon: ''          },
+    entra:     { label: STRINGS.presetLabels.entra, roleClaim: 'roles',             usernameClaim: 'preferred_username', scopes: 'openid profile email',        icon: 'microsoft' },
+    google:    { label: STRINGS.presetLabels.google, roleClaim: 'groups',             usernameClaim: 'email',              scopes: 'openid profile email',        icon: 'google'    },
+    okta:      { label: STRINGS.presetLabels.okta, roleClaim: 'groups',             usernameClaim: 'preferred_username', scopes: 'openid profile email groups', icon: 'okta'      },
+    auth0:     { label: STRINGS.presetLabels.auth0, roleClaim: '',                  usernameClaim: 'nickname',           scopes: 'openid profile email',        icon: 'auth0'     }
 };
 
 export function presetField(idx) {
-    var opts = el('option', { value: '' }, '- choose an IdP -');
+    var opts = el('option', { value: '' }, STRINGS.provider.prefillChooseOption);
     Object.keys(PROVIDER_PRESETS).forEach(function (k) {
         opts += el('option', { value: k }, esc(PROVIDER_PRESETS[k].label));
     });
-    return el('div', { class: 'oidc-field full' },
-        el('label', { for: 'prov_preset_' + idx }, 'Prefill for ' +
-            el('span', { class: 'oidc-hint' }, '(sets claims / scopes / icon - you still enter the Issuer URL &amp; client credentials)')) +
-        el('select', { id: 'prov_preset_' + idx }, opts));
+    return el('div', { class: 'selectContainer full' },
+        el('label', { for: 'prov_preset_' + idx }, STRINGS.provider.prefillLabelPrefix +
+            el('span', { class: 'fieldDescription' }, STRINGS.provider.prefillHintHtml)) +
+        el('select', { is: 'emby-select', id: 'prov_preset_' + idx }, opts));
 }
 
 export function iconField(idx, cur) {
     var custom = iconIsCustom(cur);
-    var opts = el('option', { value: 'none', selected: !cur }, 'None');
+    var opts = el('option', { value: 'none', selected: !cur }, STRINGS.provider.iconNone);
     ICON_KEYS.forEach(function (k) {
         var label = ICON_LABELS[k] || (k.charAt(0).toUpperCase() + k.slice(1));
         opts += el('option', { value: k, selected: cur === k }, label);
     });
-    opts += el('option', { value: 'custom', selected: custom }, 'Custom (image)');
-    return el('div', { class: 'oidc-field full' },
-        el('label', { for: 'prov_icon_' + idx }, 'Button Icon') +
+    opts += el('option', { value: 'custom', selected: custom }, STRINGS.provider.iconCustom);
+    return el('div', { class: 'selectContainer full' },
+        el('label', { for: 'prov_icon_' + idx }, STRINGS.provider.buttonIconLabel) +
         el('select', { is: 'emby-select', id: 'prov_icon_' + idx }, opts) +
         el('input', { type: 'hidden', id: 'prov_icon_svg_' + idx, value: custom ? cur : '' }) +
         el('input', {
@@ -64,14 +65,14 @@ export function iconField(idx, cur) {
             accept: '.svg,.png,.jpg,.jpeg,.gif,.webp,image/svg+xml,image/png,image/jpeg,image/gif,image/webp',
             class: 'oidc-mt-sm' + (custom ? '' : ' oidc-hidden')
         }) +
-        el('span', { class: 'oidc-hint', 'data-icon-status': idx }, custom && cur ? 'Custom icon set' : ''));
+        el('span', { class: 'fieldDescription', 'data-icon-status': idx }, custom && cur ? STRINGS.provider.iconCustomSet : ''));
 }
 
 // One field group inside a provider card, rendered as a <details>. `open` decides the
 // initial state (Connection opens only when the provider isn't configured yet); every
 // field stays in the DOM either way, so collectProviders() is unaffected.
 export function provGroup(title, hint, inner, open) {
-    var head = esc(title) + (hint ? ' ' + el('span', { class: 'oidc-hint' }, esc(hint)) : '');
+    var head = esc(title) + (hint ? ' ' + el('span', { class: 'fieldDescription' }, esc(hint)) : '');
     return el('details', { class: 'oidc-section', open: !!open },
         el('summary', null, head) + el('div', { class: 'oidc-grid' }, inner));
 }
@@ -100,13 +101,12 @@ export function renderProviders(view) {
     var container = view.querySelector('#providerList');
     container.innerHTML = '';
     if (!cfg.Providers.length) {
-        container.innerHTML = emptyState(
-            "No providers configured yet - users can't sign in with SSO until you add one.");
+        container.innerHTML = emptyState(STRINGS.providersTab.emptyState);
         return;
     }
     cfg.Providers.forEach(function (p, idx) {
         var card = document.createElement('div');
-        card.className = 'oidc-card';
+        card.className = 'oidc-item-card';
 
         // A configured provider hides the prefill and opens collapsed; a fresh one opens on Connection.
         var configured = !!(p.ProviderId && (p.PinnedIssuer || p.Authority) && p.ClientId);
@@ -114,119 +114,105 @@ export function renderProviders(view) {
 
         var connection =
             (configured ? '' : presetField(idx)) +
-            fld('Provider ID', 'text', 'prov_id_' + idx, p.ProviderId, 'Unique identifier (e.g. keycloak)') +
-            fld('Display Name', 'text', 'prov_name_' + idx, p.DisplayName, 'Shown on login button') +
-            el('div', { class: 'oidc-field full' },
-                el('label', { for: 'prov_pinnedissuer_' + idx }, 'Issuer URL') +
+            fld(STRINGS.provider.providerIdLabel, 'text', 'prov_id_' + idx, p.ProviderId, STRINGS.provider.providerIdPlaceholder) +
+            fld(STRINGS.provider.displayNameLabel, 'text', 'prov_name_' + idx, p.DisplayName, STRINGS.provider.displayNamePlaceholder) +
+            el('div', { class: 'inputContainer full' },
                 el('input', {
                     is: 'emby-input', type: 'text', id: 'prov_pinnedissuer_' + idx,
                     value: p.PinnedIssuer || p.Authority || '',
-                    placeholder: 'https://idp.example.com/realms/myrealm',
+                    label: STRINGS.provider.issuerUrlLabel,
+                    placeholder: STRINGS.provider.issuerUrlPlaceholder,
                     'data-verified': p.PinnedIssuer || '',
                     autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false'
                 }) +
-                el('span', { class: 'oidc-hint' }, 'Must exactly match the issuer your IdP returns from discovery. ' +
+                el('span', { class: 'fieldDescription' }, STRINGS.provider.issuerHintPrefix +
                     (p.PinnedIssuer
-                        ? 'This value is pinned - editing it requires re-running Test Connection before you can save.'
-                        : 'Run Test Connection to pin it.'))) +
-            fld('Client ID', 'text', 'prov_clientid_' + idx, p.ClientId, '') +
-            fld('Client Secret', 'password', 'prov_secret_' + idx, p.ClientSecret,
-                'Or reference an env var unique to THIS provider, e.g. ${' + envVarSuggestion(p) + '}') +
-            fld('Client Secret File', 'text', 'prov_secretfile_' + idx, p.ClientSecretFile,
-                'Optional: path to a file unique to THIS provider (e.g. a mounted Docker/K8s secret) - overrides Client Secret above') +
-            fld('Scopes', 'text', 'prov_scopes_' + idx, p.Scopes || 'openid profile email', '') +
-            fld('Additional Params', 'text', 'prov_params_' + idx, p.AdditionalParameters || '', 'key=val&key2=val2 - extra query params added to the /authorize request', true) +
+                        ? STRINGS.provider.issuerHintPinned
+                        : STRINGS.provider.issuerHintUnpinned))) +
+            fld(STRINGS.provider.clientIdLabel, 'text', 'prov_clientid_' + idx, p.ClientId, '') +
+            fld(STRINGS.provider.clientSecretLabel, 'password', 'prov_secret_' + idx, p.ClientSecret,
+                STRINGS.provider.clientSecretPlaceholderPrefix + envVarSuggestion(p) + '}') +
+            fld(STRINGS.provider.clientSecretFileLabel, 'text', 'prov_secretfile_' + idx, p.ClientSecretFile,
+                STRINGS.provider.clientSecretFilePlaceholder) +
+            fld(STRINGS.provider.scopesLabel, 'text', 'prov_scopes_' + idx, p.Scopes || 'openid profile email', '') +
+            fld(STRINGS.provider.additionalParamsLabel, 'text', 'prov_params_' + idx, p.AdditionalParameters || '', STRINGS.provider.additionalParamsPlaceholder, true) +
             (p.ProviderId
-                ? el('div', { class: 'oidc-field full oidc-mt-md' },
-                    el('label', { class: 'oidc-label-strong' }, 'Back-channel logout URL ' +
-                        el('span', { class: 'oidc-hint' }, '- register as the client\'s <code>backchannel_logout_uri</code> so the IdP can revoke Jellyfin sessions')) +
-                    el('div', { class: 'oidc-inline-row oidc-mt-sm' },
-                        el('input', {
-                            is: 'emby-input', type: 'text', id: 'prov_bclogout_' + idx, readonly: true,
-                            value: backchannelLogoutUrl(p, cfg.ServerBaseUrl), class: 'oidc-mono-flex'
-                        }) +
-                        el('button', { type: 'button', class: 'oidc-btn-secondary', 'data-copy': 'prov_bclogout_' + idx }, 'Copy')))
+                ? el('div', { class: 'inputContainer full' },
+                    el('input', {
+                        is: 'emby-input', type: 'text', id: 'prov_bclogout_' + idx, readonly: true,
+                        value: backchannelLogoutUrl(p, cfg.ServerBaseUrl),
+                        label: STRINGS.provider.backchannelLogoutLabel, class: 'oidc-mono-flex'
+                    }) +
+                    el('button', {
+                        is: 'emby-button', type: 'button', class: 'oidc-btn-secondary oidc-mt-sm', 'data-copy': 'prov_bclogout_' + idx
+                    }, STRINGS.provider.copyBtn) +
+                    el('span', { class: 'fieldDescription' }, STRINGS.provider.backchannelLogoutHintHtml))
                 : '');
 
         var claims =
-            fld('Role Claim Path', 'text', 'prov_roleclaim_' + idx, p.RoleClaim || 'groups', 'e.g. groups or realm_access.roles') +
-            fld('Username Claim', 'text', 'prov_userclaim_' + idx, p.UsernameClaim || 'preferred_username', '') +
-            fld('Display Name Claim', 'text', 'prov_displayclaim_' + idx, p.DisplayNameClaim || 'name', '') +
-            fld('Email Claim', 'text', 'prov_emailclaim_' + idx, p.EmailClaim || 'email', '') +
-            fld('Picture Claim', 'text', 'prov_pictureclaim_' + idx, p.PictureClaim || 'picture', 'e.g. picture') +
-            el('div', { class: 'oidc-field full' },
+            fld(STRINGS.provider.roleClaimLabel, 'text', 'prov_roleclaim_' + idx, p.RoleClaim || 'groups', STRINGS.provider.roleClaimPlaceholder) +
+            fld(STRINGS.provider.usernameClaimLabel, 'text', 'prov_userclaim_' + idx, p.UsernameClaim || 'preferred_username', '') +
+            fld(STRINGS.provider.displayNameClaimLabel, 'text', 'prov_displayclaim_' + idx, p.DisplayNameClaim || 'name', '') +
+            fld(STRINGS.provider.emailClaimLabel, 'text', 'prov_emailclaim_' + idx, p.EmailClaim || 'email', '') +
+            fld(STRINGS.provider.pictureClaimLabel, 'text', 'prov_pictureclaim_' + idx, p.PictureClaim || 'picture', STRINGS.provider.pictureClaimPlaceholder) +
+            el('div', { class: 'checkboxContainer full' },
                 el('label', null,
                     el('input', { type: 'checkbox', id: 'prov_syncimage_' + idx, is: 'emby-checkbox', checked: p.SyncProfileImage !== false }) +
-                    ' ' + el('span', null, 'Sync profile image'))) +
-            el('div', { class: 'oidc-field full' },
+                    ' ' + el('span', null, STRINGS.provider.syncProfileImage))) +
+            el('div', { class: 'checkboxContainer checkboxContainer-withDescription full' },
                 el('label', null,
                     el('input', { type: 'checkbox', id: 'prov_syncdisplay_' + idx, is: 'emby-checkbox', checked: p.SyncDisplayName === true }) +
-                    ' ' + el('span', null, 'Sync display name on login')) +
-                el('span', { class: 'oidc-hint oidc-ml-lg' }, 'This <strong>renames the Jellyfin account</strong> to match the Display Name Claim on every login.'));
+                    ' ' + el('span', null, STRINGS.provider.syncDisplayName)) +
+                el('div', { class: 'fieldDescription' }, STRINGS.provider.syncDisplayNameDescHtml));
 
         var appearance =
-            el('div', { class: 'oidc-field' },
-                el('label', { for: 'prov_color_' + idx }, 'Button Color') +
+            el('div', { class: 'inputContainer' },
+                el('label', { for: 'prov_color_' + idx }, STRINGS.provider.buttonColorLabel) +
                 el('div', { class: 'oidc-inline-row' },
                     el('input', { type: 'color', id: 'prov_color_' + idx, value: p.ButtonColor || DEFAULT_BUTTON_COLOR }) +
-                    el('button', { type: 'button', class: 'oidc-btn-secondary', 'data-action': 'reset-color', 'data-idx': idx }, 'Reset to default'))) +
+                    el('button', { is: 'emby-button', type: 'button', class: 'oidc-btn-secondary', 'data-action': 'reset-color', 'data-idx': idx }, STRINGS.provider.resetToDefaultBtn))) +
             iconField(idx, p.ButtonIcon || '');
 
+        var securityToggles = [
+            { id: 'prov_strict_access_', checked: p.StrictAccessTokenValidation !== false, label: STRINGS.provider.strictAccessValidation, desc: STRINGS.provider.strictAccessValidationDesc },
+            { id: 'prov_allow_loopback_', checked: p.AllowLoopbackAuthority === true, label: STRINGS.provider.allowLoopback, desc: STRINGS.provider.allowLoopbackDesc },
+            { id: 'prov_allow_linklocal_', checked: p.AllowLinkLocalAuthority === true, label: STRINGS.provider.allowLinkLocal, desc: STRINGS.provider.allowLinkLocalDesc },
+            { id: 'prov_trusted_email_link_', checked: p.TrustedForEmailLinking === true, label: STRINGS.provider.trustedEmailLink, desc: STRINGS.provider.trustedEmailLinkDesc }
+        ];
         var security =
-            el('div', { class: 'oidc-field full' },
-                el('label', null,
-                    el('input', { type: 'checkbox', id: 'prov_strict_access_' + idx, is: 'emby-checkbox', checked: p.StrictAccessTokenValidation !== false }) +
-                    ' ' + el('span', null, 'Strict access token validation')) +
-                el('span', { class: 'oidc-hint oidc-ml-lg' }, 'Validates JWT access tokens against the JWKS endpoint; opaque tokens (Google, default Authelia) are skipped automatically. Uncheck if your IdP signs with a different key.')) +
-            el('div', { class: 'oidc-field full' },
-                el('label', null,
-                    el('input', { type: 'checkbox', id: 'prov_allow_loopback_' + idx, is: 'emby-checkbox', checked: p.AllowLoopbackAuthority === true }) +
-                    ' ' + el('span', null, 'Allow loopback Authority')) +
-                el('span', { class: 'oidc-hint oidc-ml-lg' }, 'Loopback Authorities (127.0.0.1, ::1) are blocked by default. Enable only if your IdP is intentionally hosted there.')) +
-            el('div', { class: 'oidc-field full' },
-                el('label', null,
-                    el('input', { type: 'checkbox', id: 'prov_allow_linklocal_' + idx, is: 'emby-checkbox', checked: p.AllowLinkLocalAuthority === true }) +
-                    ' ' + el('span', null, 'Allow link-local Authority')) +
-                el('span', { class: 'oidc-hint oidc-ml-lg' }, 'Link-local Authorities (169.254.x.x, fe80::) are blocked by default. Enable only if your IdP is intentionally hosted there.')) +
-            el('div', { class: 'oidc-field full' },
-                el('label', null,
-                    el('input', { type: 'checkbox', id: 'prov_trusted_email_link_' + idx, is: 'emby-checkbox', checked: p.TrustedForEmailLinking === true }) +
-                    ' ' + el('span', null, 'Trusted for email-based account linking')) +
-                el('span', { class: 'oidc-hint oidc-ml-lg' }, 'Used only when "Link existing users by verified email" is on. Enable only for an IdP you fully control - its verified emails will link logins to existing accounts (never to an admin).')) +
+            securityToggles.map(function (t) {
+                return chkWithDesc(t.id + idx, t.label, t.desc, t.checked);
+            }).join('') +
             el('input', { type: 'hidden', id: 'prov_discovery_' + idx, value: p.Authority || '' }) +
             el('input', { type: 'hidden', id: 'prov_pinnedauthority_' + idx, value: p.PinnedAuthority || '' }) +
             el('input', { type: 'hidden', id: 'prov_pinnedtoken_' + idx, value: p.PinnedTokenEndpoint || '' }) +
             el('input', { type: 'hidden', id: 'prov_pinnedjwks_' + idx, value: p.PinnedJwksUri || '' }) +
             el('input', { type: 'hidden', id: 'prov_pinneduserinfo_' + idx, value: p.PinnedUserInfoEndpoint || '' }) +
-            el('input', { type: 'hidden', id: 'prov_pinnedauthorize_' + idx, value: p.PinnedAuthorizeEndpoint || '' }) +
-            el('div', { class: 'oidc-hidden', 'data-pin-status': idx },
-                p.PinnedIssuer
-                    ? 'Pinned via Test Connection - token endpoint, JWKS URI &amp; userinfo endpoint are locked to the values returned for this issuer.'
-                    : 'Not yet pinned - endpoints will be trusted on first login (TOFU) unless you run Test Connection first.');
+            el('input', { type: 'hidden', id: 'prov_pinnedauthorize_' + idx, value: p.PinnedAuthorizeEndpoint || '' });
 
         var host = authorityHost(p.PinnedIssuer || p.Authority);
         card.innerHTML = el('div', { class: 'oidc-card-head' },
-            el('h4', null, esc(p.DisplayName || 'New Provider')) +
+            el('h4', null, esc(p.DisplayName || STRINGS.provider.newProviderName)) +
             (host ? el('span', { class: 'oidc-card-sub' }, esc(host)) : '') +
             el('label', { class: 'oidc-enable-toggle' },
-                el('span', null, 'Enabled') +
+                el('span', null, STRINGS.provider.enabledLabel) +
                 el('input', { type: 'checkbox', id: 'prov_enabled_' + idx, checked: p.Enabled !== false }))) +
-            provGroup('Connection', 'provider id, endpoint, client credentials & logout', connection, !configured) +
-            provGroup('Claim mapping', 'role, username, display name & avatar', claims, false) +
-            provGroup('Appearance', 'login button colour & icon', appearance, false) +
-            provGroup('Security', 'token validation, network guards, email-linking trust', security, false) +
+            provGroup(STRINGS.provider.connectionTitle, STRINGS.provider.connectionHint, connection, !configured) +
+            provGroup(STRINGS.provider.claimMappingTitle, STRINGS.provider.claimMappingHint, claims, false) +
+            provGroup(STRINGS.provider.appearanceTitle, STRINGS.provider.appearanceHint, appearance, false) +
+            provGroup(STRINGS.provider.securityTitle, STRINGS.provider.securityHint, security, false) +
             el('div', { class: 'oidc-row-actions' },
                 el('button', {
-                    type: 'button', class: 'oidc-btn-secondary oidc-btn-icon', 'data-action': 'move-provider',
-                    'data-dir': '-1', 'data-idx': idx, title: 'Move up (changes login-button order)', disabled: idx === 0
+                    is: 'emby-button', type: 'button', class: 'oidc-btn-secondary oidc-btn-icon', 'data-action': 'move-provider',
+                    'data-dir': '-1', 'data-idx': idx, title: STRINGS.provider.moveUpTitle, disabled: idx === 0
                 }, '&#8593;') +
                 el('button', {
-                    type: 'button', class: 'oidc-btn-secondary oidc-btn-icon', 'data-action': 'move-provider',
-                    'data-dir': '1', 'data-idx': idx, title: 'Move down (changes login-button order)',
+                    is: 'emby-button', type: 'button', class: 'oidc-btn-secondary oidc-btn-icon', 'data-action': 'move-provider',
+                    'data-dir': '1', 'data-idx': idx, title: STRINGS.provider.moveDownTitle,
                     disabled: idx === cfg.Providers.length - 1
                 }, '&#8595;') +
-                el('button', { type: 'button', class: 'oidc-btn-secondary', 'data-action': 'test-provider', 'data-idx': idx }, 'Test Connection') +
-                el('button', { type: 'button', class: 'oidc-btn-remove', 'data-action': 'remove-provider', 'data-idx': idx }, 'Remove') +
+                el('button', { is: 'emby-button', type: 'button', class: 'oidc-btn-secondary', 'data-action': 'test-provider', 'data-idx': idx }, STRINGS.provider.testConnectionBtn) +
+                el('button', { is: 'emby-button', type: 'button', class: 'oidc-btn-remove', 'data-action': 'remove-provider', 'data-idx': idx }, STRINGS.common.removeBtn) +
                 el('span', { class: 'oidc-test-result', 'data-idx': idx }));
         container.appendChild(card);
     });
@@ -241,7 +227,7 @@ export function collectIcon(view, idx) {
 
 export function collectProviders(view) {
     var result = [];
-    view.querySelectorAll('#providerList .oidc-card').forEach(function (card, idx) {
+    view.querySelectorAll('#providerList .oidc-item-card').forEach(function (card, idx) {
         var issuerVal = gval(view, 'prov_pinnedissuer_' + idx);
         var issuerEl = view.querySelector('#prov_pinnedissuer_' + idx);
         // Set only by a successful Test Connection - the discovery document's own `issuer`.

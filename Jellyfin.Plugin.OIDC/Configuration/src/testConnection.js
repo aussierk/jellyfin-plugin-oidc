@@ -1,6 +1,7 @@
 // The provider card's "Test Connection" round-trip: validates + pins discovery endpoints.
 import { gval, gchk, sval } from './dom.js';
 import { cfg, setDirty } from './state.js';
+import { STRINGS } from './strings.js';
 
 // Sets a .oidc-test-result span's text and colour via className (oidc-status--dim/ok/warn/error)
 // instead of writing style.color directly, so the colour scale lives in CSS, not scattered
@@ -17,10 +18,10 @@ export function testProvider(view, idx) {
     var scopes = gval(view, 'prov_scopes_' + idx);
     var resultEl = view.querySelector('.oidc-test-result[data-idx="' + idx + '"]');
     if (!authority) {
-        setTestStatus(resultEl, 'error', 'Issuer URL is required');
+        setTestStatus(resultEl, 'error', STRINGS.testConnection.issuerRequired);
         return;
     }
-    setTestStatus(resultEl, 'dim', 'Testing...');
+    setTestStatus(resultEl, 'dim', STRINGS.testConnection.testing);
 
     var allowLoopback = gchk(view, 'prov_allow_loopback_' + idx);
     var allowLinkLocal = gchk(view, 'prov_allow_linklocal_' + idx);
@@ -65,37 +66,33 @@ export function testProvider(view, idx) {
                 issuerEl.value = canonicalIssuer;
                 issuerEl.dataset.verified = canonicalIssuer;
             }
-            var statusEl = view.querySelector('[data-pin-status="' + idx + '"]');
-            if (statusEl) {
-                statusEl.textContent = 'Pinned via Test Connection - token endpoint, JWKS URI & userinfo endpoint are locked to the values returned for this issuer.';
-            }
             var sec = issuerEl && issuerEl.closest('details.oidc-section');
             if (sec) sec.open = true;
             setDirty(true); // pins were written into the form; Save persists them
-            var msg = 'OK - issuer ' + result.Issuer;
+            var msg = STRINGS.testConnection.okPrefix + result.Issuer;
             var hasScopeWarning = result.UnsupportedRequestedScopes && result.UnsupportedRequestedScopes.length > 0;
             if (hasScopeWarning) {
-                msg += ' (warning: scopes not advertised: ' + result.UnsupportedRequestedScopes.join(', ') + ')';
+                msg += STRINGS.testConnection.scopeWarningPrefix + result.UnsupportedRequestedScopes.join(', ') + STRINGS.testConnection.scopeWarningSuffix;
             }
             setTestStatus(resultEl, hasScopeWarning ? 'warn' : 'ok', msg);
             Dashboard.alert({
-                title: 'Provider OK',
+                title: STRINGS.testConnection.dialogTitleOk,
                 message:
-                    'Issuer: ' + result.Issuer + '\n' +
-                    'Authorize: ' + result.AuthorizationEndpoint + '\n' +
-                    'Token: ' + result.TokenEndpoint + '\n' +
-                    (result.UserInfoEndpoint ? 'UserInfo: ' + result.UserInfoEndpoint + '\n' : '') +
+                    STRINGS.testConnection.issuerLinePrefix + result.Issuer + '\n' +
+                    STRINGS.testConnection.authorizeLinePrefix + result.AuthorizationEndpoint + '\n' +
+                    STRINGS.testConnection.tokenLinePrefix + result.TokenEndpoint + '\n' +
+                    (result.UserInfoEndpoint ? STRINGS.testConnection.userInfoLinePrefix + result.UserInfoEndpoint + '\n' : '') +
                     (result.UnsupportedRequestedScopes && result.UnsupportedRequestedScopes.length > 0
-                        ? '\nWarning: these requested scopes are not in scopes_supported:\n  ' + result.UnsupportedRequestedScopes.join(', ')
+                        ? STRINGS.testConnection.scopeWarningBlockPrefix + result.UnsupportedRequestedScopes.join(', ')
                         : '')
             });
         } else {
-            setTestStatus(resultEl, 'error', 'Failed: ' + result.Error);
-            Dashboard.alert({ title: 'Provider test failed', message: result.Error || 'Unknown error' });
+            setTestStatus(resultEl, 'error', STRINGS.testConnection.failedPrefix + result.Error);
+            Dashboard.alert({ title: STRINGS.testConnection.dialogTitleFailed, message: result.Error || STRINGS.testConnection.unknownError });
         }
     }).catch(function (err) {
-        var msg = (err && (err.statusText || err.message)) || 'Network error';
-        setTestStatus(resultEl, 'error', 'Failed: ' + msg);
-        Dashboard.alert({ title: 'Provider test failed', message: msg });
+        var msg = (err && (err.statusText || err.message)) || STRINGS.testConnection.networkError;
+        setTestStatus(resultEl, 'error', STRINGS.testConnection.failedPrefix + msg);
+        Dashboard.alert({ title: STRINGS.testConnection.dialogTitleFailed, message: msg });
     });
 }

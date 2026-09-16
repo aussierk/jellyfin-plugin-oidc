@@ -12,6 +12,7 @@ import { DEFAULT_BUTTON_COLOR, PROVIDER_PRESETS, renderProviders, collectProvide
 import { renderRoleMappings, renderDefaultRoleOptions, collectRoleMappings, addLibChip } from './roles.js';
 import { updateRbacManagementUi, updateEmailAllowlistUi } from './uiToggles.js';
 import { testProvider } from './testConnection.js';
+import { STRINGS, applyStrings } from './strings.js';
 
 function autogrowTextarea(el) {
     if (!el) return;
@@ -20,6 +21,7 @@ function autogrowTextarea(el) {
 }
 
 export default function (view) {
+    applyStrings(view);
     setDirtyView(view);
 
     // Warn on reload/tab-close while edits are pending; in-SPA navigation relies on the visible indicator.
@@ -29,19 +31,8 @@ export default function (view) {
     view.addEventListener('input', function (e) {
         setDirty(true);
         if (e.target && e.target.classList && e.target.classList.contains('oidc-autogrow')) autogrowTextarea(e.target);
-        // keep the Fallback-role dropdown in step with unsaved role renames
+        // keep the Default Role dropdown in step with unsaved role renames
         if (e.target && e.target.id && e.target.id.indexOf('role_name_') === 0) renderDefaultRoleOptions(view);
-        // live warning when a pinned Issuer URL is edited without re-running Test Connection
-        if (e.target && e.target.id && e.target.id.indexOf('prov_pinnedissuer_') === 0) {
-            var idx = e.target.id.slice('prov_pinnedissuer_'.length);
-            var verified = e.target.dataset.verified || '';
-            var statusEl = view.querySelector('[data-pin-status="' + idx + '"]');
-            if (statusEl && verified) {
-                statusEl.textContent = e.target.value === verified
-                    ? 'Pinned via Test Connection - token endpoint, JWKS URI & userinfo endpoint are locked to the values returned for this issuer.'
-                    : 'Issuer URL changed - run Test Connection to re-pin before you can save.';
-            }
-        }
     }, true);
     view.addEventListener('change', function () { setDirty(true); }, true);
     view.querySelector('#manageUserPolicy').addEventListener('change', function () { updateRbacManagementUi(view); });
@@ -105,7 +96,7 @@ export default function (view) {
             updateEmailAllowlistUi(view);
             schk(view, 'manageLoginButtonBranding', cfg.ManageLoginButtonBranding !== false);
             schk(view, 'hideManualLogin', cfg.HideManualLogin === true);
-            sval(view, 'loginTitle', cfg.LoginTitle || 'Please sign in');
+            sval(view, 'loginTitle', cfg.LoginTitle || STRINGS.loginPage.defaultLoginTitle);
             sval(view, 'loginSubtitle', cfg.LoginSubtitle || '');
             autogrowTextarea(view.querySelector('#loginSubtitle'));
             sval(view, 'serverBaseUrl', cfg.ServerBaseUrl || '');
@@ -119,20 +110,32 @@ export default function (view) {
         });
     });
 
-    // Tabs
-    view.querySelectorAll('.oidc-tab').forEach(function (tab) {
-        tab.addEventListener('click', function () {
-            view.querySelectorAll('.oidc-tab').forEach(function (t) {
-                t.classList.remove('is-active');
-                t.setAttribute('aria-selected', 'false');
-            });
-            view.querySelectorAll('.oidc-tab-content').forEach(function (c) {
-                c.classList.add('oidc-hidden');
-            });
-            this.classList.add('is-active');
-            this.setAttribute('aria-selected', 'true');
-            view.querySelector('#tab-' + this.getAttribute('data-tab')).classList.remove('oidc-hidden');
+    // Tabs: native emby-tabs owns button state/scrolling but not panel content (its
+    // getTabPanel() is a permanent stub) - swapping which .tabContent has .is-active is on us.
+    var tabsEl = view.querySelector('.oidc-tabs');
+    var tabButtons = tabsEl.querySelectorAll('.emby-tab-button');
+    // emby-tabs positions buttons by DOM order (its own data-index is for the widget itself,
+    // not read here) but this handler indexes tabButtons by that same position - if a button's
+    // data-index attribute ever falls out of step with its actual DOM position, that's a sign
+    // the two were edited independently and this handler would resolve the wrong data-tab.
+    tabButtons.forEach(function (btn, i) {
+        if (Number(btn.getAttribute('data-index')) !== i) {
+            console.warn('OIDC RBAC: tab button data-index does not match DOM position at index ' + i);
+        }
+    });
+    tabsEl.addEventListener('tabchange', function (e) {
+        var idx = e.detail.selectedTabIndex;
+        tabButtons.forEach(function (btn, i) {
+            btn.setAttribute('aria-selected', i === idx ? 'true' : 'false');
         });
+        view.querySelectorAll('.tabContent').forEach(function (c) {
+            c.classList.remove('is-active');
+        });
+        var content = view.querySelector('#tab-' + tabButtons[idx].getAttribute('data-tab'));
+        content.classList.add('is-active');
+        // A textarea inside a display:none tab reports scrollHeight 0, so autogrow couldn't
+        // size it correctly until the tab is actually visible.
+        content.querySelectorAll('.oidc-autogrow').forEach(autogrowTextarea);
     });
 
     // Copy-to-clipboard buttons (manual branding snippet)
@@ -147,7 +150,7 @@ export default function (view) {
         if (!cfg) return;
         cfg.Providers = collectProviders(view);
         cfg.Providers.push({
-            ProviderId: '', DisplayName: 'New Provider', Authority: '',
+            ProviderId: '', DisplayName: STRINGS.provider.newProviderName, Authority: '',
             ClientId: '', ClientSecret: '', ClientSecretFile: '', Scopes: 'openid profile email',
             RoleClaim: 'groups', UsernameClaim: 'preferred_username',
             DisplayNameClaim: 'name', EmailClaim: 'email', PictureClaim: 'picture',
@@ -187,7 +190,7 @@ export default function (view) {
         // Block save on a duplicate Provider ID; the server rejects it too, this just saves a round-trip.
         var idCounts = {};
         var duplicateIds = [];
-        view.querySelectorAll('#providerList .oidc-card').forEach(function (card, idx) {
+        view.querySelectorAll('#providerList .oidc-item-card').forEach(function (card, idx) {
             var id = (gval(view, 'prov_id_' + idx) || '').trim().toLowerCase();
             if (!id) return;
             idCounts[id] = (idCounts[id] || 0) + 1;
@@ -195,9 +198,9 @@ export default function (view) {
         });
         if (duplicateIds.length > 0) {
             Dashboard.alert({
-                title: 'Duplicate Provider ID',
-                message: 'Provider ID(s) used by more than one provider: ' + duplicateIds.join(', ') +
-                    '.\n\nEach provider must have a unique Provider ID.'
+                title: STRINGS.saveFlow.duplicateIdTitle,
+                message: STRINGS.saveFlow.duplicateIdMessagePrefix + duplicateIds.join(', ') +
+                    STRINGS.saveFlow.duplicateIdMessageSuffix
             });
             return;
         }
@@ -205,7 +208,7 @@ export default function (view) {
         // Block save if a pinned Issuer URL was edited without re-running Test Connection;
         // otherwise the save silently re-pins to an unverified value.
         var unverified = [];
-        view.querySelectorAll('#providerList .oidc-card').forEach(function (card, idx) {
+        view.querySelectorAll('#providerList .oidc-item-card').forEach(function (card, idx) {
             var issuerEl = view.querySelector('#prov_pinnedissuer_' + idx);
             if (!issuerEl) return;
             var verified = issuerEl.dataset.verified || '';
@@ -215,9 +218,9 @@ export default function (view) {
         });
         if (unverified.length > 0) {
             Dashboard.alert({
-                title: 'Issuer URL changed',
-                message: 'Provider(s) with an edited, unverified Issuer URL: ' + unverified.join(', ') +
-                    '.\n\nRun Test Connection to re-pin before saving.'
+                title: STRINGS.saveFlow.issuerChangedTitle,
+                message: STRINGS.saveFlow.issuerChangedMessagePrefix + unverified.join(', ') +
+                    STRINGS.saveFlow.issuerChangedMessageSuffix
             });
             return;
         }
@@ -229,7 +232,7 @@ export default function (view) {
         });
         if (unpinned.length > 0) {
             var names = unpinned.map(function (p) { return p.DisplayName || p.ProviderId; }).join(', ');
-            if (!window.confirm('Provider(s) without endpoint pins: ' + names + '.\n\nEndpoints will be trusted on first login (TOFU). Run Test Connection to eliminate this window.\n\nSave anyway?')) {
+            if (!window.confirm(STRINGS.saveFlow.unpinnedConfirmPrefix + names + STRINGS.saveFlow.unpinnedConfirmSuffix)) {
                 return;
             }
         }
@@ -249,7 +252,7 @@ export default function (view) {
         cfg.EnableLibraryAccessManagement = gchk(view, 'enableLibraryAccessManagement');
         cfg.ManageLoginButtonBranding = gchk(view, 'manageLoginButtonBranding');
         cfg.HideManualLogin = gchk(view, 'hideManualLogin');
-        cfg.LoginTitle = gval(view, 'loginTitle') || 'Please sign in';
+        cfg.LoginTitle = gval(view, 'loginTitle') || STRINGS.loginPage.defaultLoginTitle;
         cfg.LoginSubtitle = gval(view, 'loginSubtitle') || '';
         cfg.ServerBaseUrl = gval(view, 'serverBaseUrl') || '';
         ApiClient.updatePluginConfiguration(pluginId, cfg).then(function (result) {
@@ -261,7 +264,7 @@ export default function (view) {
             Dashboard.hideLoadingMsg();
         }).catch(function (err) {
             Dashboard.hideLoadingMsg();
-            Dashboard.alert('Failed to save: ' + (err.message || err));
+            Dashboard.alert(STRINGS.saveFlow.saveFailedPrefix + (err.message || err));
         });
     });
 
@@ -338,7 +341,7 @@ export default function (view) {
                 var hidden = view.querySelector('#prov_icon_svg_' + fidx);
                 if (hidden) hidden.value = String(reader.result || '').trim();
                 var status = view.querySelector('[data-icon-status="' + fidx + '"]');
-                if (status) status.textContent = 'Custom icon set (' + f.name + ')';
+                if (status) status.textContent = STRINGS.provider.iconCustomSetWithNamePrefix + f.name + STRINGS.provider.iconCustomSetWithNameSuffix;
             };
             // SVG stays as markup; raster formats become a data: URI.
             if (/svg/i.test(f.type) || /\.svg$/i.test(f.name)) {
