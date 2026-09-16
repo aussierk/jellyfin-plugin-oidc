@@ -1,3 +1,265 @@
+// Jellyfin.Plugin.OIDC/Configuration/src/strings.js
+var STRINGS = {
+  pageHeading: "OIDC RBAC Configuration",
+  common: {
+    removeBtn: "Remove"
+  },
+  tabs: {
+    general: "General",
+    providers: "Providers",
+    roles: "Role Mappings"
+  },
+  general: {
+    autoCreateUsers: "Auto-Create Users on First OIDC Login",
+    migrateLocalUsers: "Migrate Local Users to SSO on First OIDC Login",
+    migrateLocalUsersDesc: "Existing local accounts start signing in via SSO instead of their local password.",
+    blockPrivateNetwork: "Block RFC1918/ULA Authorities",
+    blockPrivateNetworkDesc: "Off by default since self-hosted identity providers often use them.",
+    serverBaseUrlLabel: "Server Base URL (Override)",
+    serverBaseUrlPlaceholder: "https://jellyfin.example.com",
+    serverBaseUrlDesc: "Overrides the auto-detected host used for OIDC redirect and logout URLs."
+  },
+  access: {
+    legend: "Access",
+    allowedGroupsLabel: "Allowed Groups",
+    allowedGroupsHint: "(one per line; matched against the role claim)",
+    requireVerifiedEmailHtml: "Require a Verified Email (<code>email_verified</code>)",
+    emailAllowlistWarningHtml: "&#9888; <strong>Ignored</strong> while &ldquo;Require a Verified Email&rdquo; above is unchecked.",
+    allowedEmailDomainsLabel: "Allowed Email Domains",
+    allowedEmailDomainsHint: "(one per line; subdomains match too)",
+    allowedEmailsLabel: "Allowed Emails",
+    allowedEmailsHint: "(exact addresses)",
+    linkExistingUsersByEmail: "Link Accounts by Verified Email When the Subject Doesn't Match"
+  },
+  loginPage: {
+    legend: "Login Page",
+    manageLoginButtonBranding: "Manage the Login Button in Branding Automatically",
+    manageLoginButtonBrandingDescHtml: "Syncs login buttons on every first-party client. Non-web apps sign in via Quick Connect.",
+    statusLabel: "Status:",
+    manualInstallSummary: "Manual Install (Copy/Paste)",
+    manualInstallDesc: "Paste the HTML into Login Disclaimer and the CSS into Custom CSS.",
+    copyHtmlBtn: "Copy Login Button HTML",
+    copyCssBtn: "Copy Login Button CSS",
+    hideManualLogin: "Hide the Username/Password Form on the Login Page",
+    hideManualLoginDescHtml: "Hides the local login form and <strong>Forgot Password</strong> link; Quick Connect still works.",
+    loginSubtitleLabel: "Login Instructions",
+    loginSubtitleHint: "(optional)",
+    loginSubtitlePlaceholder: "e.g. On a TV, choose Use Quick Connect and enter the code",
+    loginTitleLabel: "Login Page Heading",
+    defaultLoginTitle: "Please Sign In"
+  },
+  providersTab: {
+    addProviderBtn: "+ Add Provider",
+    emptyState: "No providers configured yet, so users can't sign in with SSO until you add one."
+  },
+  rolesTab: {
+    legend: "RBAC Management",
+    manageUserPolicy: "Manage User Policy from Role Mappings",
+    manageUserPolicyDesc: "Turn off to manage users' Jellyfin policy manually (every field below becomes inert)",
+    enableLibraryAccessManagement: "Manage Library Access from Role Mappings",
+    enableLibraryAccessManagementHint: "(only while policy management is on)",
+    fallbackRoleLabel: "Default Role",
+    fallbackRoleHint: "(applied when a user's claim matches no role below)",
+    addRoleMappingBtn: "+ Add Role Mapping",
+    inactiveHint: "Policy management is off, role mappings and the default role above are not applied.",
+    emptyState: "No role mappings, users receive the default role that is set above."
+  },
+  save: {
+    saveBtn: "Save"
+  },
+  provider: {
+    newProviderName: "New Provider",
+    enabledLabel: "Enabled",
+    connectionTitle: "Connection",
+    connectionHint: "provider id, endpoint, client credentials & logout",
+    claimMappingTitle: "Claim Mapping",
+    claimMappingHint: "role, username, display name & avatar",
+    appearanceTitle: "Appearance",
+    appearanceHint: "login button color & icon",
+    securityTitle: "Security",
+    securityHint: "token validation, network guards, email-linking trust",
+    prefillLabelPrefix: "Prefill for ",
+    prefillHintHtml: "(claims, scopes &amp; icon; you&rsquo;ll still need to add the Issuer URL &amp; credentials)",
+    prefillChooseOption: "Select an Identity Provider",
+    providerIdLabel: "Provider ID",
+    providerIdPlaceholder: "Unique Identifier (e.g. keycloak)",
+    displayNameLabel: "Display Name",
+    displayNamePlaceholder: "Shown on Login Button",
+    issuerUrlLabel: "Issuer URL",
+    issuerUrlPlaceholder: "https://idp.example.com/realms/myrealm",
+    issuerHintPrefix: "Must match the issuer from discovery. ",
+    issuerHintPinned: "Pinned. Please re-run Test Connection after editing.",
+    issuerHintUnpinned: "Run Test Connection to pin it.",
+    clientIdLabel: "Client ID",
+    clientSecretLabel: "Client Secret",
+    clientSecretPlaceholderPrefix: "Or reference an env var unique to this provider, e.g. ${",
+    clientSecretFileLabel: "Client Secret File",
+    clientSecretFilePlaceholder: "Optional: path to a file unique to this provider (e.g. a mounted Docker/K8s secret). Overrides Client Secret above.",
+    scopesLabel: "Scopes",
+    additionalParamsLabel: "Additional Parameters",
+    additionalParamsPlaceholder: "key=value1&key2=value2 (extra /authorize params)",
+    backchannelLogoutLabel: "Back-Channel Logout URL",
+    backchannelLogoutHintHtml: "Register with your identity provider as <code>backchannel_logout_uri</code>.",
+    copyBtn: "Copy",
+    roleClaimLabel: "Role Claim Path",
+    roleClaimPlaceholder: "e.g. groups or realm_access.roles",
+    usernameClaimLabel: "Username Claim",
+    displayNameClaimLabel: "Display Name Claim",
+    emailClaimLabel: "Email Claim",
+    pictureClaimLabel: "Picture Claim",
+    pictureClaimPlaceholder: "e.g. picture",
+    syncProfileImage: "Sync Profile Image",
+    syncDisplayName: "Sync Display Name on Login",
+    syncDisplayNameDescHtml: "<strong>Renames the Jellyfin account</strong> to match the claim on every login.",
+    buttonColorLabel: "Button Color",
+    resetToDefaultBtn: "Reset to Default",
+    buttonIconLabel: "Button Icon",
+    iconNone: "None",
+    iconCustom: "Custom Image",
+    iconCustomSet: "Custom Icon Set",
+    iconCustomSetWithNamePrefix: "Custom Icon Set (",
+    iconCustomSetWithNameSuffix: ")",
+    strictAccessValidation: "Strict Access Token Validation",
+    strictAccessValidationDesc: "Validates JWT access tokens against JWKS (opaque tokens skip this). Uncheck if your identity provider signs tokens with a key not published in its JWKS.",
+    allowLoopback: "Allow Loopback Authority",
+    allowLoopbackDesc: "Blocked by default (127.0.0.1, ::1). Enable only if intentional.",
+    allowLinkLocal: "Allow Link-Local Authority",
+    allowLinkLocalDesc: "Blocked by default (169.254.x.x, fe80::). Enable only if intentional.",
+    trustedEmailLink: "Trusted for Email-Based Account Linking",
+    trustedEmailLinkDesc: "Only matters when email-linking is on. Enable only for an identity provider you fully control; it never links to an admin account.",
+    moveUpTitle: "Move up (changes login-button order)",
+    moveDownTitle: "Move down (changes login-button order)",
+    testConnectionBtn: "Test Connection"
+  },
+  presetLabels: {
+    keycloak: "Keycloak",
+    authentik: "Authentik",
+    authelia: "Authelia",
+    entra: "Microsoft Entra ID",
+    google: "Google Workspace",
+    okta: "Okta",
+    auth0: "Auth0"
+  },
+  iconLabels: {
+    github: "GitHub"
+  },
+  role: {
+    newRoleName: "New Role",
+    roleNamePrefix: "Role: ",
+    adminBadge: "Admin",
+    allProviders: "All Providers",
+    allLibraries: "All Libraries",
+    noLibraryAccess: "No Library Access",
+    librarySingular: " Library",
+    libraryPlural: " Libraries",
+    roleNameLabel: "Role Name",
+    roleNamePlaceholder: "Must match identity provider role claim value",
+    providerFilterLabel: "Provider Filter ",
+    providerFilterHint: "(blank = all providers)",
+    permissionsLabel: "Permissions ",
+    permissionsHint: "(Administrator grants everything below)",
+    permissionsNote: "Multiple matching roles combine permissions; the strictest parental rating wins.",
+    administrator: "Administrator",
+    playbackGroup: "Playback",
+    transcoding: "Transcoding",
+    remoteAccess: "Remote Access",
+    liveTvGroup: "Live TV",
+    liveTvAccess: "Access",
+    liveTvRecordingManagement: "Recording Management",
+    contentManagementGroup: "Content Management",
+    collections: "Collections",
+    subtitles: "Subtitles",
+    deleteContent: "Delete Content",
+    libraryAccessTitle: "Library Access",
+    specificLibrariesLabel: "Specific Libraries ",
+    specificLibrariesHint: '(Only applies when "All libraries" is off)',
+    selectLibraryOption: "Select Library",
+    addLibraryBtn: "Add Library",
+    maxParentalRatingLabel: "Max Parental Rating ",
+    maxParentalRatingHint: "(empty = unrestricted)",
+    unrestrictedOption: "Unrestricted",
+    notDefinedSuffix: " (not defined on this server)",
+    customScorePrefix: "Custom Score ",
+    customScoreSuffix: " (select again to refresh)",
+    noneOption: "None",
+    notDefinedRoleSuffix: " (not a defined role)"
+  },
+  testConnection: {
+    issuerRequired: "Issuer URL is required",
+    testing: "Testing...",
+    okPrefix: "OK, issuer ",
+    scopeWarningPrefix: " (warning: scopes not advertised: ",
+    scopeWarningSuffix: ")",
+    failedPrefix: "Failed: ",
+    dialogTitleOk: "Provider OK",
+    dialogTitleFailed: "Provider Test Failed",
+    unknownError: "Unknown Error",
+    networkError: "Network Error",
+    issuerLinePrefix: "Issuer: ",
+    authorizeLinePrefix: "Authorize: ",
+    tokenLinePrefix: "Token: ",
+    userInfoLinePrefix: "UserInfo: ",
+    scopeWarningBlockPrefix: "Warning: these requested scopes are not in scopes_supported:  "
+  },
+  branding: {
+    installed: "Installed",
+    notInstalled: "Not Installed",
+    removeConfirm: "The plugin previously added an SSO login button to Branding (Login Disclaimer + Custom CSS). Remove it now? Cancel leaves it in place."
+  },
+  saveFlow: {
+    duplicateIdTitle: "Duplicate Provider ID",
+    duplicateIdMessagePrefix: "Provider ID(s) used by more than one provider: ",
+    duplicateIdMessageSuffix: ". Each provider must have a unique Provider ID.",
+    issuerChangedTitle: "Issuer URL changed",
+    issuerChangedMessagePrefix: "Provider(s) with an edited, unverified Issuer URL: ",
+    issuerChangedMessageSuffix: ". Run Test Connection to re-pin before saving.",
+    unpinnedConfirmPrefix: "Provider(s) without endpoint pins: ",
+    unpinnedConfirmSuffix: ". Endpoints will be trusted on first login. Run Test Connection first to avoid this. Save anyway?",
+    saveFailedPrefix: "Failed to Save: ",
+    unsavedChanges: "\u25CF Unsaved changes"
+  },
+  copyBtnCopied: "Copied"
+};
+var resolveCache = {};
+function resolve(path) {
+  if (Object.prototype.hasOwnProperty.call(resolveCache, path)) return resolveCache[path];
+  var parts = path.split(".");
+  var v = STRINGS;
+  for (var i = 0; i < parts.length; i++) {
+    v = v == null ? void 0 : v[parts[i]];
+  }
+  if (v == null) console.warn('OIDC RBAC: no STRINGS entry for "' + path + '"');
+  resolveCache[path] = v;
+  return v;
+}
+var STR_ATTRS = [
+  ["data-str", function(elm, v) {
+    elm.textContent = v;
+  }],
+  ["data-str-html", function(elm, v) {
+    elm.innerHTML = v;
+  }],
+  ["data-str-placeholder", function(elm, v) {
+    elm.setAttribute("placeholder", v);
+  }],
+  ["data-str-label", function(elm, v) {
+    elm.setAttribute("label", v);
+  }]
+];
+function applyStrings(view) {
+  var selector = STR_ATTRS.map(function(pair) {
+    return "[" + pair[0] + "]";
+  }).join(",");
+  view.querySelectorAll(selector).forEach(function(elm) {
+    STR_ATTRS.forEach(function(pair) {
+      var attr = pair[0], apply = pair[1];
+      if (!elm.hasAttribute(attr)) return;
+      var v = resolve(elm.getAttribute(attr));
+      if (v != null) apply(elm, v);
+    });
+  });
+}
+
 // Jellyfin.Plugin.OIDC/Configuration/src/dom.js
 function esc(str) {
   var d = document.createElement("div");
@@ -41,22 +303,15 @@ function emptyState(msg) {
 }
 function copyToClipboard(view, srcId, btn) {
   var src = view.querySelector("#" + srcId);
-  if (!src) return;
-  if (typeof src.select === "function") src.select();
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(src.value).catch(function() {
-    });
-  } else {
-    try {
-      document.execCommand("copy");
-    } catch (e) {
-    }
-  }
-  var orig = btn.textContent;
-  btn.textContent = "Copied";
-  setTimeout(function() {
-    btn.textContent = orig;
-  }, 1200);
+  if (!src || !navigator.clipboard) return;
+  navigator.clipboard.writeText(src.value).then(function() {
+    var orig = btn.textContent;
+    btn.textContent = STRINGS.copyBtnCopied;
+    setTimeout(function() {
+      btn.textContent = orig;
+    }, 1200);
+  }).catch(function() {
+  });
 }
 
 // Jellyfin.Plugin.OIDC/Configuration/src/state.js
@@ -82,7 +337,7 @@ function setDirty(v) {
   dirty = v;
   if (!dirtyView) return;
   var s = dirtyView.querySelector("#saveStatus");
-  if (s) s.textContent = v ? "\u25CF Unsaved changes" : "";
+  if (s) s.textContent = v ? STRINGS.saveFlow.unsavedChanges : "";
   var btn = dirtyView.querySelector("#btnSave");
   if (btn) btn.classList.toggle("oidc-save-dirty", v);
 }
@@ -125,7 +380,7 @@ function spliceRegion(text, startMarker, endMarker, block) {
 }
 function setBrandingStatus(view, installed) {
   var el2 = view.querySelector("#brandingStatus");
-  if (el2) el2.textContent = installed ? "Installed" : "Not installed";
+  if (el2) el2.textContent = installed ? STRINGS.branding.installed : STRINGS.branding.notInstalled;
 }
 function loadBrandingSnippet(view) {
   ApiClient.getJSON(ApiClient.getUrl("sso/OIDC/LoginButtonSnippet")).then(function(snip) {
@@ -156,9 +411,7 @@ function syncBranding(view) {
     } else if (manage) {
       action = present ? "remove" : "none";
     } else if (present) {
-      action = window.confirm(
-        "The plugin previously added an SSO login button to Branding (Login Disclaimer + Custom CSS).\n\nRemove it now? Cancel leaves it in place."
-      ) ? "remove" : "none";
+      action = window.confirm(STRINGS.branding.removeConfirm) ? "remove" : "none";
     } else {
       action = "none";
     }
@@ -188,12 +441,13 @@ function syncBranding(view) {
 function fld(label, type, id, value, placeholder, full) {
   return el(
     "div",
-    { class: full ? "oidc-field full" : "oidc-field" },
-    el("label", { for: id }, esc(label)) + el("input", {
+    { class: full ? "inputContainer full" : "inputContainer" },
+    el("input", {
       is: "emby-input",
       type,
       id,
       value: String(value || ""),
+      label,
       placeholder: placeholder || null,
       autocomplete: "off",
       autocapitalize: "off",
@@ -206,6 +460,17 @@ function chk(id, label, checked) {
     "label",
     null,
     el("input", { type: "checkbox", id, is: "emby-checkbox", checked: !!checked }) + " " + el("span", null, esc(label))
+  );
+}
+function chkWithDesc(id, label, desc, checked) {
+  return el(
+    "div",
+    { class: "checkboxContainer checkboxContainer-withDescription full" },
+    el(
+      "label",
+      null,
+      el("input", { type: "checkbox", id, is: "emby-checkbox", checked: !!checked }) + " " + el("span", null, esc(label))
+    ) + el("div", { class: "fieldDescription" }, esc(desc))
   );
 }
 function permGroup(title, inner) {
@@ -226,48 +491,48 @@ var ICON_KEYS = ["authentik", "keycloak", "google", "microsoft", "okta", "auth0"
 function iconIsCustom(v) {
   return !!v && ICON_KEYS.indexOf(v) === -1;
 }
-var ICON_LABELS = { auth0: "Auth0", github: "GitHub" };
+var ICON_LABELS = STRINGS.iconLabels;
 var PROVIDER_PRESETS = {
-  keycloak: { label: "Keycloak", roleClaim: "realm_access.roles", usernameClaim: "preferred_username", scopes: "openid profile email", icon: "keycloak" },
-  authentik: { label: "Authentik", roleClaim: "groups", usernameClaim: "preferred_username", scopes: "openid profile email", icon: "authentik" },
-  authelia: { label: "Authelia", roleClaim: "groups", usernameClaim: "preferred_username", scopes: "openid profile email groups", icon: "" },
-  entra: { label: "Microsoft Entra ID", roleClaim: "roles", usernameClaim: "preferred_username", scopes: "openid profile email", icon: "microsoft" },
-  google: { label: "Google Workspace", roleClaim: "groups", usernameClaim: "email", scopes: "openid profile email", icon: "google" },
-  okta: { label: "Okta", roleClaim: "groups", usernameClaim: "preferred_username", scopes: "openid profile email groups", icon: "okta" },
-  auth0: { label: "Auth0", roleClaim: "", usernameClaim: "nickname", scopes: "openid profile email", icon: "auth0" }
+  keycloak: { label: STRINGS.presetLabels.keycloak, roleClaim: "realm_access.roles", usernameClaim: "preferred_username", scopes: "openid profile email", icon: "keycloak" },
+  authentik: { label: STRINGS.presetLabels.authentik, roleClaim: "groups", usernameClaim: "preferred_username", scopes: "openid profile email", icon: "authentik" },
+  authelia: { label: STRINGS.presetLabels.authelia, roleClaim: "groups", usernameClaim: "preferred_username", scopes: "openid profile email groups", icon: "" },
+  entra: { label: STRINGS.presetLabels.entra, roleClaim: "roles", usernameClaim: "preferred_username", scopes: "openid profile email", icon: "microsoft" },
+  google: { label: STRINGS.presetLabels.google, roleClaim: "groups", usernameClaim: "email", scopes: "openid profile email", icon: "google" },
+  okta: { label: STRINGS.presetLabels.okta, roleClaim: "groups", usernameClaim: "preferred_username", scopes: "openid profile email groups", icon: "okta" },
+  auth0: { label: STRINGS.presetLabels.auth0, roleClaim: "", usernameClaim: "nickname", scopes: "openid profile email", icon: "auth0" }
 };
 function presetField(idx) {
-  var opts = el("option", { value: "" }, "- choose an IdP -");
+  var opts = el("option", { value: "" }, STRINGS.provider.prefillChooseOption);
   Object.keys(PROVIDER_PRESETS).forEach(function(k) {
     opts += el("option", { value: k }, esc(PROVIDER_PRESETS[k].label));
   });
   return el(
     "div",
-    { class: "oidc-field full" },
-    el("label", { for: "prov_preset_" + idx }, "Prefill for " + el("span", { class: "oidc-hint" }, "(sets claims / scopes / icon - you still enter the Issuer URL &amp; client credentials)")) + el("select", { id: "prov_preset_" + idx }, opts)
+    { class: "selectContainer full" },
+    el("label", { for: "prov_preset_" + idx }, STRINGS.provider.prefillLabelPrefix + el("span", { class: "fieldDescription" }, STRINGS.provider.prefillHintHtml)) + el("select", { is: "emby-select", id: "prov_preset_" + idx }, opts)
   );
 }
 function iconField(idx, cur) {
   var custom = iconIsCustom(cur);
-  var opts = el("option", { value: "none", selected: !cur }, "None");
+  var opts = el("option", { value: "none", selected: !cur }, STRINGS.provider.iconNone);
   ICON_KEYS.forEach(function(k) {
     var label = ICON_LABELS[k] || k.charAt(0).toUpperCase() + k.slice(1);
     opts += el("option", { value: k, selected: cur === k }, label);
   });
-  opts += el("option", { value: "custom", selected: custom }, "Custom (image)");
+  opts += el("option", { value: "custom", selected: custom }, STRINGS.provider.iconCustom);
   return el(
     "div",
-    { class: "oidc-field full" },
-    el("label", { for: "prov_icon_" + idx }, "Button Icon") + el("select", { is: "emby-select", id: "prov_icon_" + idx }, opts) + el("input", { type: "hidden", id: "prov_icon_svg_" + idx, value: custom ? cur : "" }) + el("input", {
+    { class: "selectContainer full" },
+    el("label", { for: "prov_icon_" + idx }, STRINGS.provider.buttonIconLabel) + el("select", { is: "emby-select", id: "prov_icon_" + idx }, opts) + el("input", { type: "hidden", id: "prov_icon_svg_" + idx, value: custom ? cur : "" }) + el("input", {
       type: "file",
       id: "prov_icon_file_" + idx,
       accept: ".svg,.png,.jpg,.jpeg,.gif,.webp,image/svg+xml,image/png,image/jpeg,image/gif,image/webp",
       class: "oidc-mt-sm" + (custom ? "" : " oidc-hidden")
-    }) + el("span", { class: "oidc-hint", "data-icon-status": idx }, custom && cur ? "Custom icon set" : "")
+    }) + el("span", { class: "fieldDescription", "data-icon-status": idx }, custom && cur ? STRINGS.provider.iconCustomSet : "")
   );
 }
 function provGroup(title, hint, inner, open) {
-  var head = esc(title) + (hint ? " " + el("span", { class: "oidc-hint" }, esc(hint)) : "");
+  var head = esc(title) + (hint ? " " + el("span", { class: "fieldDescription" }, esc(hint)) : "");
   return el(
     "details",
     { class: "oidc-section", open: !!open },
@@ -297,150 +562,125 @@ function renderProviders(view) {
   var container = view.querySelector("#providerList");
   container.innerHTML = "";
   if (!cfg.Providers.length) {
-    container.innerHTML = emptyState(
-      "No providers configured yet - users can't sign in with SSO until you add one."
-    );
+    container.innerHTML = emptyState(STRINGS.providersTab.emptyState);
     return;
   }
   cfg.Providers.forEach(function(p, idx) {
     var card = document.createElement("div");
-    card.className = "oidc-card";
+    card.className = "oidc-item-card";
     var configured = !!(p.ProviderId && (p.PinnedIssuer || p.Authority) && p.ClientId);
     if (p.Enabled === false) card.className += " oidc-disabled";
-    var connection = (configured ? "" : presetField(idx)) + fld("Provider ID", "text", "prov_id_" + idx, p.ProviderId, "Unique identifier (e.g. keycloak)") + fld("Display Name", "text", "prov_name_" + idx, p.DisplayName, "Shown on login button") + el(
+    var connection = (configured ? "" : presetField(idx)) + fld(STRINGS.provider.providerIdLabel, "text", "prov_id_" + idx, p.ProviderId, STRINGS.provider.providerIdPlaceholder) + fld(STRINGS.provider.displayNameLabel, "text", "prov_name_" + idx, p.DisplayName, STRINGS.provider.displayNamePlaceholder) + el(
       "div",
-      { class: "oidc-field full" },
-      el("label", { for: "prov_pinnedissuer_" + idx }, "Issuer URL") + el("input", {
+      { class: "inputContainer full" },
+      el("input", {
         is: "emby-input",
         type: "text",
         id: "prov_pinnedissuer_" + idx,
         value: p.PinnedIssuer || p.Authority || "",
-        placeholder: "https://idp.example.com/realms/myrealm",
+        label: STRINGS.provider.issuerUrlLabel,
+        placeholder: STRINGS.provider.issuerUrlPlaceholder,
         "data-verified": p.PinnedIssuer || "",
         autocomplete: "off",
         autocapitalize: "off",
         spellcheck: "false"
-      }) + el("span", { class: "oidc-hint" }, "Must exactly match the issuer your IdP returns from discovery. " + (p.PinnedIssuer ? "This value is pinned - editing it requires re-running Test Connection before you can save." : "Run Test Connection to pin it."))
-    ) + fld("Client ID", "text", "prov_clientid_" + idx, p.ClientId, "") + fld(
-      "Client Secret",
+      }) + el("span", { class: "fieldDescription" }, STRINGS.provider.issuerHintPrefix + (p.PinnedIssuer ? STRINGS.provider.issuerHintPinned : STRINGS.provider.issuerHintUnpinned))
+    ) + fld(STRINGS.provider.clientIdLabel, "text", "prov_clientid_" + idx, p.ClientId, "") + fld(
+      STRINGS.provider.clientSecretLabel,
       "password",
       "prov_secret_" + idx,
       p.ClientSecret,
-      "Or reference an env var unique to THIS provider, e.g. ${" + envVarSuggestion(p) + "}"
+      STRINGS.provider.clientSecretPlaceholderPrefix + envVarSuggestion(p) + "}"
     ) + fld(
-      "Client Secret File",
+      STRINGS.provider.clientSecretFileLabel,
       "text",
       "prov_secretfile_" + idx,
       p.ClientSecretFile,
-      "Optional: path to a file unique to THIS provider (e.g. a mounted Docker/K8s secret) - overrides Client Secret above"
-    ) + fld("Scopes", "text", "prov_scopes_" + idx, p.Scopes || "openid profile email", "") + fld("Additional Params", "text", "prov_params_" + idx, p.AdditionalParameters || "", "key=val&key2=val2 - extra query params added to the /authorize request", true) + (p.ProviderId ? el(
+      STRINGS.provider.clientSecretFilePlaceholder
+    ) + fld(STRINGS.provider.scopesLabel, "text", "prov_scopes_" + idx, p.Scopes || "openid profile email", "") + fld(STRINGS.provider.additionalParamsLabel, "text", "prov_params_" + idx, p.AdditionalParameters || "", STRINGS.provider.additionalParamsPlaceholder, true) + (p.ProviderId ? el(
       "div",
-      { class: "oidc-field full oidc-mt-md" },
-      el("label", { class: "oidc-label-strong" }, "Back-channel logout URL " + el("span", { class: "oidc-hint" }, "- register as the client's <code>backchannel_logout_uri</code> so the IdP can revoke Jellyfin sessions")) + el(
-        "div",
-        { class: "oidc-inline-row oidc-mt-sm" },
-        el("input", {
-          is: "emby-input",
-          type: "text",
-          id: "prov_bclogout_" + idx,
-          readonly: true,
-          value: backchannelLogoutUrl(p, cfg.ServerBaseUrl),
-          class: "oidc-mono-flex"
-        }) + el("button", { type: "button", class: "oidc-btn-secondary", "data-copy": "prov_bclogout_" + idx }, "Copy")
-      )
+      { class: "inputContainer full" },
+      el("input", {
+        is: "emby-input",
+        type: "text",
+        id: "prov_bclogout_" + idx,
+        readonly: true,
+        value: backchannelLogoutUrl(p, cfg.ServerBaseUrl),
+        label: STRINGS.provider.backchannelLogoutLabel,
+        class: "oidc-mono-flex"
+      }) + el("button", {
+        is: "emby-button",
+        type: "button",
+        class: "oidc-btn-secondary oidc-mt-sm",
+        "data-copy": "prov_bclogout_" + idx
+      }, STRINGS.provider.copyBtn) + el("span", { class: "fieldDescription" }, STRINGS.provider.backchannelLogoutHintHtml)
     ) : "");
-    var claims = fld("Role Claim Path", "text", "prov_roleclaim_" + idx, p.RoleClaim || "groups", "e.g. groups or realm_access.roles") + fld("Username Claim", "text", "prov_userclaim_" + idx, p.UsernameClaim || "preferred_username", "") + fld("Display Name Claim", "text", "prov_displayclaim_" + idx, p.DisplayNameClaim || "name", "") + fld("Email Claim", "text", "prov_emailclaim_" + idx, p.EmailClaim || "email", "") + fld("Picture Claim", "text", "prov_pictureclaim_" + idx, p.PictureClaim || "picture", "e.g. picture") + el(
+    var claims = fld(STRINGS.provider.roleClaimLabel, "text", "prov_roleclaim_" + idx, p.RoleClaim || "groups", STRINGS.provider.roleClaimPlaceholder) + fld(STRINGS.provider.usernameClaimLabel, "text", "prov_userclaim_" + idx, p.UsernameClaim || "preferred_username", "") + fld(STRINGS.provider.displayNameClaimLabel, "text", "prov_displayclaim_" + idx, p.DisplayNameClaim || "name", "") + fld(STRINGS.provider.emailClaimLabel, "text", "prov_emailclaim_" + idx, p.EmailClaim || "email", "") + fld(STRINGS.provider.pictureClaimLabel, "text", "prov_pictureclaim_" + idx, p.PictureClaim || "picture", STRINGS.provider.pictureClaimPlaceholder) + el(
       "div",
-      { class: "oidc-field full" },
+      { class: "checkboxContainer full" },
       el(
         "label",
         null,
-        el("input", { type: "checkbox", id: "prov_syncimage_" + idx, is: "emby-checkbox", checked: p.SyncProfileImage !== false }) + " " + el("span", null, "Sync profile image")
+        el("input", { type: "checkbox", id: "prov_syncimage_" + idx, is: "emby-checkbox", checked: p.SyncProfileImage !== false }) + " " + el("span", null, STRINGS.provider.syncProfileImage)
       )
     ) + el(
       "div",
-      { class: "oidc-field full" },
+      { class: "checkboxContainer checkboxContainer-withDescription full" },
       el(
         "label",
         null,
-        el("input", { type: "checkbox", id: "prov_syncdisplay_" + idx, is: "emby-checkbox", checked: p.SyncDisplayName === true }) + " " + el("span", null, "Sync display name on login")
-      ) + el("span", { class: "oidc-hint oidc-ml-lg" }, "This <strong>renames the Jellyfin account</strong> to match the Display Name Claim on every login.")
+        el("input", { type: "checkbox", id: "prov_syncdisplay_" + idx, is: "emby-checkbox", checked: p.SyncDisplayName === true }) + " " + el("span", null, STRINGS.provider.syncDisplayName)
+      ) + el("div", { class: "fieldDescription" }, STRINGS.provider.syncDisplayNameDescHtml)
     );
     var appearance = el(
       "div",
-      { class: "oidc-field" },
-      el("label", { for: "prov_color_" + idx }, "Button Color") + el(
+      { class: "inputContainer" },
+      el("label", { for: "prov_color_" + idx }, STRINGS.provider.buttonColorLabel) + el(
         "div",
         { class: "oidc-inline-row" },
-        el("input", { type: "color", id: "prov_color_" + idx, value: p.ButtonColor || DEFAULT_BUTTON_COLOR }) + el("button", { type: "button", class: "oidc-btn-secondary", "data-action": "reset-color", "data-idx": idx }, "Reset to default")
+        el("input", { type: "color", id: "prov_color_" + idx, value: p.ButtonColor || DEFAULT_BUTTON_COLOR }) + el("button", { is: "emby-button", type: "button", class: "oidc-btn-secondary", "data-action": "reset-color", "data-idx": idx }, STRINGS.provider.resetToDefaultBtn)
       )
     ) + iconField(idx, p.ButtonIcon || "");
-    var security = el(
-      "div",
-      { class: "oidc-field full" },
-      el(
-        "label",
-        null,
-        el("input", { type: "checkbox", id: "prov_strict_access_" + idx, is: "emby-checkbox", checked: p.StrictAccessTokenValidation !== false }) + " " + el("span", null, "Strict access token validation")
-      ) + el("span", { class: "oidc-hint oidc-ml-lg" }, "Validates JWT access tokens against the JWKS endpoint; opaque tokens (Google, default Authelia) are skipped automatically. Uncheck if your IdP signs with a different key.")
-    ) + el(
-      "div",
-      { class: "oidc-field full" },
-      el(
-        "label",
-        null,
-        el("input", { type: "checkbox", id: "prov_allow_loopback_" + idx, is: "emby-checkbox", checked: p.AllowLoopbackAuthority === true }) + " " + el("span", null, "Allow loopback Authority")
-      ) + el("span", { class: "oidc-hint oidc-ml-lg" }, "Loopback Authorities (127.0.0.1, ::1) are blocked by default. Enable only if your IdP is intentionally hosted there.")
-    ) + el(
-      "div",
-      { class: "oidc-field full" },
-      el(
-        "label",
-        null,
-        el("input", { type: "checkbox", id: "prov_allow_linklocal_" + idx, is: "emby-checkbox", checked: p.AllowLinkLocalAuthority === true }) + " " + el("span", null, "Allow link-local Authority")
-      ) + el("span", { class: "oidc-hint oidc-ml-lg" }, "Link-local Authorities (169.254.x.x, fe80::) are blocked by default. Enable only if your IdP is intentionally hosted there.")
-    ) + el(
-      "div",
-      { class: "oidc-field full" },
-      el(
-        "label",
-        null,
-        el("input", { type: "checkbox", id: "prov_trusted_email_link_" + idx, is: "emby-checkbox", checked: p.TrustedForEmailLinking === true }) + " " + el("span", null, "Trusted for email-based account linking")
-      ) + el("span", { class: "oidc-hint oidc-ml-lg" }, 'Used only when "Link existing users by verified email" is on. Enable only for an IdP you fully control - its verified emails will link logins to existing accounts (never to an admin).')
-    ) + el("input", { type: "hidden", id: "prov_discovery_" + idx, value: p.Authority || "" }) + el("input", { type: "hidden", id: "prov_pinnedauthority_" + idx, value: p.PinnedAuthority || "" }) + el("input", { type: "hidden", id: "prov_pinnedtoken_" + idx, value: p.PinnedTokenEndpoint || "" }) + el("input", { type: "hidden", id: "prov_pinnedjwks_" + idx, value: p.PinnedJwksUri || "" }) + el("input", { type: "hidden", id: "prov_pinneduserinfo_" + idx, value: p.PinnedUserInfoEndpoint || "" }) + el("input", { type: "hidden", id: "prov_pinnedauthorize_" + idx, value: p.PinnedAuthorizeEndpoint || "" }) + el(
-      "div",
-      { class: "oidc-hidden", "data-pin-status": idx },
-      p.PinnedIssuer ? "Pinned via Test Connection - token endpoint, JWKS URI &amp; userinfo endpoint are locked to the values returned for this issuer." : "Not yet pinned - endpoints will be trusted on first login (TOFU) unless you run Test Connection first."
-    );
+    var securityToggles = [
+      { id: "prov_strict_access_", checked: p.StrictAccessTokenValidation !== false, label: STRINGS.provider.strictAccessValidation, desc: STRINGS.provider.strictAccessValidationDesc },
+      { id: "prov_allow_loopback_", checked: p.AllowLoopbackAuthority === true, label: STRINGS.provider.allowLoopback, desc: STRINGS.provider.allowLoopbackDesc },
+      { id: "prov_allow_linklocal_", checked: p.AllowLinkLocalAuthority === true, label: STRINGS.provider.allowLinkLocal, desc: STRINGS.provider.allowLinkLocalDesc },
+      { id: "prov_trusted_email_link_", checked: p.TrustedForEmailLinking === true, label: STRINGS.provider.trustedEmailLink, desc: STRINGS.provider.trustedEmailLinkDesc }
+    ];
+    var security = securityToggles.map(function(t) {
+      return chkWithDesc(t.id + idx, t.label, t.desc, t.checked);
+    }).join("") + el("input", { type: "hidden", id: "prov_discovery_" + idx, value: p.Authority || "" }) + el("input", { type: "hidden", id: "prov_pinnedauthority_" + idx, value: p.PinnedAuthority || "" }) + el("input", { type: "hidden", id: "prov_pinnedtoken_" + idx, value: p.PinnedTokenEndpoint || "" }) + el("input", { type: "hidden", id: "prov_pinnedjwks_" + idx, value: p.PinnedJwksUri || "" }) + el("input", { type: "hidden", id: "prov_pinneduserinfo_" + idx, value: p.PinnedUserInfoEndpoint || "" }) + el("input", { type: "hidden", id: "prov_pinnedauthorize_" + idx, value: p.PinnedAuthorizeEndpoint || "" });
     var host = authorityHost(p.PinnedIssuer || p.Authority);
     card.innerHTML = el(
       "div",
       { class: "oidc-card-head" },
-      el("h4", null, esc(p.DisplayName || "New Provider")) + (host ? el("span", { class: "oidc-card-sub" }, esc(host)) : "") + el(
+      el("h4", null, esc(p.DisplayName || STRINGS.provider.newProviderName)) + (host ? el("span", { class: "oidc-card-sub" }, esc(host)) : "") + el(
         "label",
         { class: "oidc-enable-toggle" },
-        el("span", null, "Enabled") + el("input", { type: "checkbox", id: "prov_enabled_" + idx, checked: p.Enabled !== false })
+        el("span", null, STRINGS.provider.enabledLabel) + el("input", { type: "checkbox", id: "prov_enabled_" + idx, checked: p.Enabled !== false })
       )
-    ) + provGroup("Connection", "provider id, endpoint, client credentials & logout", connection, !configured) + provGroup("Claim mapping", "role, username, display name & avatar", claims, false) + provGroup("Appearance", "login button colour & icon", appearance, false) + provGroup("Security", "token validation, network guards, email-linking trust", security, false) + el(
+    ) + provGroup(STRINGS.provider.connectionTitle, STRINGS.provider.connectionHint, connection, !configured) + provGroup(STRINGS.provider.claimMappingTitle, STRINGS.provider.claimMappingHint, claims, false) + provGroup(STRINGS.provider.appearanceTitle, STRINGS.provider.appearanceHint, appearance, false) + provGroup(STRINGS.provider.securityTitle, STRINGS.provider.securityHint, security, false) + el(
       "div",
       { class: "oidc-row-actions" },
       el("button", {
+        is: "emby-button",
         type: "button",
         class: "oidc-btn-secondary oidc-btn-icon",
         "data-action": "move-provider",
         "data-dir": "-1",
         "data-idx": idx,
-        title: "Move up (changes login-button order)",
+        title: STRINGS.provider.moveUpTitle,
         disabled: idx === 0
       }, "&#8593;") + el("button", {
+        is: "emby-button",
         type: "button",
         class: "oidc-btn-secondary oidc-btn-icon",
         "data-action": "move-provider",
         "data-dir": "1",
         "data-idx": idx,
-        title: "Move down (changes login-button order)",
+        title: STRINGS.provider.moveDownTitle,
         disabled: idx === cfg.Providers.length - 1
-      }, "&#8595;") + el("button", { type: "button", class: "oidc-btn-secondary", "data-action": "test-provider", "data-idx": idx }, "Test Connection") + el("button", { type: "button", class: "oidc-btn-remove", "data-action": "remove-provider", "data-idx": idx }, "Remove") + el("span", { class: "oidc-test-result", "data-idx": idx })
+      }, "&#8595;") + el("button", { is: "emby-button", type: "button", class: "oidc-btn-secondary", "data-action": "test-provider", "data-idx": idx }, STRINGS.provider.testConnectionBtn) + el("button", { is: "emby-button", type: "button", class: "oidc-btn-remove", "data-action": "remove-provider", "data-idx": idx }, STRINGS.common.removeBtn) + el("span", { class: "oidc-test-result", "data-idx": idx })
     );
     container.appendChild(card);
   });
@@ -453,7 +693,7 @@ function collectIcon(view, idx) {
 }
 function collectProviders(view) {
   var result = [];
-  view.querySelectorAll("#providerList .oidc-card").forEach(function(card, idx) {
+  view.querySelectorAll("#providerList .oidc-item-card").forEach(function(card, idx) {
     var issuerVal = gval(view, "prov_pinnedissuer_" + idx);
     var issuerEl = view.querySelector("#prov_pinnedissuer_" + idx);
     var verified = issuerEl ? issuerEl.dataset.verified || "" : "";
@@ -513,7 +753,7 @@ function ratingOptions(m) {
       selName = hit.Name;
     }
   }
-  var opts = '<option value="">- Unrestricted -</option>';
+  var opts = '<option value="">' + esc(STRINGS.role.unrestrictedOption) + "</option>";
   var known = false;
   ratings.forEach(function(r) {
     var sel = r.Name.toLowerCase() === selName.toLowerCase() ? " selected" : "";
@@ -523,9 +763,9 @@ function ratingOptions(m) {
     opts += '<option value="' + esc(r.Name) + '"' + sel + ">" + esc(r.Name) + "</option>";
   });
   if (selName && !known) {
-    opts += '<option value="' + esc(selName) + '" selected>' + esc(selName) + " (not defined on this server)</option>";
+    opts += '<option value="' + esc(selName) + '" selected>' + esc(selName) + esc(STRINGS.role.notDefinedSuffix) + "</option>";
   } else if (!selName && legacy != null) {
-    opts += '<option value="__legacy__" selected disabled>Custom score ' + legacy + " (re-pick to update)</option>";
+    opts += '<option value="__legacy__" selected disabled>' + esc(STRINGS.role.customScorePrefix) + legacy + esc(STRINGS.role.customScoreSuffix) + "</option>";
   }
   return opts;
 }
@@ -533,7 +773,7 @@ function renderDefaultRoleOptions(view) {
   var sel = view.querySelector("#defaultRoleName");
   if (!sel) return;
   var current = sel.value || cfg.DefaultRoleName || "";
-  var source = view.querySelector("#roleMappingList .oidc-card") ? collectRoleMappings(view).map(function(m) {
+  var source = view.querySelector("#roleMappingList .oidc-item-card") ? collectRoleMappings(view).map(function(m) {
     return m.RoleName;
   }) : (cfg.RoleMappings || []).map(function(m) {
     return m.RoleName;
@@ -545,11 +785,11 @@ function renderDefaultRoleOptions(view) {
       return x.toLowerCase() !== n.toLowerCase();
     })) names.push(n);
   });
-  var opts = '<option value="">- none -</option>';
+  var opts = '<option value="">' + esc(STRINGS.role.noneOption) + "</option>";
   if (current && names.every(function(x) {
     return x.toLowerCase() !== current.toLowerCase();
   })) {
-    opts += '<option value="' + esc(current) + '">' + esc(current) + " (not a defined role)</option>";
+    opts += '<option value="' + esc(current) + '">' + esc(current) + esc(STRINGS.role.notDefinedRoleSuffix) + "</option>";
   }
   names.forEach(function(n) {
     opts += '<option value="' + esc(n) + '">' + esc(n) + "</option>";
@@ -561,15 +801,13 @@ function renderRoleMappings(view) {
   var container = view.querySelector("#roleMappingList");
   container.innerHTML = "";
   if (!cfg.RoleMappings.length) {
-    container.innerHTML = emptyState(
-      'No role mappings - signed-in users get the fallback role selected above, or no extra permissions if that is "- none -".'
-    );
+    container.innerHTML = emptyState(STRINGS.rolesTab.emptyState);
     renderDefaultRoleOptions(view);
     return;
   }
   cfg.RoleMappings.forEach(function(m, idx) {
     var card = document.createElement("details");
-    card.className = "oidc-card oidc-role";
+    card.className = "oidc-item-card oidc-role";
     var libOpts = Object.keys(libs).map(function(id) {
       return el("option", { value: id }, esc(libs[id]));
     }).join("");
@@ -581,7 +819,7 @@ function renderRoleMappings(view) {
         return f || name;
       })
     );
-    var provOpts = el("option", { value: "", selected: !m.ProviderFilter }, "All providers (global)") + (cfg.Providers || []).map(function(p) {
+    var provOpts = el("option", { value: "", selected: !m.ProviderFilter }, STRINGS.role.allProviders) + (cfg.Providers || []).map(function(p) {
       return el(
         "option",
         { value: p.ProviderId, selected: m.ProviderFilter === p.ProviderId },
@@ -590,42 +828,42 @@ function renderRoleMappings(view) {
     }).join("");
     var provLabel = m.ProviderFilter ? ((cfg.Providers || []).find(function(p) {
       return p.ProviderId === m.ProviderFilter;
-    }) || {}).DisplayName || m.ProviderFilter : "all providers";
-    var libLabel = m.EnableAllLibraries ? "all libraries" : selectedLibs.length ? selectedLibs.length + (selectedLibs.length === 1 ? " library" : " libraries") : "no library access";
+    }) || {}).DisplayName || m.ProviderFilter : STRINGS.role.allProviders;
+    var libLabel = m.EnableAllLibraries ? STRINGS.role.allLibraries : selectedLibs.length ? selectedLibs.length + (selectedLibs.length === 1 ? STRINGS.role.librarySingular : STRINGS.role.libraryPlural) : STRINGS.role.noLibraryAccess;
     var scopeParts = [provLabel, libLabel];
     card.innerHTML = el(
       "summary",
       { class: "oidc-role-summary" },
-      el("h4", null, "Role: " + esc(m.RoleName || "New Role")) + (m.IsAdmin ? el("span", { class: "oidc-badge" }, "Admin") : "") + el("span", { class: "oidc-role-scope" }, esc(scopeParts.join("  \xB7  ")))
-    ) + fld("Role Name", "text", "role_name_" + idx, m.RoleName, "Must match IdP role claim value", true) + el(
+      el("h4", null, STRINGS.role.roleNamePrefix + esc(m.RoleName || STRINGS.role.newRoleName)) + (m.IsAdmin ? el("span", { class: "oidc-badge" }, STRINGS.role.adminBadge) : "") + el("span", { class: "oidc-role-scope" }, esc(scopeParts.join("  \xB7  ")))
+    ) + fld(STRINGS.role.roleNameLabel, "text", "role_name_" + idx, m.RoleName, STRINGS.role.roleNamePlaceholder, true) + el(
       "div",
-      { class: "oidc-field full oidc-mb-md" },
-      el("label", null, "Provider Filter " + el("span", { class: "oidc-hint" }, "(restrict to one provider - leave blank to apply to all)")) + el("select", { is: "emby-select", id: "role_provfilter_" + idx }, provOpts)
+      { class: "selectContainer full oidc-mb-md" },
+      el("label", null, STRINGS.role.providerFilterLabel + el("span", { class: "fieldDescription" }, STRINGS.role.providerFilterHint)) + el("select", { is: "emby-select", id: "role_provfilter_" + idx }, provOpts)
     ) + el(
       "div",
       { class: "oidc-field full oidc-mt-sm" },
-      el("label", null, "Permissions " + el("span", { class: "oidc-hint" }, "(Administrator grants everything below)")) + el("p", { class: "oidc-hint oidc-hint-tight" }, "When a user matches several roles, all their permissions are combined and the strictest parental rating wins.") + el("div", { class: "oidc-checkbox-row oidc-mt-xs" }, chk("role_admin_" + idx, "Administrator", m.IsAdmin)) + permGroup(
-        "Playback",
-        chk("role_playback_" + idx, "Playback", m.EnableMediaPlayback !== false) + chk("role_transcode_" + idx, "Transcoding", m.EnableTranscoding !== false) + chk("role_remote_" + idx, "Remote Access", m.EnableRemoteAccess !== false)
+      el("label", null, STRINGS.role.permissionsLabel + el("span", { class: "fieldDescription" }, STRINGS.role.permissionsHint)) + el("p", { class: "fieldDescription oidc-hint-tight" }, STRINGS.role.permissionsNote) + el("div", { class: "oidc-checkbox-row oidc-mt-xs" }, chk("role_admin_" + idx, STRINGS.role.administrator, m.IsAdmin)) + permGroup(
+        STRINGS.role.playbackGroup,
+        chk("role_playback_" + idx, STRINGS.role.playbackGroup, m.EnableMediaPlayback !== false) + chk("role_transcode_" + idx, STRINGS.role.transcoding, m.EnableTranscoding !== false) + chk("role_remote_" + idx, STRINGS.role.remoteAccess, m.EnableRemoteAccess !== false)
       ) + permGroup(
-        "Live TV",
-        chk("role_livetv_" + idx, "Access", m.EnableLiveTv) + chk("role_livetvmgmt_" + idx, "Recording management", m.EnableLiveTvManagement)
+        STRINGS.role.liveTvGroup,
+        chk("role_livetv_" + idx, STRINGS.role.liveTvAccess, m.EnableLiveTv) + chk("role_livetvmgmt_" + idx, STRINGS.role.liveTvRecordingManagement, m.EnableLiveTvManagement)
       ) + permGroup(
-        "Content management",
-        chk("role_collections_" + idx, "Collections", m.EnableCollectionManagement) + chk("role_subtitles_" + idx, "Subtitles", m.EnableSubtitleManagement) + chk("role_delete_" + idx, "Delete content", m.EnableContentDeletion)
+        STRINGS.role.contentManagementGroup,
+        chk("role_collections_" + idx, STRINGS.role.collections, m.EnableCollectionManagement) + chk("role_subtitles_" + idx, STRINGS.role.subtitles, m.EnableSubtitleManagement) + chk("role_delete_" + idx, STRINGS.role.deleteContent, m.EnableContentDeletion)
       )
     ) + el(
       "div",
       { class: "oidc-field full oidc-mt-md" },
-      el("div", { class: "oidc-perm-title" }, "Library access") + el("div", { class: "oidc-checkbox-row" }, chk("role_alllibs_" + idx, "All libraries", m.EnableAllLibraries)) + el("label", { class: "oidc-mt-sm2" }, "Specific libraries " + el("span", { class: "oidc-hint" }, '(used when "All libraries" is off)')) + el("select", { is: "emby-select", id: "role_libadd_" + idx }, el("option", { value: "" }, "-- Select library --") + libOpts) + el("button", { type: "button", class: "oidc-btn-secondary oidc-mt-sm oidc-w-fit", "data-action": "add-lib", "data-idx": idx }, "Add Library") + el("div", { id: "role_libs_" + idx, class: "oidc-library-list" })
+      el("div", { class: "oidc-perm-title" }, STRINGS.role.libraryAccessTitle) + el("div", { class: "oidc-checkbox-row" }, chk("role_alllibs_" + idx, STRINGS.role.allLibraries, m.EnableAllLibraries)) + el("label", { class: "oidc-mt-sm2" }, STRINGS.role.specificLibrariesLabel + el("span", { class: "fieldDescription" }, STRINGS.role.specificLibrariesHint)) + el("select", { is: "emby-select", id: "role_libadd_" + idx }, el("option", { value: "" }, STRINGS.role.selectLibraryOption) + libOpts) + el("button", { is: "emby-button", type: "button", class: "oidc-btn-secondary oidc-mt-sm oidc-w-fit", "data-action": "add-lib", "data-idx": idx }, STRINGS.role.addLibraryBtn) + el("div", { id: "role_libs_" + idx, class: "oidc-library-list" })
     ) + el(
       "div",
-      { class: "oidc-field oidc-mt-md" },
-      el("label", null, "Max Parental Rating " + el("span", { class: "oidc-hint" }, "(empty = unrestricted; strictest wins when several roles match)")) + el("select", { is: "emby-select", id: "role_maxrating_" + idx }, ratingOptions(m))
+      { class: "selectContainer oidc-mt-md" },
+      el("label", null, STRINGS.role.maxParentalRatingLabel + el("span", { class: "fieldDescription" }, STRINGS.role.maxParentalRatingHint)) + el("select", { is: "emby-select", id: "role_maxrating_" + idx }, ratingOptions(m))
     ) + el(
       "div",
       { class: "oidc-mt-md" },
-      el("button", { type: "button", class: "oidc-btn-remove", "data-action": "remove-role", "data-idx": idx }, "Remove")
+      el("button", { is: "emby-button", type: "button", class: "oidc-btn-remove", "data-action": "remove-role", "data-idx": idx }, STRINGS.common.removeBtn)
     );
     card.open = !m.RoleName;
     container.appendChild(card);
@@ -638,7 +876,7 @@ function renderRoleMappings(view) {
 }
 function collectRoleMappings(view) {
   var result = [];
-  view.querySelectorAll("#roleMappingList .oidc-card").forEach(function(card, idx) {
+  view.querySelectorAll("#roleMappingList .oidc-item-card").forEach(function(card, idx) {
     var chips = view.querySelectorAll("#role_libs_" + idx + " .oidc-library-chip");
     var libIds = [];
     chips.forEach(function(c) {
@@ -687,7 +925,7 @@ function updateEmailAllowlistUi(view) {
   var active = view.querySelector("#requireVerifiedEmail").checked;
   var fields = view.querySelector("#emailAllowlistFields");
   if (!fields) return;
-  fields.querySelectorAll(".oidc-field").forEach(function(field) {
+  fields.querySelectorAll(".oidc-allowlist-field").forEach(function(field) {
     field.classList.toggle("oidc-dimmed", !active);
   });
   fields.querySelectorAll("textarea").forEach(function(textarea) {
@@ -717,10 +955,10 @@ function testProvider(view, idx) {
   var scopes = gval(view, "prov_scopes_" + idx);
   var resultEl = view.querySelector('.oidc-test-result[data-idx="' + idx + '"]');
   if (!authority) {
-    setTestStatus(resultEl, "error", "Issuer URL is required");
+    setTestStatus(resultEl, "error", STRINGS.testConnection.issuerRequired);
     return;
   }
-  setTestStatus(resultEl, "dim", "Testing...");
+  setTestStatus(resultEl, "dim", STRINGS.testConnection.testing);
   var allowLoopback = gchk(view, "prov_allow_loopback_" + idx);
   var allowLinkLocal = gchk(view, "prov_allow_linklocal_" + idx);
   ApiClient.ajax({
@@ -754,31 +992,27 @@ function testProvider(view, idx) {
         issuerEl.value = canonicalIssuer;
         issuerEl.dataset.verified = canonicalIssuer;
       }
-      var statusEl = view.querySelector('[data-pin-status="' + idx + '"]');
-      if (statusEl) {
-        statusEl.textContent = "Pinned via Test Connection - token endpoint, JWKS URI & userinfo endpoint are locked to the values returned for this issuer.";
-      }
       var sec = issuerEl && issuerEl.closest("details.oidc-section");
       if (sec) sec.open = true;
       setDirty(true);
-      var msg = "OK - issuer " + result.Issuer;
+      var msg = STRINGS.testConnection.okPrefix + result.Issuer;
       var hasScopeWarning = result.UnsupportedRequestedScopes && result.UnsupportedRequestedScopes.length > 0;
       if (hasScopeWarning) {
-        msg += " (warning: scopes not advertised: " + result.UnsupportedRequestedScopes.join(", ") + ")";
+        msg += STRINGS.testConnection.scopeWarningPrefix + result.UnsupportedRequestedScopes.join(", ") + STRINGS.testConnection.scopeWarningSuffix;
       }
       setTestStatus(resultEl, hasScopeWarning ? "warn" : "ok", msg);
       Dashboard.alert({
-        title: "Provider OK",
-        message: "Issuer: " + result.Issuer + "\nAuthorize: " + result.AuthorizationEndpoint + "\nToken: " + result.TokenEndpoint + "\n" + (result.UserInfoEndpoint ? "UserInfo: " + result.UserInfoEndpoint + "\n" : "") + (result.UnsupportedRequestedScopes && result.UnsupportedRequestedScopes.length > 0 ? "\nWarning: these requested scopes are not in scopes_supported:\n  " + result.UnsupportedRequestedScopes.join(", ") : "")
+        title: STRINGS.testConnection.dialogTitleOk,
+        message: STRINGS.testConnection.issuerLinePrefix + result.Issuer + "\n" + STRINGS.testConnection.authorizeLinePrefix + result.AuthorizationEndpoint + "\n" + STRINGS.testConnection.tokenLinePrefix + result.TokenEndpoint + "\n" + (result.UserInfoEndpoint ? STRINGS.testConnection.userInfoLinePrefix + result.UserInfoEndpoint + "\n" : "") + (result.UnsupportedRequestedScopes && result.UnsupportedRequestedScopes.length > 0 ? STRINGS.testConnection.scopeWarningBlockPrefix + result.UnsupportedRequestedScopes.join(", ") : "")
       });
     } else {
-      setTestStatus(resultEl, "error", "Failed: " + result.Error);
-      Dashboard.alert({ title: "Provider test failed", message: result.Error || "Unknown error" });
+      setTestStatus(resultEl, "error", STRINGS.testConnection.failedPrefix + result.Error);
+      Dashboard.alert({ title: STRINGS.testConnection.dialogTitleFailed, message: result.Error || STRINGS.testConnection.unknownError });
     }
   }).catch(function(err) {
-    var msg = err && (err.statusText || err.message) || "Network error";
-    setTestStatus(resultEl, "error", "Failed: " + msg);
-    Dashboard.alert({ title: "Provider test failed", message: msg });
+    var msg = err && (err.statusText || err.message) || STRINGS.testConnection.networkError;
+    setTestStatus(resultEl, "error", STRINGS.testConnection.failedPrefix + msg);
+    Dashboard.alert({ title: STRINGS.testConnection.dialogTitleFailed, message: msg });
   });
 }
 
@@ -789,20 +1023,13 @@ function autogrowTextarea(el2) {
   el2.style.height = el2.scrollHeight + "px";
 }
 function index_default(view) {
+  applyStrings(view);
   setDirtyView(view);
   window.addEventListener("beforeunload", beforeUnloadGuard);
   view.addEventListener("input", function(e) {
     setDirty(true);
     if (e.target && e.target.classList && e.target.classList.contains("oidc-autogrow")) autogrowTextarea(e.target);
     if (e.target && e.target.id && e.target.id.indexOf("role_name_") === 0) renderDefaultRoleOptions(view);
-    if (e.target && e.target.id && e.target.id.indexOf("prov_pinnedissuer_") === 0) {
-      var idx = e.target.id.slice("prov_pinnedissuer_".length);
-      var verified = e.target.dataset.verified || "";
-      var statusEl = view.querySelector('[data-pin-status="' + idx + '"]');
-      if (statusEl && verified) {
-        statusEl.textContent = e.target.value === verified ? "Pinned via Test Connection - token endpoint, JWKS URI & userinfo endpoint are locked to the values returned for this issuer." : "Issuer URL changed - run Test Connection to re-pin before you can save.";
-      }
-    }
   }, true);
   view.addEventListener("change", function() {
     setDirty(true);
@@ -872,7 +1099,7 @@ function index_default(view) {
       updateEmailAllowlistUi(view);
       schk(view, "manageLoginButtonBranding", cfg.ManageLoginButtonBranding !== false);
       schk(view, "hideManualLogin", cfg.HideManualLogin === true);
-      sval(view, "loginTitle", cfg.LoginTitle || "Please sign in");
+      sval(view, "loginTitle", cfg.LoginTitle || STRINGS.loginPage.defaultLoginTitle);
       sval(view, "loginSubtitle", cfg.LoginSubtitle || "");
       autogrowTextarea(view.querySelector("#loginSubtitle"));
       sval(view, "serverBaseUrl", cfg.ServerBaseUrl || "");
@@ -885,19 +1112,24 @@ function index_default(view) {
       console.error("OIDC RBAC: failed to load config", err);
     });
   });
-  view.querySelectorAll(".oidc-tab").forEach(function(tab) {
-    tab.addEventListener("click", function() {
-      view.querySelectorAll(".oidc-tab").forEach(function(t) {
-        t.classList.remove("is-active");
-        t.setAttribute("aria-selected", "false");
-      });
-      view.querySelectorAll(".oidc-tab-content").forEach(function(c) {
-        c.classList.add("oidc-hidden");
-      });
-      this.classList.add("is-active");
-      this.setAttribute("aria-selected", "true");
-      view.querySelector("#tab-" + this.getAttribute("data-tab")).classList.remove("oidc-hidden");
+  var tabsEl = view.querySelector(".oidc-tabs");
+  var tabButtons = tabsEl.querySelectorAll(".emby-tab-button");
+  tabButtons.forEach(function(btn, i) {
+    if (Number(btn.getAttribute("data-index")) !== i) {
+      console.warn("OIDC RBAC: tab button data-index does not match DOM position at index " + i);
+    }
+  });
+  tabsEl.addEventListener("tabchange", function(e) {
+    var idx = e.detail.selectedTabIndex;
+    tabButtons.forEach(function(btn, i) {
+      btn.setAttribute("aria-selected", i === idx ? "true" : "false");
     });
+    view.querySelectorAll(".tabContent").forEach(function(c) {
+      c.classList.remove("is-active");
+    });
+    var content = view.querySelector("#tab-" + tabButtons[idx].getAttribute("data-tab"));
+    content.classList.add("is-active");
+    content.querySelectorAll(".oidc-autogrow").forEach(autogrowTextarea);
   });
   view.querySelectorAll("[data-copy]").forEach(function(btn) {
     btn.addEventListener("click", function() {
@@ -909,7 +1141,7 @@ function index_default(view) {
     cfg.Providers = collectProviders(view);
     cfg.Providers.push({
       ProviderId: "",
-      DisplayName: "New Provider",
+      DisplayName: STRINGS.provider.newProviderName,
       Authority: "",
       ClientId: "",
       ClientSecret: "",
@@ -968,7 +1200,7 @@ function index_default(view) {
     if (!cfg) return;
     var idCounts = {};
     var duplicateIds = [];
-    view.querySelectorAll("#providerList .oidc-card").forEach(function(card, idx) {
+    view.querySelectorAll("#providerList .oidc-item-card").forEach(function(card, idx) {
       var id = (gval(view, "prov_id_" + idx) || "").trim().toLowerCase();
       if (!id) return;
       idCounts[id] = (idCounts[id] || 0) + 1;
@@ -976,13 +1208,13 @@ function index_default(view) {
     });
     if (duplicateIds.length > 0) {
       Dashboard.alert({
-        title: "Duplicate Provider ID",
-        message: "Provider ID(s) used by more than one provider: " + duplicateIds.join(", ") + ".\n\nEach provider must have a unique Provider ID."
+        title: STRINGS.saveFlow.duplicateIdTitle,
+        message: STRINGS.saveFlow.duplicateIdMessagePrefix + duplicateIds.join(", ") + STRINGS.saveFlow.duplicateIdMessageSuffix
       });
       return;
     }
     var unverified = [];
-    view.querySelectorAll("#providerList .oidc-card").forEach(function(card, idx) {
+    view.querySelectorAll("#providerList .oidc-item-card").forEach(function(card, idx) {
       var issuerEl = view.querySelector("#prov_pinnedissuer_" + idx);
       if (!issuerEl) return;
       var verified = issuerEl.dataset.verified || "";
@@ -992,8 +1224,8 @@ function index_default(view) {
     });
     if (unverified.length > 0) {
       Dashboard.alert({
-        title: "Issuer URL changed",
-        message: "Provider(s) with an edited, unverified Issuer URL: " + unverified.join(", ") + ".\n\nRun Test Connection to re-pin before saving."
+        title: STRINGS.saveFlow.issuerChangedTitle,
+        message: STRINGS.saveFlow.issuerChangedMessagePrefix + unverified.join(", ") + STRINGS.saveFlow.issuerChangedMessageSuffix
       });
       return;
     }
@@ -1005,7 +1237,7 @@ function index_default(view) {
       var names = unpinned.map(function(p) {
         return p.DisplayName || p.ProviderId;
       }).join(", ");
-      if (!window.confirm("Provider(s) without endpoint pins: " + names + ".\n\nEndpoints will be trusted on first login (TOFU). Run Test Connection to eliminate this window.\n\nSave anyway?")) {
+      if (!window.confirm(STRINGS.saveFlow.unpinnedConfirmPrefix + names + STRINGS.saveFlow.unpinnedConfirmSuffix)) {
         return;
       }
     }
@@ -1025,7 +1257,7 @@ function index_default(view) {
     cfg.EnableLibraryAccessManagement = gchk(view, "enableLibraryAccessManagement");
     cfg.ManageLoginButtonBranding = gchk(view, "manageLoginButtonBranding");
     cfg.HideManualLogin = gchk(view, "hideManualLogin");
-    cfg.LoginTitle = gval(view, "loginTitle") || "Please sign in";
+    cfg.LoginTitle = gval(view, "loginTitle") || STRINGS.loginPage.defaultLoginTitle;
     cfg.LoginSubtitle = gval(view, "loginSubtitle") || "";
     cfg.ServerBaseUrl = gval(view, "serverBaseUrl") || "";
     ApiClient.updatePluginConfiguration(pluginId, cfg).then(function(result) {
@@ -1037,7 +1269,7 @@ function index_default(view) {
       Dashboard.hideLoadingMsg();
     }).catch(function(err) {
       Dashboard.hideLoadingMsg();
-      Dashboard.alert("Failed to save: " + (err.message || err));
+      Dashboard.alert(STRINGS.saveFlow.saveFailedPrefix + (err.message || err));
     });
   });
   view.querySelector("#providerList").addEventListener("click", function(e) {
@@ -1108,7 +1340,7 @@ function index_default(view) {
         var hidden = view.querySelector("#prov_icon_svg_" + fidx);
         if (hidden) hidden.value = String(reader.result || "").trim();
         var status = view.querySelector('[data-icon-status="' + fidx + '"]');
-        if (status) status.textContent = "Custom icon set (" + f.name + ")";
+        if (status) status.textContent = STRINGS.provider.iconCustomSetWithNamePrefix + f.name + STRINGS.provider.iconCustomSetWithNameSuffix;
       };
       if (/svg/i.test(f.type) || /\.svg$/i.test(f.name)) {
         reader.readAsText(f);

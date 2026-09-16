@@ -1,5 +1,6 @@
 // Small DOM/escaping primitives with no dependency on plugin state - used by every other
 // module in this page controller.
+import { STRINGS } from './strings.js';
 
 // Escapes HTML text and quoted attribute values; call sites interpolate IdP discovery strings
 // into value="..." / href="...", so the quote replacements matter.
@@ -54,18 +55,14 @@ export function emptyState(msg) {
 }
 
 // Copies the #srcId field's value to the clipboard and flashes btn's text to "Copied" for 1.2s.
-// Falls back to execCommand('copy') when the async Clipboard API isn't available (older/non-secure-
-// context browsers, some embedded webviews).
+// #srcId is a hidden input, so there's no selectable/focusable element for an execCommand('copy')
+// fallback to act on; without the async Clipboard API (non-secure-context browsers) this is a no-op.
 export function copyToClipboard(view, srcId, btn) {
     var src = view.querySelector('#' + srcId);
-    if (!src) return;
-    if (typeof src.select === 'function') src.select();
-    if (navigator.clipboard) {
-        navigator.clipboard.writeText(src.value).catch(function () {});
-    } else {
-        try { document.execCommand('copy'); } catch (e) { /* ignore */ }
-    }
-    var orig = btn.textContent;
-    btn.textContent = 'Copied';
-    setTimeout(function () { btn.textContent = orig; }, 1200);
+    if (!src || !navigator.clipboard) return;
+    navigator.clipboard.writeText(src.value).then(function () {
+        var orig = btn.textContent;
+        btn.textContent = STRINGS.copyBtnCopied;
+        setTimeout(function () { btn.textContent = orig; }, 1200);
+    }).catch(function () {});
 }

@@ -167,17 +167,20 @@ describe('iconIsCustom', () => {
 });
 
 describe('fld / chk / permGroup / presetField / provGroup / emptyState', () => {
-    it('fld renders a labelled input with escaped value and optional placeholder', () => {
+    it('fld renders a labelled input via the native label attribute, with escaped value and optional placeholder', () => {
+        // is="emby-input" generates its own <label> from this attribute on upgrade (fields.js
+        // comment) - a separate hand-written <label> element would just be a dead duplicate.
         const html = fld('Display Name', 'text', 'prov_name_0', 'Bob "the" <builder>', 'placeholder', false);
-        expect(html).toContain('<label for="prov_name_0">Display Name</label>');
+        expect(html).toContain('class="inputContainer"');
+        expect(html).toContain('label="Display Name"');
         expect(html).toContain('value="Bob &quot;the&quot; &lt;builder&gt;"');
         expect(html).toContain('placeholder="placeholder"');
-        expect(html).not.toContain('class="oidc-field full"');
+        expect(html).not.toMatch(/\bfull\b/);
     });
 
     it('fld adds the "full" class when requested and omits placeholder when blank', () => {
         const html = fld('Client ID', 'text', 'prov_clientid_0', '', '', true);
-        expect(html).toContain('class="oidc-field full"');
+        expect(html).toContain('class="inputContainer full"');
         expect(html).not.toContain('placeholder');
     });
 
@@ -266,7 +269,7 @@ describe('ratingOptions', () => {
 
     it('adds a disabled "custom score" option when the legacy score matches nothing known', () => {
         const html = ratingOptions({ MaxParentalRating: 99 });
-        expect(html).toContain('Custom score 99');
+        expect(html).toContain('Custom Score 99');
         expect(html).toContain('disabled');
     });
 
@@ -348,19 +351,19 @@ describe('renderProviders', () => {
 
         renderProviders(view);
 
-        expect(view.querySelector('#providerList .oidc-card')).toBeNull();
+        expect(view.querySelector('#providerList .oidc-item-card')).toBeNull();
         expect(view.querySelector('#providerList .oidc-empty')).not.toBeNull();
     });
 
-    it('renders one .oidc-card per provider, with a real <summary> per section', () => {
+    it('renders one .oidc-item-card per provider, with a real <summary> per section', () => {
         __setTestState({ cfg: { Providers: [makeProvider(), makeProvider({ ProviderId: 'okta', DisplayName: 'Okta' })] } });
         const view = makeView('<div id="providerList"></div>');
 
         renderProviders(view);
 
-        const cards = view.querySelectorAll('#providerList .oidc-card');
+        const cards = view.querySelectorAll('#providerList .oidc-item-card');
         expect(cards.length).toBe(2);
-        // 4 provGroup sections per card (Connection/Claim mapping/Appearance/Security), each
+        // 4 provGroup sections per card (Connection/Claim Mapping/Appearance/Security), each
         // now with a real <summary> (regression guard).
         expect(cards[0].querySelectorAll('details.oidc-section > summary').length).toBe(4);
         expect(cards[0].querySelector('h4').textContent).toBe('Keycloak');
@@ -372,7 +375,7 @@ describe('renderProviders', () => {
 
         renderProviders(view);
 
-        expect(view.querySelector('#providerList .oidc-card').classList.contains('oidc-disabled')).toBe(true);
+        expect(view.querySelector('#providerList .oidc-item-card').classList.contains('oidc-disabled')).toBe(true);
     });
 
     it('disables the first card\'s "move up" button and the last card\'s "move down" button', () => {
@@ -381,7 +384,7 @@ describe('renderProviders', () => {
 
         renderProviders(view);
 
-        const cards = view.querySelectorAll('#providerList .oidc-card');
+        const cards = view.querySelectorAll('#providerList .oidc-item-card');
         expect(cards[0].querySelector('[data-action="move-provider"][data-dir="-1"]').disabled).toBe(true);
         expect(cards[0].querySelector('[data-action="move-provider"][data-dir="1"]').disabled).toBe(false);
         expect(cards[1].querySelector('[data-action="move-provider"][data-dir="1"]').disabled).toBe(true);
@@ -457,7 +460,7 @@ describe('renderRoleMappings / collectRoleMappings', () => {
 
         renderRoleMappings(view);
 
-        expect(view.querySelector('#roleMappingList .oidc-card')).toBeNull();
+        expect(view.querySelector('#roleMappingList .oidc-item-card')).toBeNull();
         expect(view.querySelector('#roleMappingList .oidc-empty')).not.toBeNull();
     });
 
@@ -469,13 +472,13 @@ describe('renderRoleMappings / collectRoleMappings', () => {
 
         renderRoleMappings(view);
 
-        const card = view.querySelector('#roleMappingList .oidc-card');
+        const card = view.querySelector('#roleMappingList .oidc-item-card');
         const summary = card.querySelector('summary');
         expect(summary).not.toBeNull();
         // Everything after the summary must be a *sibling*, not nested inside it - this is
         // exactly what broke before the </summary> close tag was added back.
-        expect(summary.querySelector('.oidc-field')).toBeNull();
-        expect(card.querySelector(':scope > .oidc-field')).not.toBeNull();
+        expect(summary.querySelector('.full')).toBeNull();
+        expect(card.querySelector(':scope > .full')).not.toBeNull();
         expect(summary.textContent).toContain('admins');
         expect(summary.querySelector('.oidc-badge').textContent).toBe('Admin');
     });
@@ -544,8 +547,8 @@ describe('updateEmailAllowlistUi', () => {
             '<input type="checkbox" id="requireVerifiedEmail" />',
             '<div id="emailAllowlistFields">',
             '  <div id="emailAllowlistInertWarning" class="oidc-warning" hidden></div>',
-            '  <div class="oidc-field"><textarea id="allowedEmailDomains"></textarea></div>',
-            '  <div class="oidc-field"><textarea id="allowedEmails"></textarea></div>',
+            '  <div class="oidc-allowlist-field"><textarea id="allowedEmailDomains"></textarea></div>',
+            '  <div class="oidc-allowlist-field"><textarea id="allowedEmails"></textarea></div>',
             '</div>'
         ].join(''));
     }
@@ -556,7 +559,7 @@ describe('updateEmailAllowlistUi', () => {
 
         updateEmailAllowlistUi(view);
 
-        view.querySelectorAll('#emailAllowlistFields .oidc-field').forEach((field) => {
+        view.querySelectorAll('#emailAllowlistFields .oidc-allowlist-field').forEach((field) => {
             expect(field.classList.contains('oidc-dimmed')).toBe(true);
         });
         view.querySelectorAll('#emailAllowlistFields textarea').forEach((ta) => {
@@ -570,7 +573,7 @@ describe('updateEmailAllowlistUi', () => {
 
         updateEmailAllowlistUi(view);
 
-        view.querySelectorAll('#emailAllowlistFields .oidc-field').forEach((field) => {
+        view.querySelectorAll('#emailAllowlistFields .oidc-allowlist-field').forEach((field) => {
             expect(field.classList.contains('oidc-dimmed')).toBe(false);
         });
         view.querySelectorAll('#emailAllowlistFields textarea').forEach((ta) => {
