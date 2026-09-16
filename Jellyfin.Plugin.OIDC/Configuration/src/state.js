@@ -1,6 +1,8 @@
 // Module-level state shared across the page controller: loaded config, per-page-show
 // libraries/ratings, and the unsaved-changes flag. Reads and property mutation work through the
 // live ES binding; *reassigning* a binding (fresh load, test hook) must go through the setters.
+import { STRINGS } from './strings.js';
+
 export const pluginId = 'e1c020c5-3972-4b7b-9538-ee4934cc902c';
 
 export let cfg = null;
@@ -21,7 +23,7 @@ export function setDirty(v) {
     dirty = v;
     if (!dirtyView) return;
     var s = dirtyView.querySelector('#saveStatus');
-    if (s) s.textContent = v ? '● Unsaved changes' : '';
+    if (s) s.textContent = v ? STRINGS.saveFlow.unsavedChanges : '';
     var btn = dirtyView.querySelector('#btnSave');
     if (btn) btn.classList.toggle('oidc-save-dirty', v);
 }

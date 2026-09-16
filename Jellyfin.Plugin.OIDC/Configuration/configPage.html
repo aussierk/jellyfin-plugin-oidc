@@ -2,177 +2,172 @@
      data-controller="__plugin/oidcrbacjs">
     <div data-role="content">
         <div class="content-primary">
-            <h2 class="oidc-mb-lg">OIDC RBAC Configuration</h2>
+            <h2 class="oidc-mb-lg" data-str="pageHeading">OIDC RBAC Configuration</h2>
 
-            <div class="oidc-tabs" role="tablist">
-                <button type="button" class="oidc-tab is-active" data-tab="providers" role="tab" aria-selected="true" aria-controls="tab-providers">Providers</button>
-                <button type="button" class="oidc-tab" data-tab="roles" role="tab" aria-selected="false" aria-controls="tab-roles">Role Mappings</button>
-                <button type="button" class="oidc-tab" data-tab="general" role="tab" aria-selected="false" aria-controls="tab-general">General</button>
-                <button type="button" class="oidc-tab" data-tab="loginpage" role="tab" aria-selected="false" aria-controls="tab-loginpage">Login Page</button>
+            <div is="emby-tabs" class="oidc-tabs" data-index="0" role="tablist">
+                <button type="button" class="emby-tab-button emby-tab-button-active" data-index="0" data-tab="general" role="tab" aria-selected="true" aria-controls="tab-general" data-str="tabs.general">General</button>
+                <button type="button" class="emby-tab-button" data-index="1" data-tab="providers" role="tab" aria-selected="false" aria-controls="tab-providers" data-str="tabs.providers">Providers</button>
+                <button type="button" class="emby-tab-button" data-index="2" data-tab="roles" role="tab" aria-selected="false" aria-controls="tab-roles" data-str="tabs.roles">Role Mappings</button>
             </div>
 
-            <div id="tab-providers" class="oidc-tab-content" role="tabpanel">
+            <div id="tab-general" class="tabContent is-active" role="tabpanel">
+                <fieldset class="verticalSection-extrabottompadding oidc-mb-lg">
+                    <legend class="sectionTitle oidc-mb-md" data-str="tabs.general">General</legend>
+                    <div class="oidc-grid">
+                        <div class="checkboxContainer full">
+                            <label>
+                                <input type="checkbox" id="autoCreateUsers" is="emby-checkbox" />
+                                <span data-str="general.autoCreateUsers">Auto-create users on first OIDC login</span>
+                            </label>
+                        </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription full">
+                            <label>
+                                <input type="checkbox" id="migrateLocalUsers" is="emby-checkbox" />
+                                <span data-str="general.migrateLocalUsers">Migrate local users to SSO on first OIDC login</span>
+                            </label>
+                            <div class="fieldDescription" data-str="general.migrateLocalUsersDesc">
+                                Existing local accounts start signing in via SSO instead of their local password.
+                            </div>
+                        </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription full">
+                            <label>
+                                <input type="checkbox" id="blockPrivateNetworkAuthorities" is="emby-checkbox" />
+                                <span data-str="general.blockPrivateNetwork">Block RFC1918/ULA (private network) Authorities</span>
+                            </label>
+                            <div class="fieldDescription" data-str="general.blockPrivateNetworkDesc">
+                                Off by default since self-hosted identity providers often use them.
+                            </div>
+                        </div>
+                        <div class="inputContainer full">
+                            <input id="serverBaseUrl" type="text" is="emby-input" label="Server Base URL (Override)" data-str-label="general.serverBaseUrlLabel" placeholder="https://jellyfin.example.com" data-str-placeholder="general.serverBaseUrlPlaceholder" />
+                            <span class="fieldDescription" data-str="general.serverBaseUrlDesc">Overrides the auto-detected host used for OIDC redirect and logout URLs.</span>
+                        </div>
+                    </div>
+                </fieldset>
+                <fieldset class="verticalSection-extrabottompadding oidc-mb-lg">
+                    <legend class="sectionTitle oidc-mb-md" data-str="access.legend">Access</legend>
+                    <div class="oidc-grid">
+                        <div class="inputContainer full">
+                            <label for="allowedGroups"><span data-str="access.allowedGroupsLabel">Allowed Groups</span> <span class="fieldDescription" data-str="access.allowedGroupsHint">(one per line; matched against the role claim)</span></label>
+                            <textarea id="allowedGroups" rows="2"></textarea>
+                        </div>
+                        <div class="checkboxContainer full">
+                            <label><input type="checkbox" id="requireVerifiedEmail" is="emby-checkbox" /> <span data-str-html="access.requireVerifiedEmailHtml">Require a Verified Email (<code>email_verified</code>)</span></label>
+                        </div>
+                        <div id="emailAllowlistFields" class="oidc-ml-lg oidc-contents">
+                            <div id="emailAllowlistInertWarning" class="oidc-warning" hidden data-str-html="access.emailAllowlistWarningHtml">
+                                &#9888; <strong>Ignored</strong> while &ldquo;Require a Verified Email&rdquo; above is unchecked.
+                            </div>
+                            <div class="inputContainer full oidc-allowlist-field">
+                                <label for="allowedEmailDomains"><span data-str="access.allowedEmailDomainsLabel">Allowed Email Domains</span> <span class="fieldDescription" data-str="access.allowedEmailDomainsHint">(one per line; subdomains match too)</span></label>
+                                <textarea id="allowedEmailDomains" rows="2" placeholder="example.com"></textarea>
+                            </div>
+                            <div class="inputContainer full oidc-allowlist-field">
+                                <label for="allowedEmails"><span data-str="access.allowedEmailsLabel">Allowed Emails</span> <span class="fieldDescription" data-str="access.allowedEmailsHint">(exact addresses)</span></label>
+                                <textarea id="allowedEmails" rows="2"></textarea>
+                            </div>
+                        </div>
+                        <div class="checkboxContainer full">
+                            <label><input type="checkbox" id="linkExistingUsersByEmail" is="emby-checkbox" /> <span data-str="access.linkExistingUsersByEmail">Link Accounts by Verified Email When the Subject Doesn't Match</span></label>
+                        </div>
+                    </div>
+                </fieldset>
+                <fieldset class="verticalSection-extrabottompadding oidc-flush">
+                    <legend class="sectionTitle oidc-mb-md" data-str="loginPage.legend">Login Page</legend>
+                    <div class="oidc-grid">
+                        <div class="full">
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label>
+                                    <input type="checkbox" id="manageLoginButtonBranding" is="emby-checkbox" />
+                                    <span data-str="loginPage.manageLoginButtonBranding">Manage the login button in Branding automatically</span>
+                                </label>
+                                <div class="fieldDescription">
+                                    <span data-str-html="loginPage.manageLoginButtonBrandingDescHtml">Syncs login buttons on every first-party client. Non-web apps sign in via Quick Connect.</span>
+                                    <br /><span data-str="loginPage.statusLabel">Status:</span> <span id="brandingStatus">-</span>
+                                </div>
+                            </div>
+                            <details class="oidc-details-link oidc-branding-manual">
+                                <summary data-str="loginPage.manualInstallSummary">Manual Install (copy / paste)</summary>
+                                <p class="fieldDescription oidc-mt-sm" data-str="loginPage.manualInstallDesc">
+                                    Paste the HTML into Login Disclaimer and the CSS into Custom CSS.
+                                </p>
+                                <input type="hidden" id="brandingHtml" />
+                                <input type="hidden" id="brandingCss" />
+                                <div class="oidc-row-actions">
+                                    <button type="button" is="emby-button" class="oidc-btn-secondary" data-copy="brandingHtml" data-str="loginPage.copyHtmlBtn">Copy Login Button HTML</button>
+                                    <button type="button" is="emby-button" class="oidc-btn-secondary" data-copy="brandingCss" data-str="loginPage.copyCssBtn">Copy Login Button CSS</button>
+                                </div>
+                            </details>
+                        </div>
+                        <div class="full">
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label>
+                                    <input type="checkbox" id="hideManualLogin" is="emby-checkbox" />
+                                    <span data-str="loginPage.hideManualLogin">Hide the username/password form on the web login page</span>
+                                </label>
+                                <div class="fieldDescription" data-str-html="loginPage.hideManualLoginDescHtml">
+                                    Hides the local login form and <strong>Forgot Password</strong> link; Quick Connect still works.
+                                </div>
+                            </div>
+                            <div class="inputContainer oidc-ml-lg oidc-mt-sm">
+                                <input id="loginTitle" type="text" is="emby-input" label="Login Page Heading" data-str-label="loginPage.loginTitleLabel" placeholder="Please sign in" data-str-placeholder="loginPage.defaultLoginTitle" />
+                            </div>
+                            <div class="inputContainer oidc-ml-lg oidc-mt-sm">
+                                <label for="loginSubtitle"><span data-str="loginPage.loginSubtitleLabel">Sign-in Instructions</span> <span class="fieldDescription" data-str="loginPage.loginSubtitleHint">(smaller text, optional)</span></label>
+                                <textarea id="loginSubtitle" rows="2" class="oidc-autogrow" placeholder="e.g. On a TV, choose Use Quick Connect and enter the code" data-str-placeholder="loginPage.loginSubtitlePlaceholder"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                </fieldset>
+            </div>
+
+            <div id="tab-providers" class="tabContent" role="tabpanel">
                 <div class="oidc-mb-lg">
                     <button type="button" id="btnAddProvider" is="emby-button" class="raised">
-                        <span>+ Add Provider</span>
+                        <span data-str="providersTab.addProviderBtn">+ Add Provider</span>
                     </button>
                 </div>
                 <div id="providerList"></div>
             </div>
 
-            <div id="tab-roles" class="oidc-tab-content oidc-hidden" role="tabpanel">
-                <div class="oidc-card oidc-mb-lg">
-                    <div class="oidc-section-title oidc-section-title--flush">RBAC management</div>
-                    <p class="oidc-hint oidc-mb-lg">How much of a user's Jellyfin policy this plugin controls, once they're admitted.</p>
+            <div id="tab-roles" class="tabContent" role="tabpanel">
+                <fieldset class="verticalSection-extrabottompadding oidc-mb-lg">
+                    <legend class="sectionTitle oidc-mb-md" data-str="rolesTab.legend">RBAC Management</legend>
                     <div class="oidc-grid">
-                        <div class="oidc-field full">
-                            <label><input type="checkbox" id="manageUserPolicy" is="emby-checkbox" /> <span>Manage user policy from role mappings</span></label>
-                            <p class="fieldDescription oidc-field-note">
-                                On by default. Turn off to stop the plugin touching permissions entirely - fail-closed (deny on no role match) also stops applying, and every field below is inert. Use this if you'd rather manage users' Jellyfin policy by hand.
-                            </p>
+                        <div class="checkboxContainer checkboxContainer-withDescription full">
+                            <label><input type="checkbox" id="manageUserPolicy" is="emby-checkbox" /> <span data-str="rolesTab.manageUserPolicy">Manage user policy from role mappings</span></label>
+                            <div class="fieldDescription" data-str="rolesTab.manageUserPolicyDesc">
+                                Turn off to manage users' Jellyfin policy manually (every field below becomes inert)
+                            </div>
                         </div>
-                        <div class="oidc-field full">
+                        <div class="checkboxContainer full">
                             <label><input type="checkbox" id="enableLibraryAccessManagement" is="emby-checkbox" />
-                                <span>Manage library access from role mappings</span>
-                            <span class="oidc-hint">(only while policy management is on)</span></label>
+                                <span data-str="rolesTab.enableLibraryAccessManagement">Manage library access from role mappings</span>
+                            <span class="fieldDescription" data-str="rolesTab.enableLibraryAccessManagementHint">(only while policy management is on)</span></label>
                         </div>
-                        <div class="oidc-field full">
-                            <label for="defaultRoleName">Fallback role
-                                <span class="oidc-hint">(applied when a user's claim matches no role below)</span>
+                        <div class="selectContainer full">
+                            <label for="defaultRoleName"><span data-str="rolesTab.fallbackRoleLabel">Default Role</span>
+                                <span class="fieldDescription" data-str="rolesTab.fallbackRoleHint">(applied when a user's claim matches no role below)</span>
                             </label>
                             <select id="defaultRoleName" is="emby-select"></select>
                         </div>
                     </div>
-                </div>
+                </fieldset>
                 <div class="oidc-mb-lg">
                     <button type="button" id="btnAddRoleMapping" is="emby-button" class="raised">
-                        <span>+ Add Role Mapping</span>
+                        <span data-str="rolesTab.addRoleMappingBtn">+ Add Role Mapping</span>
                     </button>
                 </div>
-                <p id="roleMappingsInactiveHint" class="oidc-hint oidc-mb-lg" hidden>
-                    Policy management is off - role mappings and the fallback role above are not applied.
+                <p id="roleMappingsInactiveHint" class="fieldDescription oidc-mb-lg" hidden data-str="rolesTab.inactiveHint">
+                    Policy management is off, role mappings and the default role above are not applied.
                 </p>
                 <div id="roleMappingList"></div>
-            </div>
-
-            <div id="tab-general" class="oidc-tab-content oidc-hidden" role="tabpanel">
-                <div class="oidc-card oidc-mb-lg">
-                    <div class="oidc-section-title oidc-section-title--flush">Access</div>
-                    <p class="oidc-hint oidc-mb-lg">Who may sign in at all - evaluated before role mapping. Leave the list empty to admit everyone who authenticates.</p>
-                    <div class="oidc-grid">
-                        <div class="oidc-field full">
-                            <label for="allowedGroups">Allowed groups <span class="oidc-hint">(one per line / comma-separated; matched against the role claim)</span></label>
-                            <textarea id="allowedGroups" rows="2" class="oidc-w-full"></textarea>
-                        </div>
-                        <div class="oidc-field full">
-                            <label><input type="checkbox" id="requireVerifiedEmail" is="emby-checkbox" /> <span>Require a verified email (<code>email_verified</code>)</span></label>
-                        </div>
-                        <div id="emailAllowlistFields" class="oidc-ml-lg oidc-contents">
-                            <div id="emailAllowlistInertWarning" class="oidc-warning" hidden>
-                                &#9888; These lists are stored but <strong>ignored</strong> while &ldquo;Require a verified email&rdquo; above is unchecked &mdash; an unverified email can&rsquo;t be trusted as an admission signal. Check it to enforce them, or clear the lists.
-                            </div>
-                            <div class="oidc-field full">
-                                <label for="allowedEmailDomains">Allowed email domains <span class="oidc-hint">(one per line / comma-separated; subdomains match too, so <code>example.com</code> also admits <code>user@mail.example.com</code>; only enforced while "Require a verified email" above is checked)</span></label>
-                                <textarea id="allowedEmailDomains" rows="2" class="oidc-w-full" placeholder="example.com"></textarea>
-                            </div>
-                            <div class="oidc-field full">
-                                <label for="allowedEmails">Allowed emails <span class="oidc-hint">(exact addresses; same verified-email requirement)</span></label>
-                                <textarea id="allowedEmails" rows="2" class="oidc-w-full"></textarea>
-                            </div>
-                        </div>
-                        <div class="oidc-field full">
-                            <label><input type="checkbox" id="linkExistingUsersByEmail" is="emby-checkbox" /> <span>Link a login to an existing account by verified email when the subject doesn't match</span></label>
-                        </div>
-                    </div>
-                </div>
-                <div class="oidc-card oidc-card--flush">
-                    <div class="oidc-grid">
-                        <div class="oidc-field full">
-                            <label>
-                                <input type="checkbox" id="autoCreateUsers" is="emby-checkbox" />
-                                <span>Auto-create users on first OIDC login</span>
-                            </label>
-                        </div>
-                        <div class="oidc-field full">
-                            <label>
-                                <input type="checkbox" id="migrateLocalUsers" is="emby-checkbox" />
-                                <span>Migrate local users to SSO on first OIDC login</span>
-                            </label>
-                            <p class="fieldDescription oidc-field-note">
-                                Automatically switches local accounts to SSO on their first OIDC login.
-                            </p>
-                        </div>
-                        <div class="oidc-field full">
-                            <label>
-                                <input type="checkbox" id="blockPrivateNetworkAuthorities" is="emby-checkbox" />
-                                <span>Block RFC1918/ULA (private network) Authorities</span>
-                            </label>
-                            <p class="fieldDescription oidc-field-note">
-                                Blocks provider Authorities on private (RFC1918/ULA) networks. Off by default since self-hosted IdPs often use them; loopback and link-local are always blocked separately.
-                            </p>
-                        </div>
-                        <div class="oidc-field full">
-                            <label for="serverBaseUrl">Server Base URL (override)</label>
-                            <input id="serverBaseUrl" type="text" is="emby-input" placeholder="https://jellyfin.example.com" />
-                            <span class="oidc-hint">Overrides the auto-detected host used to build the OIDC redirect and backchannel logout URLs for every provider.</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div id="tab-loginpage" class="oidc-tab-content oidc-hidden" role="tabpanel">
-                <div class="oidc-card oidc-card--flush">
-                    <p class="fieldDescription oidc-mb-lg">
-                        Customises the <strong>web</strong> login page. TV and mobile apps ignore these and use Quick Connect.
-                    </p>
-                    <div class="oidc-grid">
-                        <div class="oidc-field full">
-                            <label>
-                                <input type="checkbox" id="manageLoginButtonBranding" is="emby-checkbox" />
-                                <span>Manage the login button in Branding automatically</span>
-                            </label>
-                            <p class="fieldDescription oidc-field-note">
-                                Keeps a login button block in <strong>Dashboard &gt; General &gt; Branding</strong> synced with your enabled providers. <strong>Web client only</strong> - TV/mobile use Quick Connect.
-                                <br />Status: <span id="brandingStatus">-</span>
-                            </p>
-                            <details class="oidc-details-link oidc-branding-manual">
-                                <summary>Manual install (copy / paste)</summary>
-                                <p class="fieldDescription oidc-mt-sm">
-                                    Paste <strong>Login button HTML</strong> into Branding &gt; Login Disclaimer and <strong>Login button CSS</strong> into Branding &gt; Custom CSS.
-                                </p>
-                                <label for="brandingHtml" class="oidc-label-strong">Login button HTML</label>
-                                <textarea id="brandingHtml" readonly rows="4" class="oidc-mono-box"></textarea>
-                                <button type="button" class="oidc-btn-secondary oidc-mt-sm" data-copy="brandingHtml">Copy HTML</button>
-                                <label for="brandingCss" class="oidc-label-strong oidc-block oidc-mt-sm">Login button CSS</label>
-                                <textarea id="brandingCss" readonly rows="6" class="oidc-mono-box"></textarea>
-                                <button type="button" class="oidc-btn-secondary oidc-mt-sm" data-copy="brandingCss">Copy CSS</button>
-                            </details>
-                        </div>
-                        <div class="oidc-field full">
-                            <label>
-                                <input type="checkbox" id="hideManualLogin" is="emby-checkbox" />
-                                <span>Hide the username/password form on the web login page</span>
-                            </label>
-                            <p class="fieldDescription oidc-field-note">
-                                Hides the password form and <strong>Forgot Password</strong> on the web login page (Quick Connect stays). Requires branding management above, or a manual snippet paste.
-                            </p>
-                            <div class="oidc-ml-lg oidc-mt-sm">
-                                <label for="loginTitle" class="fieldDescription">Login page heading</label>
-                                <input id="loginTitle" type="text" is="emby-input" placeholder="Please sign in" />
-                            </div>
-                            <div class="oidc-ml-lg oidc-mt-sm">
-                                <label for="loginSubtitle" class="fieldDescription">Sign-in instructions (smaller text, optional)</label>
-                                <textarea id="loginSubtitle" rows="1" class="oidc-w-full oidc-autogrow" placeholder="e.g. On a TV, choose Use Quick Connect and enter the code"></textarea>
-                            </div>
-                        </div>
-                    </div>
-                </div>
             </div>
 
             <div class="oidc-savebar">
                 <span id="saveStatus" class="oidc-save-status" aria-live="polite" role="status"></span>
                 <button type="button" id="btnSave" is="emby-button" class="raised button-submit">
-                    <span>Save</span>
+                    <span data-str="save.saveBtn">Save</span>
                 </button>
             </div>
         </div>
@@ -181,20 +176,23 @@
     <style>
         /* Borders/backgrounds use a neutral grey alpha so the page stays legible on
            both the dark dashboard and Jellyfin's light themes. */
-        .oidc-tabs { display:flex; gap:0; margin-bottom:1.5em; border-bottom:2px solid rgba(127,127,127,0.4); }
-        .oidc-tab { padding:0.6em 1.5em; min-height:40px; cursor:pointer; border:none; background:none; color:inherit; opacity:0.6; font-size:1em; font-weight:600; border-bottom:2px solid transparent; margin-bottom:-2px; }
-        .oidc-tab:hover { opacity:0.85; }
-        .oidc-tab.is-active { color:#00a4dc; opacity:1; border-bottom-color:#00a4dc; }
-        .oidc-tab:focus-visible,
+        .oidc-tabs { margin-bottom:1.5em; }
+        /* <legend> doesn't inherit sectionTitle's font-size the way a heading tag does in every
+           browser's UA stylesheet fight - pin it explicitly to match. */
+        legend.sectionTitle { font-size:17.28px; }
         .oidc-btn-remove:focus-visible,
         .oidc-btn-secondary:focus-visible { outline:2px solid #00a4dc; outline-offset:2px; }
-        .oidc-card { border:1px solid rgba(127,127,127,0.4); border-radius:8px; padding:1em; margin-bottom:1em; background:rgba(127,127,127,0.08); }
-        .oidc-card h4 { margin-top:0; }
+        /* Repeating item cards (one per provider/role) keep their own look - they have an
+           interactive header (name, host, Enabled switch) that doesn't fit <legend> the way
+           the static settings-group sections above do (those use Jellyfin's own
+           verticalSection-extrabottompadding fieldset styling instead). */
+        .oidc-item-card { border:1px solid rgba(127,127,127,0.4); border-radius:8px; padding:1em; margin-bottom:1em; background:rgba(127,127,127,0.08); }
+        .oidc-item-card h4 { margin-top:0; }
         /* Provider card header: name + Authority host on the left, an Enabled switch on
            the right, so collapsed cards stay identifiable and toggleable. */
         .oidc-card-head { display:flex; align-items:center; flex-wrap:wrap; gap:0.5em; margin-bottom:0.3em; }
-        .oidc-card-head h4 { margin:0; }
-        .oidc-card-sub { font-size:0.85em; opacity:0.6; font-family:monospace; word-break:break-all; }
+        .oidc-card-head h4 { margin:0; font-size:17.28px; }
+        .oidc-card-sub { font-size:14.4px; opacity:0.6; font-family:monospace; word-break:break-all; }
         .oidc-enable-toggle { margin-left:auto; display:flex; align-items:center; gap:0.5em;
             font-weight:normal; font-size:0.85em; white-space:nowrap; cursor:pointer; }
         .oidc-enable-toggle input { appearance:none; -webkit-appearance:none; margin:0; flex:none;
@@ -206,28 +204,35 @@
         .oidc-enable-toggle input:checked::after { left:1.15em; }
         .oidc-enable-toggle input:focus-visible { outline:2px solid #00a4dc; outline-offset:2px; }
         /* A disabled provider dims its header but keeps the switch legible. */
-        .oidc-card.oidc-disabled .oidc-card-head h4,
-        .oidc-card.oidc-disabled .oidc-card-sub { opacity:0.5; }
+        .oidc-item-card.oidc-disabled .oidc-card-head h4,
+        .oidc-item-card.oidc-disabled .oidc-card-sub { opacity:0.5; }
         /* Empty-list placeholder for the Providers / Role Mappings tabs. */
         .oidc-empty { border:1px dashed rgba(127,127,127,0.5); border-radius:8px; padding:1.5em 1em;
             text-align:center; opacity:0.75; font-size:0.9em; }
         /* Provider-card field groups - collapsible <details> so the card opens short.
            Connection is expanded only until the provider is configured. */
         .oidc-section { border:1px solid rgba(127,127,127,0.22); border-radius:6px; margin-top:0.8em; padding:0 0.85em; }
-        .oidc-section > summary { cursor:pointer; padding:0.6em 0; font-weight:600; font-size:0.9em; }
+        /* 16.8px matches Jellyfin's own subsection-label size (confirmed against the Branding
+           page's MUI typography scale) - not a relative em, since em here would compound off an
+           ambient font-size that's already reduced (see the field-label rule below). */
+        .oidc-section > summary { cursor:pointer; padding:0.6em 0; font-weight:600; font-size:16.8px; }
         .oidc-section > summary:focus-visible { outline:2px solid #00a4dc; outline-offset:2px; }
         .oidc-section[open] > summary { border-bottom:1px solid rgba(127,127,127,0.22); margin-bottom:0.85em; }
         .oidc-section > .oidc-grid { padding-bottom:0.85em; }
-        /* Muted helper text: dim the inherited (themed) colour rather than hardcode a
-           grey, so it stays readable on both the dark dashboard and light themes. */
-        .oidc-hint { opacity:0.7; font-weight:normal; font-size:0.85em; }
         .oidc-grid { display:grid; grid-template-columns:1fr 1fr; gap:0.8em; }
         /* min-width:0 stops a long unbroken value/placeholder from forcing a grid
            track wider than its share and overflowing the viewport on small screens. */
         .oidc-field { display:flex; flex-direction:column; gap:0.3em; min-width:0; }
-        .oidc-field label { font-weight:600; font-size:0.9em; }
+        /* 14.4px matches Jellyfin's own field-label size (confirmed against the Branding
+           page's MUI typography scale) - not 0.9em, which compounds off an already-reduced
+           ambient font-size and renders smaller than intended (was landing at ~12.96px). */
+        .oidc-field label { font-weight:600; font-size:14.4px; }
         .oidc-field input, .oidc-field select, .oidc-field textarea { padding:0.4em; max-width:100%; box-sizing:border-box; }
-        .oidc-field.full { grid-column:1/-1; }
+        /* Jellyfin's emby-* custom elements theme input/select automatically; a plain <textarea>
+           does not, so it falls back to the browser's default white box on a dark theme. */
+        textarea { width:100%; box-sizing:border-box; background:transparent; color:inherit; border:1px solid rgba(127,127,127,0.4); border-radius:4px; font-family:inherit; font-size:inherit; }
+        textarea:focus-visible { outline:2px solid #00a4dc; outline-offset:-1px; }
+        .full { grid-column:1/-1; }
         .oidc-checkbox-row { display:flex; flex-wrap:wrap; gap:0.5em 1.25em; margin:0.4em 0; }
         .oidc-checkbox-row label { display:flex; align-items:center; gap:0.3em; font-weight:normal; }
         /* Role cards are collapsible; the summary shows name + Admin badge + a one-line
@@ -278,30 +283,36 @@
         .oidc-mb-md { margin-bottom:0.5em; }
         .oidc-hint-tight { margin:0.1em 0 0; }
         .oidc-ml-lg { margin-left:1.5em; }
-        .oidc-w-full { width:100%; box-sizing:border-box; }
         .oidc-autogrow { resize:none; overflow:hidden; }
         .oidc-w-fit { width:fit-content; }
         .oidc-hidden { display:none !important; }
         .oidc-contents { display:contents; }
-        .oidc-label-strong { font-weight:600; font-size:0.9em; }
         .oidc-inline-row { display:flex; gap:0.4em; align-items:center; }
         .oidc-row-actions { display:flex; gap:0.5em; align-items:center; flex-wrap:wrap; margin-top:0.8em; }
-        .oidc-mono-flex { flex:1; font-family:monospace; font-size:0.85em; }
-        .oidc-mono-box { width:100%; box-sizing:border-box; font-family:monospace; font-size:0.8em; }
+        .oidc-mono-flex { flex:1; font-family:monospace; font-size:14.4px; }
         .oidc-dimmed { opacity:0.5; pointer-events:none; }
         .oidc-warning { border-left:3px solid #e0a030; padding:0.5em 0.75em; font-size:0.9em; background:rgba(224,160,48,0.08); }
         .oidc-details-link > summary { cursor:pointer; color:#00a4dc; }
-        .oidc-block { display:block; }
-        .oidc-card--flush { margin-bottom:0; }
-        .oidc-field-note { margin:0.3em 0 0 1.5em; font-size:0.85em; }
-        .oidc-field--tight-mb { margin:0 0 1.2em; }
+        .oidc-flush { margin-bottom:0; }
+        /* Replace native's own margin-bottom:1.8em (confirmed in emby-input.scss) with a
+           tighter deliberate value, not zero - some fields (e.g. loginTitle/loginSubtitle)
+           stack two of these directly inside the same parent with no .oidc-grid gap between
+           them, so *something* has to separate them. margin-bottom only, never the shorthand -
+           that would also wipe out margin-left/-top utility classes co-applied on the same
+           element (loginTitle/loginSubtitle's oidc-ml-lg indent under their parent checkbox). */
+        .checkboxContainer, .inputContainer, .selectContainer { margin-bottom:0.8em !important; padding:0 !important; }
+        /* is="emby-input" creates its own <label class="inputLabel"> as the first child of its
+           parent on upgrade (see fields.js); a <label> we write by hand for a select/textarea
+           (which has no such auto-label) goes in the same first-child position for the same
+           look. One rule styles both consistently, regardless of which control follows it.
+           14.4px (not 0.9em, confirmed by comparing computed values against an inputLabel-
+           classed field): em here compounds off an ambient font-size that's already reduced,
+           so 0.9em was landing at ~12.96px on both kinds of label alike - a size bug, not a
+           specificity fight. !important stays only to beat the never-fully-identified native
+           mechanism behind the container's own 1.8em margin-bottom fight from earlier. */
+        .inputContainer > label,
+        .selectContainer > label { display:block !important; font-weight:600 !important; font-size:14.4px !important; margin:0 0 0.4em !important; }
         .oidc-branding-manual { margin:0.4em 0 0 1.5em; font-size:0.85em; }
-        /* Was already used above with no base rule - restoring the divider look the removed
-           inline overrides implied, instead of leaving it an unstyled div. */
-        .oidc-section-title { font-weight:600; font-size:1em; border-top:1px solid rgba(127,127,127,0.3);
-            margin:1.2em 0 0.6em; padding-top:0.8em; }
-        .oidc-section-title--flush { border:none; padding:0; margin:0 0 0.4em; }
-        .oidc-section-title--top { margin-top:1em; }
         .oidc-test-result { font-size:0.9em; }
         /* Status colour modifiers for .oidc-test-result - set via className, not style.color. */
         .oidc-status--dim { color:#888; }

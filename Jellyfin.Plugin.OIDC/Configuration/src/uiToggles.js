@@ -27,7 +27,7 @@ export function updateEmailAllowlistUi(view) {
     if (!fields) return;
     // #emailAllowlistFields is display:contents (so it doesn't add an extra grid track),
     // which means it has no box of its own - the dimmed look has to go on its children instead.
-    fields.querySelectorAll('.oidc-field').forEach(function (field) {
+    fields.querySelectorAll('.oidc-allowlist-field').forEach(function (field) {
         field.classList.toggle('oidc-dimmed', !active);
     });
     fields.querySelectorAll('textarea').forEach(function (textarea) {
