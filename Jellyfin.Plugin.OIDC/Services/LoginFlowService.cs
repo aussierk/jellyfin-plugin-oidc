@@ -92,7 +92,8 @@ public sealed class LoginFlowService
         if (idToken == null)
         {
             _logger.LogWarning("Token validation failed for provider {Provider}: {Message}", providerId, idTokenError);
-            return CallbackOutcome.Failure(400, "Token validation failed");
+            var hint = TokenFailureDescriber.Describe(idTokenError);
+            return CallbackOutcome.Failure(400, hint == null ? "Token validation failed" : $"Token validation failed: {hint}.");
         }
 
         // OIDC Core §3.1.3.7 r5: a named authorized party must be our client (ValidateSignedJwt only checks audience).

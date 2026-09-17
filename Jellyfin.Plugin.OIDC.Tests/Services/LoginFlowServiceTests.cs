@@ -71,6 +71,7 @@ public class LoginFlowServiceTests
         NoIdToken,
         PinMismatch,
         AzpMismatch,
+        WrongAudience,
     }
 
     [Theory]
@@ -80,6 +81,7 @@ public class LoginFlowServiceTests
     [InlineData(Scenario.NoIdToken, 400, "IdP returned no id_token. Ensure the 'openid' scope is configured for this client.")]
     [InlineData(Scenario.PinMismatch, 502, "Identity provider endpoint mismatch detected. Re-run Test Connection in the plugin admin UI.")]
     [InlineData(Scenario.AzpMismatch, 400, "Token validation failed")]
+    [InlineData(Scenario.WrongAudience, 400, "Token validation failed: the token audience doesn't match this provider's Client ID.")]
     public async Task Failures(Scenario scenario, int expectedStatus, string expectedMessage)
     {
         var key = OidcTestTokens.CreateSigningKey();
@@ -115,6 +117,15 @@ public class LoginFlowServiceTests
                     new Claim("preferred_username", "alice"),
                     new Claim("nonce", Nonce),
                     new Claim("azp", "a-different-client"),
+                }));
+                break;
+            case Scenario.WrongAudience:
+                // Valid signature and issuer, but the token was minted for a different client.
+                handler = HandlerFor(key, OidcTestTokens.SignRs256(key, Authority, "wrong-audience", new[]
+                {
+                    new Claim("sub", "sub-123"),
+                    new Claim("preferred_username", "alice"),
+                    new Claim("nonce", Nonce),
                 }));
                 break;
             case Scenario.PinMismatch:
