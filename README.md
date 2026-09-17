@@ -1,4 +1,4 @@
-# SSO-OIDC Authentication - Jellyfin Plugin
+# SSO-OIDC-Authentication - Jellyfin Plugin
 
 A security-hardened Jellyfin plugin providing **OpenID Connect authentication** with
 **role-based library access control**.
@@ -37,9 +37,9 @@ https://raw.githubusercontent.com/aussierk/jellyfin-plugin-oidc/main/manifest.js
 ```
 
 1. Go to **Admin Dashboard → Plugins → Repositories**
-2. Click **Add repository** and paste the URL above (Repository Name: `SSO-OIDC Authentication`)
+2. Click **Add repository** and paste the URL above (Repository Name: `SSO-OIDC-Authentication`)
 3. Go to **Catalog → Authentication**
-4. Install **SSO-OIDC Authentication**
+4. Install **SSO-OIDC-Authentication**
 5. Restart Jellyfin
 
 ### Release channels
@@ -53,7 +53,7 @@ Add the Testing URL as a second repository (same steps as above) if you want ear
 ### Manual installation
 
 1. Download `oidc-rbac.zip` from the [latest release](https://github.com/aussierk/jellyfin-plugin-oidc/releases/latest)
-2. On your server, create a folder named `SSO-OIDC Authentication_1.0.5.1` inside your Jellyfin plugins directory (e.g. `/config/plugins/`)
+2. On your server, create a folder named `SSO-OIDC-Authentication_2.1.0.0` inside your Jellyfin plugins directory (e.g. `/config/plugins/`)
 3. Extract the contents of the zip into that folder
 4. Restart Jellyfin
 
@@ -61,7 +61,7 @@ Add the Testing URL as a second repository (same steps as above) if you want ear
 
 ## Quick Start
 
-1. **Add a provider** - Admin Dashboard → Plugins → SSO-OIDC Authentication → Providers tab.
+1. **Add a provider** - Admin Dashboard → Plugins → SSO-OIDC-Authentication → Providers tab.
    Set Issuer URL, Client ID, Client Secret, and the Role Claim Path your IdP uses (e.g.
    `groups`, or `realm_access.roles` for Keycloak), then click **Test Connection**.
 2. **Create role mappings** - Role Mappings tab. Map each IdP group/role to Jellyfin

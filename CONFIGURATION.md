@@ -5,7 +5,7 @@ detailed reference for everything under it.
 
 ## Provider fields
 
-Go to **Admin Dashboard → Plugins → SSO-OIDC Authentication → Providers tab**.
+Go to **Admin Dashboard → Plugins → SSO-OIDC-Authentication → Providers tab**.
 
 | Field              | Example (Authentik)                                 |
 |--------------------|------------------------------------------------------|
