@@ -254,7 +254,8 @@ public class OidcController : ControllerBase
                 AppVersion = request.AppVersion ?? "0.0.0",
                 DeviceId = request.DeviceId ?? Guid.NewGuid().ToString(),
                 DeviceName = request.DeviceName ?? "OIDC",
-                UserId = userId
+                UserId = userId,
+                RemoteEndPoint = HttpContext.Connection.RemoteIpAddress?.ToString()
             };
 
             var authResult = await _sessionManager.AuthenticateDirect(authRequest).ConfigureAwait(false);
