@@ -140,10 +140,9 @@
                                 Turn off to manage users' Jellyfin policy manually (every field below becomes inert)
                             </div>
                         </div>
-                        <div class="checkboxContainer full">
-                            <label><input type="checkbox" id="enableLibraryAccessManagement" is="emby-checkbox" />
-                                <span data-str="rolesTab.enableLibraryAccessManagement">Manage library access from role mappings</span>
-                            <span class="fieldDescription" data-str="rolesTab.enableLibraryAccessManagementHint">(only while policy management is on)</span></label>
+                        <div class="checkboxContainer checkboxContainer-withDescription full">
+                            <label><input type="checkbox" id="enableLibraryAccessManagement" is="emby-checkbox" /> <span data-str="rolesTab.enableLibraryAccessManagement">Manage library access from role mappings</span></label>
+                            <div class="fieldDescription" data-str="rolesTab.enableLibraryAccessManagementHint">(only while policy management is on)</div>
                         </div>
                         <div class="selectContainer full">
                             <label for="defaultRoleName"><span data-str="rolesTab.fallbackRoleLabel">Default Role</span>
