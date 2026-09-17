@@ -7,8 +7,6 @@ Authenticate users via any OIDC-compatible identity provider (Authentik, Keycloa
 Okta, etc.) and automatically assign Jellyfin permissions and library access based on IdP
 group/role claims.
 
-> **Forked from [Ezeqielle/jellyfin-plugin-oidc](https://github.com/Ezeqielle/jellyfin-plugin-oidc)**
-> with significant security hardening. See [SECURITY.md](SECURITY.md) for what changed and why.
 
 ## Features
 
