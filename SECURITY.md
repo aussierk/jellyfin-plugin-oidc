@@ -58,7 +58,7 @@ locked out of your own server.
 If SSO logins start failing after an IdP upgrade:
 
 1. Log in with your local fallback account.
-2. Go to **Admin Dashboard → Plugins → SSO-OIDC Authentication**.
+2. Go to **Admin Dashboard → Plugins → SSO-OIDC-Authentication**.
 3. Find the affected provider and click **Test Connection**.
 4. If the test succeeds, the endpoints are re-pinned and SSO logins resume immediately.
 5. If the test fails, the IdP is unreachable or misconfigured - check the Jellyfin logs for
