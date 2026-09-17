@@ -46,7 +46,8 @@ public class OidcControllerTests
         IUserManager? userManager = null,
         IQuickConnect? quickConnect = null,
         HttpMessageHandler? httpHandler = null,
-        Microsoft.Extensions.Logging.ILogger<OidcController>? logger = null)
+        Microsoft.Extensions.Logging.ILogger<OidcController>? logger = null,
+        ISessionManager? sessionManager = null)
     {
         stateManager ??= new StateManager(NullLogger<StateManager>.Instance);
         userManager ??= Substitute.For<IUserManager>();
@@ -69,7 +70,7 @@ public class OidcControllerTests
         var loginFlow = new LoginFlowService(
             protocol, new ClaimsResolver(protocol, NullLogger<ClaimsResolver>.Instance),
             stateManager, NullLogger<LoginFlowService>.Instance);
-        var sessionManager = Substitute.For<ISessionManager>();
+        sessionManager ??= Substitute.For<ISessionManager>();
         if (quickConnect == null)
         {
             quickConnect = Substitute.For<IQuickConnect>();
@@ -1111,6 +1112,31 @@ public class OidcControllerTests
         var result = await controller.Authenticate("keycloak", new AuthenticateRequest { Token = token! });
 
         Assert.IsType<NotFoundObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task Authenticate_HappyPath_PassesClientIpAsRemoteEndPoint()
+    {
+        const string username = "alice";
+        const string providerId = "keycloak";
+        ConfigureForSyncableUser(username, providerId);
+        var (userManager, _) = MakeSyncableUser(username, providerId);
+
+        var stateManager = new StateManager(NullLogger<StateManager>.Instance);
+        var token = stateManager.StoreAuthorizedSession(MakeQcSession(username: username, providerId: providerId));
+
+        AuthenticationRequest? captured = null;
+        var sessionManager = Substitute.For<ISessionManager>();
+        sessionManager.AuthenticateDirect(Arg.Do<AuthenticationRequest>(r => captured = r))
+            .Returns(Task.FromResult(new AuthenticationResult()));
+
+        var controller = MakeController(stateManager: stateManager, userManager: userManager, sessionManager: sessionManager);
+        controller.HttpContext.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.50");
+
+        var result = await controller.Authenticate(providerId, new AuthenticateRequest { Token = token! });
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal("203.0.113.50", captured!.RemoteEndPoint);
     }
 
     // ── QuickConnectAuthorize ──────────────────────────────────────────────────
