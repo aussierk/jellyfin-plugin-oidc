@@ -275,6 +275,99 @@ public class ClaimsResolverTests
         Assert.True(result.Identity!.EmailVerified);
     }
 
+    // ── userinfo fallback for username / displayName / email / email_verified ──
+
+    [Fact]
+    public async Task Username_FromUserInfo_WhenIdTokenLacksUsernameClaim()
+    {
+        var (resolver, handler) = MakeResolver(
+            userInfo: () => """{ "sub": "sub-1", "preferred_username": "alice-from-userinfo" }""");
+        var idToken = new JwtSecurityToken(claims: [new Claim("sub", "sub-1"), new Claim("groups", "staff")]);
+        var ctx = Context(idToken, TokenResponseJson(accessToken: "opaque"), withUserInfoEndpoint: true);
+
+        var result = await resolver.ResolveAsync(ctx);
+
+        Assert.Equal("alice-from-userinfo", result.Identity!.Username);
+        Assert.Equal(1, handler.HitCount("/userinfo"));
+    }
+
+    [Fact]
+    public async Task Username_IdTokenClaimPresent_UserInfoNotConsulted()
+    {
+        var (resolver, handler) = MakeResolver(userInfo: () => """{ "preferred_username": "should-not-be-used" }""");
+        var ctx = Context(
+            IdToken(groups: ["staff"], picture: "https://cdn/id.png"), TokenResponseJson(accessToken: "opaque"),
+            withUserInfoEndpoint: true);
+
+        var result = await resolver.ResolveAsync(ctx);
+
+        Assert.Equal("alice", result.Identity!.Username);
+        Assert.Equal(0, handler.HitCount("/userinfo"));
+    }
+
+    [Fact]
+    public async Task DisplayName_FromUserInfo_WhenIdTokenLacksIt()
+    {
+        var (resolver, _) = MakeResolver(userInfo: () => """{ "sub": "sub-1", "name": "Alice From UserInfo" }""");
+        var idToken = new JwtSecurityToken(claims: [new Claim("sub", "sub-1"), new Claim("preferred_username", "alice")]);
+        var ctx = Context(idToken, TokenResponseJson(accessToken: "opaque"), withUserInfoEndpoint: true);
+
+        var result = await resolver.ResolveAsync(ctx);
+
+        Assert.Equal("Alice From UserInfo", result.Identity!.DisplayName);
+    }
+
+    [Fact]
+    public async Task Email_FromUserInfo_WhenIdTokenLacksEmailClaim()
+    {
+        var (resolver, _) = MakeResolver(userInfo: () => """{ "sub": "sub-1", "email": "alice@userinfo.com" }""");
+        var idToken = new JwtSecurityToken(claims: [new Claim("sub", "sub-1"), new Claim("preferred_username", "alice")]);
+        var ctx = Context(idToken, TokenResponseJson(accessToken: "opaque"), withUserInfoEndpoint: true);
+
+        var result = await resolver.ResolveAsync(ctx);
+
+        Assert.Equal("alice@userinfo.com", result.Identity!.Email);
+    }
+
+    [Fact]
+    public async Task Email_FromUserInfoEmailsArray_WhenEmailClaimIsSpecDefault()
+    {
+        var (resolver, _) = MakeResolver(userInfo: () => """{ "sub": "sub-1", "emails": ["alice@userinfo.com"] }""");
+        var idToken = new JwtSecurityToken(claims: [new Claim("sub", "sub-1"), new Claim("preferred_username", "alice")]);
+        var ctx = Context(idToken, TokenResponseJson(accessToken: "opaque"), withUserInfoEndpoint: true);
+
+        var result = await resolver.ResolveAsync(ctx);
+
+        Assert.Equal("alice@userinfo.com", result.Identity!.Email);
+    }
+
+    [Fact]
+    public async Task EmailVerified_FromUserInfo_AsJsonBoolean_WhenIdTokenLacksIt()
+    {
+        var (resolver, _) = MakeResolver(
+            userInfo: () => """{ "sub": "sub-1", "email": "alice@userinfo.com", "email_verified": true }""");
+        var idToken = new JwtSecurityToken(claims: [new Claim("sub", "sub-1"), new Claim("preferred_username", "alice")]);
+        var ctx = Context(idToken, TokenResponseJson(accessToken: "opaque"), withUserInfoEndpoint: true);
+
+        var result = await resolver.ResolveAsync(ctx);
+
+        Assert.True(result.Identity!.EmailVerified);
+    }
+
+    [Fact]
+    public async Task EmailVerified_IdTokenTrue_UserInfoNotConsulted()
+    {
+        var (resolver, handler) = MakeResolver(userInfo: () => """{ "email_verified": false }""");
+        var ctx = Context(
+            IdToken(groups: ["staff"], picture: "https://cdn/id.png"), TokenResponseJson(accessToken: "opaque"),
+            withUserInfoEndpoint: true);
+
+        var result = await resolver.ResolveAsync(ctx);
+
+        Assert.True(result.Identity!.EmailVerified);
+        Assert.Equal(0, handler.HitCount("/userinfo"));
+    }
+
     // ── run-once ─────────────────────────────────────────────────────────────
 
     [Fact]
