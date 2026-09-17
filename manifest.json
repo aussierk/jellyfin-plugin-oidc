@@ -12,9 +12,9 @@
         "version": "2.1.0.0",
         "changelog": "The hardened OIDC rewrite on Jellyfin 12. Hand-rolled OIDC flow with Trust-On-First-Use discovery-endpoint pinning and an SSRF-guarded, DNS-rebind-pinned HTTP client. Account identity keyed on the OIDC subject, in its own identity-map file (migrated out of the plugin config on upgrade). Fail-closed role-to-policy RBAC with a server-wide admission allowlist. OIDC Back-Channel Logout 1.0. Client-secret indirection (Client Secret File / ENV_VAR reference). Auto-managed SSO login button in Branding. Rewritten admin config page. Opt-in, per-provider verified-email account linking that never binds an administrator account. No configuration migration required from 2.0.0.0.",
         "targetAbi": "12.0.0.0",
-        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v2.1.0.0-rc.17/oidc-rbac.zip",
-        "checksum": "9254b70ddd602f5e095083bd7d6eee5c",
-        "timestamp": "2026-09-16T19:30:37Z"
+        "sourceUrl": "https://github.com/aussierk/jellyfin-plugin-oidc/releases/download/v2.1.0.0-rc.18/oidc-rbac.zip",
+        "checksum": "c47c4a2d08a55d536678e139d97afc27",
+        "timestamp": "2026-09-17T17:39:36Z"
       },
       {
         "version": "2.0.0.0",
