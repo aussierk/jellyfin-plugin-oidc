@@ -7,14 +7,16 @@ export function updateRbacManagementUi(view) {
     var list = view.querySelector('#roleMappingList');
     var fallback = view.querySelector('#defaultRoleName');
     var addBtn = view.querySelector('#btnAddRoleMapping');
+    var libraryAccess = view.querySelector('#enableLibraryAccessManagement');
     var hint = view.querySelector('#roleMappingsInactiveHint');
     // .oidc-dimmed carries both opacity and pointer-events:none; harmless on fallback/addBtn
     // (already blocked via .disabled below), needed on list (has no .disabled of its own).
-    [list, fallback, addBtn].forEach(function (node) {
+    [list, fallback, addBtn, libraryAccess].forEach(function (node) {
         if (node) node.classList.toggle('oidc-dimmed', !managed);
     });
     if (fallback) fallback.disabled = !managed;
     if (addBtn) addBtn.disabled = !managed;
+    if (libraryAccess) libraryAccess.disabled = !managed;
     if (hint) hint.hidden = managed;
 }
 
