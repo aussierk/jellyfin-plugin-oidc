@@ -44,10 +44,9 @@ public readonly record struct IdentityResolution(ResolvedIdentity? Identity, Cla
 
 /// <summary>
 /// Turns a validated id_token (plus the token response and discovery document) into a
-/// <see cref="ResolvedIdentity"/>: the six identity claims, then the 3-tier role fallback
-/// (id_token → validated access token → userinfo) and the 3-tier picture fallback
-/// (id_token → validated access token → userinfo). userinfo and access-token inspection each run at
-/// most once across both ladders. Extracted verbatim from <c>OidcController.Callback</c>.
+/// <see cref="ResolvedIdentity"/>, falling back to userinfo per-field when the id_token lacks it.
+/// userinfo and access-token inspection each run at most once. Extracted verbatim from
+/// <c>OidcController.Callback</c>.
 /// </summary>
 public sealed class ClaimsResolver
 {
@@ -68,7 +67,14 @@ public sealed class ClaimsResolver
         var subject = ClaimParser.ExtractClaim(idToken, "sub");
         var sid = ClaimParser.ExtractClaim(idToken, "sid");
 
-        var username = ClaimParser.ExtractClaim(idToken, provider.UsernameClaim);
+        // Every ladder below (identity claims, role, picture) may need these; Lazy runs each at most once.
+        var userInfoOnce = new Lazy<Task<UserInfoResponse?>>(
+            () => _protocol.FetchUserInfoAsync(disco, provider, providerId, tokenResponse.AccessToken));
+        var accessTokenOnce = new Lazy<AccessTokenInspection>(
+            () => OidcProtocolService.InspectAccessToken(tokenResponse.AccessToken, disco.Issuer, provider.ClientId, signingKeys));
+
+        var username = await WithUserInfoFallbackAsync(
+            ClaimParser.ExtractClaim(idToken, provider.UsernameClaim), provider.UsernameClaim, userInfoOnce).ConfigureAwait(false);
         if (string.IsNullOrEmpty(username))
         {
             username = subject;
@@ -79,24 +85,21 @@ public sealed class ClaimsResolver
             return new IdentityResolution(null, ClaimsResolutionError.UsernameMissing);
         }
 
-        var displayName = ClaimParser.ExtractClaim(idToken, provider.DisplayNameClaim);
+        var displayName = await WithUserInfoFallbackAsync(
+            ClaimParser.ExtractClaim(idToken, provider.DisplayNameClaim), provider.DisplayNameClaim, userInfoOnce).ConfigureAwait(false);
 
         var emailClaimName = provider.EmailClaimOrDefault;
-        var email = ClaimParser.ExtractFirstClaim(idToken, emailClaimName);
-        if (string.IsNullOrEmpty(email) && string.Equals(emailClaimName, "email", StringComparison.OrdinalIgnoreCase))
+        var email = EmailWithEntraFallback(path => ClaimParser.ExtractFirstClaim(idToken, path), emailClaimName);
+        if (string.IsNullOrEmpty(email))
         {
-            // Entra external identities carry the address in an "emails" array rather than "email" -
-            // only applied when the admin hasn't customized EmailClaim away from the spec default.
-            email = ClaimParser.ExtractFirstClaim(idToken, "emails");
+            var userInfo = await userInfoOnce.Value.ConfigureAwait(false);
+            email = userInfo != null
+                ? EmailWithEntraFallback(path => ClaimParser.ExtractFirstClaimFromJson(userInfo.Raw, path), emailClaimName)
+                : string.Empty;
         }
 
-        var emailVerified = ClaimParser.ExtractBool(idToken, provider.EmailVerifiedClaimOrDefault);
-
-        // Both fallbacks (role, picture) may need these; Lazy runs each at most once.
-        var userInfoOnce = new Lazy<Task<UserInfoResponse?>>(
-            () => _protocol.FetchUserInfoAsync(disco, provider, providerId, tokenResponse.AccessToken));
-        var accessTokenOnce = new Lazy<AccessTokenInspection>(
-            () => OidcProtocolService.InspectAccessToken(tokenResponse.AccessToken, disco.Issuer, provider.ClientId, signingKeys));
+        var emailVerified = await WithUserInfoFallbackAsync(
+            ClaimParser.ExtractBool(idToken, provider.EmailVerifiedClaimOrDefault), provider.EmailVerifiedClaimOrDefault, userInfoOnce).ConfigureAwait(false);
 
         var roles = ClaimParser.ExtractRoles(idToken, provider.RoleClaim);
         if (roles.Length == 0)
@@ -160,5 +163,43 @@ public sealed class ClaimsResolver
         return new IdentityResolution(
             new ResolvedIdentity(subject, sid, username, displayName, email, emailVerified, roles, pictureUrl),
             ClaimsResolutionError.None);
+    }
+
+    /// <c>value</c> if non-empty, else the same claim from userinfo.
+    private static async Task<string> WithUserInfoFallbackAsync(
+        string value, string claimPath, Lazy<Task<UserInfoResponse?>> userInfoOnce)
+    {
+        if (!string.IsNullOrEmpty(value))
+        {
+            return value;
+        }
+
+        var userInfo = await userInfoOnce.Value.ConfigureAwait(false);
+        return userInfo != null ? ClaimParser.ExtractFirstClaimFromJson(userInfo.Raw, claimPath) : string.Empty;
+    }
+
+    /// Bool overload.
+    private static async Task<bool> WithUserInfoFallbackAsync(
+        bool value, string claimPath, Lazy<Task<UserInfoResponse?>> userInfoOnce)
+    {
+        if (value)
+        {
+            return true;
+        }
+
+        var userInfo = await userInfoOnce.Value.ConfigureAwait(false);
+        return userInfo != null && ClaimParser.ExtractBoolFromJson(userInfo.Raw, claimPath);
+    }
+
+    /// Falls back to "emails" (Entra's array claim) when using the spec-default email claim name.
+    private static string EmailWithEntraFallback(Func<string, string> extract, string emailClaimName)
+    {
+        var email = extract(emailClaimName);
+        if (string.IsNullOrEmpty(email) && string.Equals(emailClaimName, "email", StringComparison.OrdinalIgnoreCase))
+        {
+            email = extract("emails");
+        }
+
+        return email;
     }
 }
