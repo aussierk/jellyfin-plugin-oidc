@@ -1,34 +1,28 @@
 // Pure DOM show/hide state toggles driven by a checkbox elsewhere on the page.
 
-// Greys out the role-mapping list + fallback role and shows a hint while "Manage user policy
-// from role mappings" is off, since neither has any effect in that state.
+// Dims the role-mapping controls while policy management is off (they're inert either way).
+// libraryAccessContainer is dimmed as a wrapper, not the emby-checkbox input, which broke its checkmark.
 export function updateRbacManagementUi(view) {
     var managed = view.querySelector('#manageUserPolicy').checked;
     var list = view.querySelector('#roleMappingList');
     var fallback = view.querySelector('#defaultRoleName');
     var addBtn = view.querySelector('#btnAddRoleMapping');
-    var libraryAccess = view.querySelector('#enableLibraryAccessManagement');
+    var libraryAccessContainer = view.querySelector('#enableLibraryAccessManagementContainer');
     var hint = view.querySelector('#roleMappingsInactiveHint');
-    // .oidc-dimmed carries both opacity and pointer-events:none; harmless on fallback/addBtn
-    // (already blocked via .disabled below), needed on list (has no .disabled of its own).
-    [list, fallback, addBtn, libraryAccess].forEach(function (node) {
+    [list, fallback, addBtn, libraryAccessContainer].forEach(function (node) {
         if (node) node.classList.toggle('oidc-dimmed', !managed);
     });
     if (fallback) fallback.disabled = !managed;
     if (addBtn) addBtn.disabled = !managed;
-    if (libraryAccess) libraryAccess.disabled = !managed;
     if (hint) hint.hidden = managed;
 }
 
-// Greys out the email allowlist fields while "Require a verified email" is off, since an
-// unverified email can't be trusted as an admission signal and the lists are inert either way.
-// If the lists have content while inert, an explicit warning replaces the silent dimming.
+// Dims the email allowlist fields while "Require a verified email" is off; warns instead if they're populated.
 export function updateEmailAllowlistUi(view) {
     var active = view.querySelector('#requireVerifiedEmail').checked;
     var fields = view.querySelector('#emailAllowlistFields');
     if (!fields) return;
-    // #emailAllowlistFields is display:contents (so it doesn't add an extra grid track),
-    // which means it has no box of its own - the dimmed look has to go on its children instead.
+    // display:contents has no box of its own, so the dimmed look goes on the children instead.
     fields.querySelectorAll('.oidc-allowlist-field').forEach(function (field) {
         field.classList.toggle('oidc-dimmed', !active);
     });

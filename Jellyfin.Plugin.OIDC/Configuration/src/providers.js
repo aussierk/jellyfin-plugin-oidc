@@ -31,6 +31,7 @@ export var PROVIDER_PRESETS = {
     keycloak:  { label: STRINGS.presetLabels.keycloak, roleClaim: 'realm_access.roles', usernameClaim: 'preferred_username', scopes: 'openid profile email',        icon: 'keycloak'  },
     authentik: { label: STRINGS.presetLabels.authentik, roleClaim: 'groups',             usernameClaim: 'preferred_username', scopes: 'openid profile email',        icon: 'authentik' },
     authelia:  { label: STRINGS.presetLabels.authelia, roleClaim: 'groups',             usernameClaim: 'preferred_username', scopes: 'openid profile email groups', icon: ''          },
+    pocketid:  { label: STRINGS.presetLabels.pocketid, roleClaim: 'groups',             usernameClaim: 'preferred_username', scopes: 'openid profile email groups', icon: ''          },
     entra:     { label: STRINGS.presetLabels.entra, roleClaim: 'roles',             usernameClaim: 'preferred_username', scopes: 'openid profile email',        icon: 'microsoft' },
     google:    { label: STRINGS.presetLabels.google, roleClaim: 'groups',             usernameClaim: 'email',              scopes: 'openid profile email',        icon: 'google'    },
     okta:      { label: STRINGS.presetLabels.okta, roleClaim: 'groups',             usernameClaim: 'preferred_username', scopes: 'openid profile email groups', icon: 'okta'      },
