@@ -145,6 +145,7 @@ export var STRINGS = {
         keycloak: 'Keycloak',
         authentik: 'Authentik',
         authelia: 'Authelia',
+        pocketid: 'Pocket ID',
         entra: 'Microsoft Entra ID',
         google: 'Google Workspace',
         okta: 'Okta',

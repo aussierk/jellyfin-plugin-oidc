@@ -135,6 +135,7 @@ var STRINGS = {
     keycloak: "Keycloak",
     authentik: "Authentik",
     authelia: "Authelia",
+    pocketid: "Pocket ID",
     entra: "Microsoft Entra ID",
     google: "Google Workspace",
     okta: "Okta",
@@ -496,6 +497,7 @@ var PROVIDER_PRESETS = {
   keycloak: { label: STRINGS.presetLabels.keycloak, roleClaim: "realm_access.roles", usernameClaim: "preferred_username", scopes: "openid profile email", icon: "keycloak" },
   authentik: { label: STRINGS.presetLabels.authentik, roleClaim: "groups", usernameClaim: "preferred_username", scopes: "openid profile email", icon: "authentik" },
   authelia: { label: STRINGS.presetLabels.authelia, roleClaim: "groups", usernameClaim: "preferred_username", scopes: "openid profile email groups", icon: "" },
+  pocketid: { label: STRINGS.presetLabels.pocketid, roleClaim: "groups", usernameClaim: "preferred_username", scopes: "openid profile email groups", icon: "" },
   entra: { label: STRINGS.presetLabels.entra, roleClaim: "roles", usernameClaim: "preferred_username", scopes: "openid profile email", icon: "microsoft" },
   google: { label: STRINGS.presetLabels.google, roleClaim: "groups", usernameClaim: "email", scopes: "openid profile email", icon: "google" },
   okta: { label: STRINGS.presetLabels.okta, roleClaim: "groups", usernameClaim: "preferred_username", scopes: "openid profile email groups", icon: "okta" },
@@ -913,14 +915,13 @@ function updateRbacManagementUi(view) {
   var list = view.querySelector("#roleMappingList");
   var fallback = view.querySelector("#defaultRoleName");
   var addBtn = view.querySelector("#btnAddRoleMapping");
-  var libraryAccess = view.querySelector("#enableLibraryAccessManagement");
+  var libraryAccessContainer = view.querySelector("#enableLibraryAccessManagementContainer");
   var hint = view.querySelector("#roleMappingsInactiveHint");
-  [list, fallback, addBtn, libraryAccess].forEach(function(node) {
+  [list, fallback, addBtn, libraryAccessContainer].forEach(function(node) {
     if (node) node.classList.toggle("oidc-dimmed", !managed);
   });
   if (fallback) fallback.disabled = !managed;
   if (addBtn) addBtn.disabled = !managed;
-  if (libraryAccess) libraryAccess.disabled = !managed;
   if (hint) hint.hidden = managed;
 }
 function updateEmailAllowlistUi(view) {
@@ -1310,8 +1311,11 @@ function index_default(view) {
     if (t.id.indexOf("prov_preset_") === 0 && t.value) {
       var pidx = t.id.slice("prov_preset_".length);
       var preset = PROVIDER_PRESETS[t.value];
+      var presetKey = t.value;
       t.value = "";
       if (!preset) return;
+      sval(view, "prov_id_" + pidx, presetKey);
+      sval(view, "prov_name_" + pidx, preset.label);
       sval(view, "prov_roleclaim_" + pidx, preset.roleClaim);
       sval(view, "prov_userclaim_" + pidx, preset.usernameClaim);
       sval(view, "prov_scopes_" + pidx, preset.scopes);

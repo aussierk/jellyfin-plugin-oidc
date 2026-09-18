@@ -309,8 +309,11 @@ export default function (view) {
         if (t.id.indexOf('prov_preset_') === 0 && t.value) {
             var pidx = t.id.slice('prov_preset_'.length);
             var preset = PROVIDER_PRESETS[t.value];
+            var presetKey = t.value;
             t.value = ''; // it's a verb, not state
             if (!preset) return;
+            sval(view, 'prov_id_' + pidx, presetKey);
+            sval(view, 'prov_name_' + pidx, preset.label);
             sval(view, 'prov_roleclaim_' + pidx, preset.roleClaim);
             sval(view, 'prov_userclaim_' + pidx, preset.usernameClaim);
             sval(view, 'prov_scopes_' + pidx, preset.scopes);

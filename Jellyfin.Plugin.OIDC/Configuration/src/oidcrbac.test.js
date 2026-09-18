@@ -512,13 +512,13 @@ describe('updateRbacManagementUi', () => {
             '<div id="roleMappingList"></div>',
             '<select id="defaultRoleName"></select>',
             '<button id="btnAddRoleMapping"></button>',
-            '<input type="checkbox" id="enableLibraryAccessManagement" />',
+            '<div id="enableLibraryAccessManagementContainer"><input type="checkbox" id="enableLibraryAccessManagement" /></div>',
             '<p id="roleMappingsInactiveHint" hidden></p>',
             '<input type="checkbox" id="manageUserPolicy" />'
         ].join(''));
     }
 
-    it('dims and disables the role list/fallback/add button/library-access checkbox, and shows the hint, when policy management is off', () => {
+    it('dims the role list/fallback/add button/library-access checkbox (disabling fallback/add button), and shows the hint, when policy management is off', () => {
         const view = fixture();
         view.querySelector('#manageUserPolicy').checked = false;
 
@@ -527,8 +527,7 @@ describe('updateRbacManagementUi', () => {
         expect(view.querySelector('#roleMappingList').classList.contains('oidc-dimmed')).toBe(true);
         expect(view.querySelector('#defaultRoleName').disabled).toBe(true);
         expect(view.querySelector('#btnAddRoleMapping').disabled).toBe(true);
-        expect(view.querySelector('#enableLibraryAccessManagement').classList.contains('oidc-dimmed')).toBe(true);
-        expect(view.querySelector('#enableLibraryAccessManagement').disabled).toBe(true);
+        expect(view.querySelector('#enableLibraryAccessManagementContainer').classList.contains('oidc-dimmed')).toBe(true);
         expect(view.querySelector('#roleMappingsInactiveHint').hidden).toBe(false);
     });
 
@@ -540,8 +539,7 @@ describe('updateRbacManagementUi', () => {
 
         expect(view.querySelector('#roleMappingList').classList.contains('oidc-dimmed')).toBe(false);
         expect(view.querySelector('#defaultRoleName').disabled).toBe(false);
-        expect(view.querySelector('#enableLibraryAccessManagement').classList.contains('oidc-dimmed')).toBe(false);
-        expect(view.querySelector('#enableLibraryAccessManagement').disabled).toBe(false);
+        expect(view.querySelector('#enableLibraryAccessManagementContainer').classList.contains('oidc-dimmed')).toBe(false);
         expect(view.querySelector('#roleMappingsInactiveHint').hidden).toBe(true);
     });
 });
