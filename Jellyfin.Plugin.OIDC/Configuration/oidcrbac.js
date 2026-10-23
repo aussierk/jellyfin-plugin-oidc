@@ -162,7 +162,8 @@ var STRINGS = {
     permissionsNote: "Multiple matching roles combine permissions; the strictest parental rating wins.",
     administrator: "Administrator",
     playbackGroup: "Playback",
-    transcoding: "Transcoding",
+    transcodeAudio: "Transcode Audio",
+    transcodeVideo: "Transcode Video",
     remoteAccess: "Remote Access",
     liveTvGroup: "Live TV",
     liveTvAccess: "Access",
@@ -846,7 +847,7 @@ function renderRoleMappings(view) {
       { class: "oidc-field full oidc-mt-sm" },
       el("label", null, STRINGS.role.permissionsLabel + el("span", { class: "fieldDescription" }, STRINGS.role.permissionsHint)) + el("p", { class: "fieldDescription oidc-hint-tight" }, STRINGS.role.permissionsNote) + el("div", { class: "oidc-checkbox-row oidc-mt-xs" }, chk("role_admin_" + idx, STRINGS.role.administrator, m.IsAdmin)) + permGroup(
         STRINGS.role.playbackGroup,
-        chk("role_playback_" + idx, STRINGS.role.playbackGroup, m.EnableMediaPlayback !== false) + chk("role_transcode_" + idx, STRINGS.role.transcoding, m.EnableTranscoding !== false) + chk("role_remote_" + idx, STRINGS.role.remoteAccess, m.EnableRemoteAccess !== false)
+        chk("role_playback_" + idx, STRINGS.role.playbackGroup, m.EnableMediaPlayback !== false) + chk("role_transcodeaudio_" + idx, STRINGS.role.transcodeAudio, m.EnableTranscodeAudio !== false) + chk("role_transcodevideo_" + idx, STRINGS.role.transcodeVideo, m.EnableTranscodeVideo !== false) + chk("role_remote_" + idx, STRINGS.role.remoteAccess, m.EnableRemoteAccess !== false)
       ) + permGroup(
         STRINGS.role.liveTvGroup,
         chk("role_livetv_" + idx, STRINGS.role.liveTvAccess, m.EnableLiveTv) + chk("role_livetvmgmt_" + idx, STRINGS.role.liveTvRecordingManagement, m.EnableLiveTvManagement)
@@ -898,7 +899,8 @@ function collectRoleMappings(view) {
       EnableLiveTvManagement: gchk(view, "role_livetvmgmt_" + idx),
       EnableMediaPlayback: gchk(view, "role_playback_" + idx),
       EnableRemoteAccess: gchk(view, "role_remote_" + idx),
-      EnableTranscoding: gchk(view, "role_transcode_" + idx),
+      EnableTranscodeAudio: gchk(view, "role_transcodeaudio_" + idx),
+      EnableTranscodeVideo: gchk(view, "role_transcodevideo_" + idx),
       EnableContentDeletion: gchk(view, "role_delete_" + idx),
       EnableCollectionManagement: gchk(view, "role_collections_" + idx),
       EnableSubtitleManagement: gchk(view, "role_subtitles_" + idx),
@@ -1189,7 +1191,8 @@ function index_default(view) {
       EnableLiveTvManagement: false,
       EnableMediaPlayback: true,
       EnableRemoteAccess: true,
-      EnableTranscoding: true,
+      EnableTranscodeAudio: true,
+      EnableTranscodeVideo: true,
       EnableContentDeletion: false,
       EnableCollectionManagement: false,
       EnableSubtitleManagement: false,

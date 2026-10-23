@@ -117,8 +117,8 @@ public class RbacService
         policy.IsAdministrator = merged.IsAdmin;
         policy.EnableMediaPlayback = merged.EnableMediaPlayback;
         policy.EnableRemoteAccess = merged.EnableRemoteAccess;
-        policy.EnableAudioPlaybackTranscoding = merged.EnableTranscoding;
-        policy.EnableVideoPlaybackTranscoding = merged.EnableTranscoding;
+        policy.EnableAudioPlaybackTranscoding = merged.EnableTranscodeAudio;
+        policy.EnableVideoPlaybackTranscoding = merged.EnableTranscodeVideo;
         policy.EnableLiveTvAccess = merged.EnableLiveTv;
         policy.EnableLiveTvManagement = merged.EnableLiveTvManagement;
         policy.EnableContentDeletion = merged.EnableContentDeletion;
@@ -257,7 +257,8 @@ public class RbacService
             EnableLiveTvManagement = mappings.Any(m => m.EnableLiveTvManagement),
             EnableMediaPlayback = mappings.Any(m => m.EnableMediaPlayback),
             EnableRemoteAccess = mappings.Any(m => m.EnableRemoteAccess),
-            EnableTranscoding = mappings.Any(m => m.EnableTranscoding),
+            EnableTranscodeAudio = mappings.Any(m => m.EnableTranscodeAudio),
+            EnableTranscodeVideo = mappings.Any(m => m.EnableTranscodeVideo),
             EnableContentDeletion = mappings.Any(m => m.EnableContentDeletion),
             EnableCollectionManagement = mappings.Any(m => m.EnableCollectionManagement),
             EnableSubtitleManagement = mappings.Any(m => m.EnableSubtitleManagement),

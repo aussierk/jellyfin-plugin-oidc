@@ -213,7 +213,9 @@ public class RoleMapping
 
     public bool EnableRemoteAccess { get; set; } = true;
 
-    public bool EnableTranscoding { get; set; } = true;
+    public bool EnableTranscodeAudio { get; set; } = true;
+
+    public bool EnableTranscodeVideo { get; set; } = true;
 
     public bool EnableContentDeletion { get; set; }
 

@@ -175,7 +175,7 @@ Click **+ Add Role Mapping** for each role:
 
 **Admin role:**
 
-| Field               | Value              |
+| Field                | Value              |
 |----------------------|--------------------|
 | Role Name            | `jellyfin-admins`  |
 | Priority             | `100`              |
@@ -183,7 +183,8 @@ Click **+ Add Role Mapping** for each role:
 | All Libraries        | checked            |
 | Playback             | checked            |
 | Remote Access        | checked            |
-| Transcoding          | checked            |
+| TranscodeAudio       | checked            |
+| TranscodeVideo       | checked            |
 | Live TV              | checked            |
 | Delete Content       | checked            |
 | Collections          | checked            |
@@ -191,7 +192,7 @@ Click **+ Add Role Mapping** for each role:
 
 **Standard user role:**
 
-| Field               | Value                                         |
+| Field                | Value                                         |
 |----------------------|-----------------------------------------------|
 | Role Name            | `jellyfin-users`                              |
 | Priority             | `50`                                          |
@@ -200,11 +201,12 @@ Click **+ Add Role Mapping** for each role:
 | Libraries            | Select: Movies, TV Shows, Music (your choice) |
 | Playback             | checked                                       |
 | Remote Access        | checked                                       |
-| Transcoding          | checked                                       |
+| TranscodeAudio       | checked                                       |
+| TranscodeVideo       | checked                                       |
 
 **Kids role:**
 
-| Field               | Value                        |
+| Field                | Value                        |
 |----------------------|------------------------------|
 | Role Name            | `jellyfin-kids`              |
 | Priority             | `10`                         |
@@ -213,8 +215,9 @@ Click **+ Add Role Mapping** for each role:
 | Libraries            | Select: Kids                 |
 | Playback             | checked                      |
 | Remote Access        | unchecked                    |
-| Transcoding          | checked                      |
-| Max Parental Rating  | `7` (PG)                    |
+| TranscodeAudio       | checked                      |
+| TranscodeVideo       | checked                      |
+| Max Parental Rating  | `7` (PG)                     |
 
 > If you used the custom property mapping, use `admins`, `users`, `kids` as role names
 > (without the `jellyfin-` prefix, since the mapping strips it).

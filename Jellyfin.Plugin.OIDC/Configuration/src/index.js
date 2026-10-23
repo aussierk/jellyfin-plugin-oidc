@@ -175,7 +175,7 @@ export default function (view) {
             RoleName: '', ProviderFilter: '', IsAdmin: false, EnableAllLibraries: false,
             LibraryIds: [], LibraryNames: [], EnableLiveTv: false,
             EnableLiveTvManagement: false, EnableMediaPlayback: true,
-            EnableRemoteAccess: true, EnableTranscoding: true,
+            EnableRemoteAccess: true, EnableTranscodeAudio: true, EnableTranscodeVideo: true,
             EnableContentDeletion: false, EnableCollectionManagement: false,
             EnableSubtitleManagement: false, MaxParentalRatingName: '', MaxParentalRating: null
         });
