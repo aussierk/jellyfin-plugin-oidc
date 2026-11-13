@@ -30,12 +30,18 @@ these fields are replaced by the role mapping values:
 - `EnableContentDeletion`, `EnableCollectionManagement`, `EnableSubtitleManagement`
 - `EnableAllFolders` and the list of enabled folders (library access)
 - Max Parental Rating (only when a role provides one; strictest wins across matched roles)
+- Unrated-item blocks, **only** when at least one matched role enables `ManageUnratedItems`:
+  replaced with the union of those roles' `BlockUnratedItems` selections, including an empty
+  list to explicitly clear previous blocks. See [Unrated content](CONFIGURATION.md#unrated-content).
 
-**Everything else is preserved** - access schedules, blocked/allowed tags, unrated-item
-blocks, bitrate and session caps, SyncPlay level, and per-channel/device lists all carry
+**Everything else is preserved** - access schedules, blocked/allowed tags, bitrate and
+session caps, SyncPlay level, and per-channel/device lists all carry
 through from the user's current Jellyfin settings untouched. Plan your role mappings to
 match the access you want users to have **before** they log in - otherwise their first SSO
 login can still change the fields listed above.
+
+Unrated-item blocks are preserved too when no matched role opts in. `ManageUnratedItems`
+defaults to `false`, so upgrading does not change existing unrated-content policies.
 
 If you'd rather not have SSO touch permissions at all for a batch of existing accounts,
 turn **Manage user policy** off before migrating them (Role Mappings tab) - see

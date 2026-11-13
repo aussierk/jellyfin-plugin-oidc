@@ -129,6 +129,18 @@ public class RbacService
         policy.MaxParentalRating = parentalScore;
         policy.MaxParentalSubRating = parentalSubScore;
 
+        var unratedMappings = matchedMappings.Where(m => m.ManageUnratedItems).ToList();
+        if (unratedMappings.Count > 0)
+        {
+            // Opt-in replacement makes group transitions reversible; union keeps a less restrictive
+            // matched role from cancelling another role's blocks. Without opt-in, preserve manual policy.
+            policy.BlockUnratedItems = unratedMappings
+                .SelectMany(m => m.BlockUnratedItems)
+                .Distinct()
+                .OrderBy(item => item)
+                .ToArray();
+        }
+
         await _userManager.UpdatePolicyAsync(userId, policy).ConfigureAwait(false);
 
         // Name which matched mapping(s) carried IsAdmin, so "why is this user an admin" is auditable.

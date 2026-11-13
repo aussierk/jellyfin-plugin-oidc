@@ -454,6 +454,37 @@ describe('collectProviders', () => {
 });
 
 describe('renderRoleMappings / collectRoleMappings', () => {
+    it('round-trips unrated blocks and allows an explicit managed empty list', () => {
+        __setTestState({ cfg: {
+            RoleMappings: [{ RoleName: 'kids', ManageUnratedItems: true, BlockUnratedItems: ['Movie', 'Series'] }],
+            Providers: []
+        } });
+        const view = makeView('<div id="roleMappingList"></div><select id="defaultRoleName"></select>');
+        renderRoleMappings(view);
+
+        expect(view.querySelector('#role_manageunrated_0').checked).toBe(true);
+        expect(view.querySelector('#role_unrated_0_Movie').checked).toBe(true);
+        expect(view.querySelector('#role_unrated_0_Series').checked).toBe(true);
+        expect(view.querySelector('#role_unrated_0_Music').checked).toBe(false);
+        expect(collectRoleMappings(view)[0].BlockUnratedItems).toEqual(['Movie', 'Series']);
+
+        view.querySelector('#role_unrated_0_Movie').checked = false;
+        view.querySelector('#role_unrated_0_Series').checked = false;
+        expect(collectRoleMappings(view)[0]).toMatchObject({ ManageUnratedItems: true, BlockUnratedItems: [] });
+    });
+
+    it('keeps legacy roles opted out and preserves selections while management is off', () => {
+        __setTestState({ cfg: {
+            RoleMappings: [{ RoleName: 'legacy' }, { RoleName: 'disabled', ManageUnratedItems: false, BlockUnratedItems: ['Other', 'LiveTvProgram'] }],
+            Providers: []
+        } });
+        const view = makeView('<div id="roleMappingList"></div><select id="defaultRoleName"></select>');
+        renderRoleMappings(view);
+
+        expect(collectRoleMappings(view)[0]).toMatchObject({ ManageUnratedItems: false, BlockUnratedItems: [] });
+        expect(collectRoleMappings(view)[1]).toMatchObject({ ManageUnratedItems: false, BlockUnratedItems: ['LiveTvProgram', 'Other'] });
+    });
+
     it('shows the empty-state message and fills the fallback-role select from cfg when there are no mappings', () => {
         __setTestState({ cfg: { RoleMappings: [], Providers: [], DefaultRoleName: '' } });
         const view = makeView('<div id="roleMappingList"></div><select id="defaultRoleName"></select>');

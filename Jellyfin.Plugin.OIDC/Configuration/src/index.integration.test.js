@@ -156,6 +156,25 @@ describe('index.js default export (full page controller)', () => {
         expect(view.querySelectorAll('#roleMappingList .oidc-item-card')).toHaveLength(1);
     });
 
+    it('saves unrated-content selections through the full page controller', async () => {
+        installJellyfinGlobals(makeConfig({ RoleMappings: [{ RoleName: 'kids' }] }));
+        initPage(view);
+        view.dispatchEvent(new Event('viewshow'));
+        await flushMicrotasks();
+
+        view.querySelector('#role_manageunrated_0').checked = true;
+        view.querySelector('#role_unrated_0_Movie').checked = true;
+        view.querySelector('#role_unrated_0_Series').checked = true;
+        view.querySelector('#btnSave').click();
+        await flushMicrotasks();
+
+        const [, savedConfig] = ApiClient.updatePluginConfiguration.mock.calls[0];
+        expect(savedConfig.RoleMappings[0]).toMatchObject({
+            ManageUnratedItems: true,
+            BlockUnratedItems: ['Movie', 'Series']
+        });
+    });
+
     it('blocks Save and alerts when two providers share a Provider ID', async () => {
         installJellyfinGlobals(makeConfig({
             Providers: [
