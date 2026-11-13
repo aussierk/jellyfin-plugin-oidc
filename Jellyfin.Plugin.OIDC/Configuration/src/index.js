@@ -177,7 +177,8 @@ export default function (view) {
             EnableLiveTvManagement: false, EnableMediaPlayback: true,
             EnableRemoteAccess: true, EnableTranscoding: true,
             EnableContentDeletion: false, EnableCollectionManagement: false,
-            EnableSubtitleManagement: false, MaxParentalRatingName: '', MaxParentalRating: null
+            EnableSubtitleManagement: false, MaxParentalRatingName: '', MaxParentalRating: null,
+            ManageUnratedItems: false, BlockUnratedItems: []
         });
         renderRoleMappings(view);
         setDirty(true);

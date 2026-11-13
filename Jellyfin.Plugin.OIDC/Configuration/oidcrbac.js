@@ -178,6 +178,20 @@ var STRINGS = {
     addLibraryBtn: "Add Library",
     maxParentalRatingLabel: "Max Parental Rating ",
     maxParentalRatingHint: "(empty = unrestricted)",
+    unratedTitle: "Unrated Content",
+    manageUnratedItems: "Apply this role's unrated-content rules at SSO login",
+    unratedHint: "Check a content type below to block items with a missing or unrecognized rating. For example, checking Movies blocks unrated movies, not the entire Movies library. Unchecked types are not blocked by this role.",
+    unratedMergeHint: "At each SSO login, these rules replace the user's current unrated-content settings. If several of the user's roles enable this option, a content type is blocked when any of those roles checks it.",
+    unratedPreserveHint: "To remove previous unrated-content blocks, enable this option and leave all types unchecked. Any blocks selected by another enabled role still apply. If none of the user's roles enable this option, their existing settings stay unchanged.",
+    unratedMovie: "Block unrated movies",
+    unratedTrailer: "Block unrated trailers",
+    unratedSeries: "Block unrated shows",
+    unratedMusic: "Block unrated music",
+    unratedBook: "Block unrated books",
+    unratedLiveTvChannel: "Block unrated Live TV channels",
+    unratedLiveTvProgram: "Block unrated Live TV programs",
+    unratedChannelContent: "Block unrated channel content",
+    unratedOther: "Block other unrated content",
     unrestrictedOption: "Unrestricted",
     notDefinedSuffix: " (not defined on this server)",
     customScorePrefix: "Custom Score ",
@@ -737,6 +751,7 @@ function collectProviders(view) {
 }
 
 // Jellyfin.Plugin.OIDC/Configuration/src/roles.js
+var UNRATED_ITEMS = ["Movie", "Trailer", "Series", "Music", "Book", "LiveTvChannel", "LiveTvProgram", "ChannelContent", "Other"];
 function addLibChip(container, libId) {
   var chip = document.createElement("span");
   chip.className = "oidc-library-chip";
@@ -864,6 +879,12 @@ function renderRoleMappings(view) {
       el("label", null, STRINGS.role.maxParentalRatingLabel + el("span", { class: "fieldDescription" }, STRINGS.role.maxParentalRatingHint)) + el("select", { is: "emby-select", id: "role_maxrating_" + idx }, ratingOptions(m))
     ) + el(
       "div",
+      { class: "oidc-field full oidc-mt-md" },
+      el("div", { class: "oidc-perm-title" }, STRINGS.role.unratedTitle) + chk("role_manageunrated_" + idx, STRINGS.role.manageUnratedItems, m.ManageUnratedItems) + el("p", { class: "fieldDescription" }, STRINGS.role.unratedHint) + el("div", { class: "oidc-checkbox-row" }, UNRATED_ITEMS.map(function(item) {
+        return chk("role_unrated_" + idx + "_" + item, STRINGS.role["unrated" + item], (m.BlockUnratedItems || []).indexOf(item) !== -1);
+      }).join("")) + el("p", { class: "fieldDescription" }, STRINGS.role.unratedMergeHint) + el("p", { class: "fieldDescription" }, STRINGS.role.unratedPreserveHint)
+    ) + el(
+      "div",
       { class: "oidc-mt-md" },
       el("button", { is: "emby-button", type: "button", class: "oidc-btn-remove", "data-action": "remove-role", "data-idx": idx }, STRINGS.common.removeBtn)
     );
@@ -903,7 +924,11 @@ function collectRoleMappings(view) {
       EnableCollectionManagement: gchk(view, "role_collections_" + idx),
       EnableSubtitleManagement: gchk(view, "role_subtitles_" + idx),
       MaxParentalRatingName: mrName,
-      MaxParentalRating: mrLegacy
+      MaxParentalRating: mrLegacy,
+      ManageUnratedItems: gchk(view, "role_manageunrated_" + idx),
+      BlockUnratedItems: UNRATED_ITEMS.filter(function(item) {
+        return gchk(view, "role_unrated_" + idx + "_" + item);
+      })
     });
   });
   return result;
@@ -1194,7 +1219,9 @@ function index_default(view) {
       EnableCollectionManagement: false,
       EnableSubtitleManagement: false,
       MaxParentalRatingName: "",
-      MaxParentalRating: null
+      MaxParentalRating: null,
+      ManageUnratedItems: false,
+      BlockUnratedItems: []
     });
     renderRoleMappings(view);
     setDirty(true);

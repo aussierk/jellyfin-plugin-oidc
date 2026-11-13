@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Jellyfin.Data.Enums;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.OIDC.Configuration;
@@ -226,4 +227,10 @@ public class RoleMapping
 
     /// Legacy numeric score, still honoured when <see cref="MaxParentalRatingName"/> is empty.
     public int? MaxParentalRating { get; set; }
+
+    /// Opt in to replacing unrated-item blocks at login. False preserves the user's policy unless another matched role opts in.
+    public bool ManageUnratedItems { get; set; } = false;
+
+    /// Blocks from opted-in matched roles are combined. An opted-in empty list explicitly clears existing blocks.
+    public List<UnratedItem> BlockUnratedItems { get; set; } = new();
 }

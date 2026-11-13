@@ -302,6 +302,139 @@ public class RbacServiceTests
         Assert.Equal(10, p.MaxParentalRating); // carried forward - no mapping restricts it
     }
 
+    [Fact]
+    public async Task UnratedItems_NewUser_BlocksSelectedVideoTypesWithoutBlockingMusic()
+    {
+        var user = MakeUser();
+        var (svc, _) = ServiceCapturing(out var policy, user);
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            RoleMappings = [new RoleMapping
+            {
+                RoleName = "kids", ManageUnratedItems = true,
+                BlockUnratedItems = [UnratedItem.Movie, UnratedItem.Series]
+            }]
+        });
+
+        await svc.ApplyRoleMappingsAsync(user.Id, ["kids"], "keycloak");
+
+        Assert.Equal(new[] { UnratedItem.Movie, UnratedItem.Series }, policy()!.BlockUnratedItems);
+        Assert.DoesNotContain(UnratedItem.Music, policy()!.BlockUnratedItems);
+    }
+
+    [Fact]
+    public async Task UnratedItems_MatchedRoles_CombineBlocksAndIgnoreUnmanagedOrUnmatchedRoles()
+    {
+        var user = MakeUser();
+        var (svc, _) = ServiceCapturing(out var policy, user);
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            RoleMappings =
+            [
+                new RoleMapping { RoleName = "kids", ManageUnratedItems = true, BlockUnratedItems = [UnratedItem.Movie] },
+                new RoleMapping { RoleName = "video", ManageUnratedItems = true, BlockUnratedItems = [UnratedItem.Movie, UnratedItem.Series] },
+                new RoleMapping { RoleName = "adults", ManageUnratedItems = true },
+                new RoleMapping { RoleName = "unmanaged", BlockUnratedItems = [UnratedItem.Music] },
+                new RoleMapping { RoleName = "unmatched", ManageUnratedItems = true, BlockUnratedItems = [UnratedItem.Book] },
+                new RoleMapping { RoleName = "kids", ProviderFilter = "other", ManageUnratedItems = true, BlockUnratedItems = [UnratedItem.Trailer] }
+            ]
+        });
+
+        await svc.ApplyRoleMappingsAsync(user.Id, ["kids", "video", "adults", "unmanaged"], "keycloak");
+
+        Assert.Equal(new[] { UnratedItem.Movie, UnratedItem.Series }, policy()!.BlockUnratedItems);
+    }
+
+    [Fact]
+    public async Task UnratedItems_NoOptIn_PreservesManualBlocksEvenWithConfiguredList()
+    {
+        var user = MakeUser();
+        user.SetPreference(PreferenceKind.BlockUnratedItems, [UnratedItem.Music.ToString()]);
+        var (svc, _) = ServiceCapturing(out var policy, user);
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            RoleMappings = [new RoleMapping { RoleName = "viewer", BlockUnratedItems = [UnratedItem.Movie] }]
+        });
+
+        await svc.ApplyRoleMappingsAsync(user.Id, ["viewer"], "keycloak");
+
+        Assert.Equal(new[] { UnratedItem.Music }, policy()!.BlockUnratedItems);
+    }
+
+    [Fact]
+    public async Task UnratedItems_MoveToAdultRole_ExplicitEmptyListClearsPreviousBlocks()
+    {
+        var user = MakeUser();
+        user.SetPreference(PreferenceKind.BlockUnratedItems, [UnratedItem.Movie.ToString(), UnratedItem.Series.ToString()]);
+        var (svc, _) = ServiceCapturing(out var policy, user);
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            RoleMappings =
+            [
+                new RoleMapping { RoleName = "kids", ManageUnratedItems = true, BlockUnratedItems = [UnratedItem.Movie, UnratedItem.Series] },
+                new RoleMapping { RoleName = "adults", ManageUnratedItems = true }
+            ]
+        });
+
+        await svc.ApplyRoleMappingsAsync(user.Id, ["adults"], "keycloak");
+
+        Assert.Empty(policy()!.BlockUnratedItems);
+    }
+
+    [Fact]
+    public async Task UnratedItems_DefaultRole_AppliesBlocks()
+    {
+        var user = MakeUser();
+        var (svc, _) = ServiceCapturing(out var policy, user);
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            DefaultRoleName = "kids",
+            RoleMappings = [new RoleMapping { RoleName = "kids", ManageUnratedItems = true, BlockUnratedItems = [UnratedItem.Movie] }]
+        });
+
+        await svc.ApplyRoleMappingsAsync(user.Id, [], "keycloak");
+
+        Assert.Equal(new[] { UnratedItem.Movie }, policy()!.BlockUnratedItems);
+    }
+
+    [Fact]
+    public async Task UnratedItems_PolicyManagementDisabled_DoesNotWritePolicy()
+    {
+        var user = MakeUser();
+        var (svc, um) = ServiceCapturing(out _, user);
+        _fixture.SetConfiguration(new PluginConfiguration
+        {
+            ManageUserPolicy = false,
+            RoleMappings = [new RoleMapping { RoleName = "kids", ManageUnratedItems = true, BlockUnratedItems = [UnratedItem.Movie] }]
+        });
+
+        await svc.ApplyRoleMappingsAsync(user.Id, ["kids"], "keycloak");
+
+        await um.DidNotReceive().UpdatePolicyAsync(Arg.Any<Guid>(), Arg.Any<UserPolicy>());
+    }
+
+    [Fact]
+    public void UnratedItems_XmlConfiguration_RoundTripsAndLegacyRolesRemainOptedOut()
+    {
+        var serializer = new System.Xml.Serialization.XmlSerializer(typeof(RoleMapping));
+        var mapping = new RoleMapping
+        {
+            RoleName = "kids", ManageUnratedItems = true,
+            BlockUnratedItems = [UnratedItem.Movie, UnratedItem.Series]
+        };
+        using var writer = new StringWriter();
+        serializer.Serialize(writer, mapping);
+        using var reader = new StringReader(writer.ToString());
+        var restored = (RoleMapping)serializer.Deserialize(reader)!;
+        Assert.True(restored.ManageUnratedItems);
+        Assert.Equal(mapping.BlockUnratedItems, restored.BlockUnratedItems);
+
+        using var legacyReader = new StringReader("<RoleMapping><RoleName>kids</RoleName></RoleMapping>");
+        var legacy = (RoleMapping)serializer.Deserialize(legacyReader)!;
+        Assert.False(legacy.ManageUnratedItems);
+        Assert.Empty(legacy.BlockUnratedItems);
+    }
+
     // ── parental rating: name -> score via ILocalizationManager, strictest wins ──
 
     [Fact]
@@ -482,6 +615,7 @@ public async Task EnableLibraryAccessManagement_DefaultsToTrue_UsesMappingLibrar
         nameof(UserPolicy.EnabledFolders),
         nameof(UserPolicy.MaxParentalRating),
         nameof(UserPolicy.MaxParentalSubRating),
+        nameof(UserPolicy.BlockUnratedItems), // conditionally owned when a matched role opts in
     };
 
     // Re-derived from the User entity by ReadCurrentPolicy so they survive login untouched.
@@ -508,7 +642,6 @@ public async Task EnableLibraryAccessManagement_DefaultsToTrue_UsesMappingLibrar
         nameof(UserPolicy.EnabledChannels),
         nameof(UserPolicy.BlockedChannels),
         nameof(UserPolicy.BlockedMediaFolders),
-        nameof(UserPolicy.BlockUnratedItems),
         nameof(UserPolicy.AccessSchedules),
         nameof(UserPolicy.MaxActiveSessions),
         nameof(UserPolicy.InvalidLoginAttemptCount),

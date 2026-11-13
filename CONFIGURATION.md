@@ -113,6 +113,8 @@ Go to the **Role Mappings** tab and create mappings:
 - Role Name: `jellyfin-kids`
 - Libraries: Kids only
 - Max Parental Rating: pick `PG` (or your country's equivalent) from the dropdown
+- Apply this role's unrated-content rules at SSO login: checked
+- Unrated Content: check Block unrated movies and Block unrated shows; leave Block unrated music unchecked if unrated music is allowed
 
 > **Multiple providers configured?** Use the **Provider Filter** dropdown on each role
 > mapping to restrict it to a specific provider. Without a filter, a role mapping applies to
@@ -127,14 +129,44 @@ When a user matches multiple role mappings, permissions are **merged (union)**:
 - **Max Parental Rating: strictest (lowest) wins** across matched roles. Picked by name
   (`PG-13`, `TV-14`, …) from the list your Jellyfin server recognises for its metadata
   country, and resolved to the same numeric score Jellyfin's own user screen uses.
+- **Unrated-content blocks: union** of the selected content types from matched roles with
+  **Apply this role's unrated-content rules at SSO login** enabled. A matched role with no selected
+  blocks cannot cancel another matched role's blocks.
 
 > Older configs stored a raw parental-rating number; that value is still honoured until you
 > re-pick the rating by name and save.
 
 Every user-policy field the plugin does **not** manage - access schedules, blocked/allowed
-tags, unrated-item blocks, bitrate and session caps, SyncPlay level, per-channel/device
+tags, bitrate and session caps, SyncPlay level, per-channel/device
 lists - is carried through from the user's current Jellyfin settings on each OIDC login, not
-reset.
+reset. Unrated-item blocks are also preserved unless at least one matched role opts in to
+managing them (below).
+
+### Unrated content
+
+The parental-rating cap alone does not block missing or unrecognised ratings. Each role
+can additionally manage Jellyfin's **Block items with no or unrecognized rating information**
+policy by enabling **Apply this role's unrated-content rules at SSO login** and selecting content
+types. This is applied through the same policy update as the other role permissions during
+SSO login, including a new account's first login.
+
+The underlying configuration fields are `ManageUnratedItems` (default `false`) and
+`BlockUnratedItems` (a list of Jellyfin `UnratedItem` enum names, for example `Movie` and
+`Series`). Movies/Shows and Music can be controlled independently.
+
+- No matched role opts in: preserve the user's existing blocks, including manual settings.
+  Existing installations therefore keep their current behavior until an admin opts in.
+- One or more matched roles opt in: **replace** the user's block list with the union of their
+  selections. Unmanaged and unmatched roles do not contribute. Manual blocks are replaced too.
+- An opted-in role with an empty list explicitly requests no blocks. This clears previous
+  blocks only if no other matched opted-in role selects any.
+
+For a transition from a child group to an unrestricted adult group, enable management on
+the adult role too, leaving all content types unchecked, and remove the child membership.
+Merely removing the child role without another opted-in role preserves the existing blocks.
+This controls unrated items only; the maximum parental rating is a separate setting.
+Changes take effect on the next SSO login, not immediately in existing app sessions.
+Turning **Manage user policy** off disables these updates along with other RBAC policy updates.
 
 ### Fallback role
 
