@@ -142,7 +142,9 @@ export function renderRoleMappings(view) {
                 el('p', { class: 'fieldDescription' }, STRINGS.role.unratedHint) +
                 el('div', { class: 'oidc-checkbox-row' }, UNRATED_ITEMS.map(function (item) {
                     return chk('role_unrated_' + idx + '_' + item, STRINGS.role['unrated' + item], (m.BlockUnratedItems || []).indexOf(item) !== -1);
-                }).join(''))) +
+                }).join('')) +
+                el('p', { class: 'fieldDescription' }, STRINGS.role.unratedMergeHint) +
+                el('p', { class: 'fieldDescription' }, STRINGS.role.unratedPreserveHint)) +
             el('div', { class: 'oidc-mt-md' },
                 el('button', { is: 'emby-button', type: 'button', class: 'oidc-btn-remove', 'data-action': 'remove-role', 'data-idx': idx }, STRINGS.common.removeBtn));
         card.open = !m.RoleName;

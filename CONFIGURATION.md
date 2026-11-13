@@ -113,8 +113,8 @@ Go to the **Role Mappings** tab and create mappings:
 - Role Name: `jellyfin-kids`
 - Libraries: Kids only
 - Max Parental Rating: pick `PG` (or your country's equivalent) from the dropdown
-- Manage unrated-content blocks from this role: checked
-- Unrated Content: select Movies and Shows; leave Music unchecked if unrated music is allowed
+- Apply this role's unrated-content rules at SSO login: checked
+- Unrated Content: check Block unrated movies and Block unrated shows; leave Block unrated music unchecked if unrated music is allowed
 
 > **Multiple providers configured?** Use the **Provider Filter** dropdown on each role
 > mapping to restrict it to a specific provider. Without a filter, a role mapping applies to
@@ -130,7 +130,7 @@ When a user matches multiple role mappings, permissions are **merged (union)**:
   (`PG-13`, `TV-14`, …) from the list your Jellyfin server recognises for its metadata
   country, and resolved to the same numeric score Jellyfin's own user screen uses.
 - **Unrated-content blocks: union** of the selected content types from matched roles with
-  **Manage unrated-content blocks from this role** enabled. A matched role with no selected
+  **Apply this role's unrated-content rules at SSO login** enabled. A matched role with no selected
   blocks cannot cancel another matched role's blocks.
 
 > Older configs stored a raw parental-rating number; that value is still honoured until you
@@ -146,7 +146,7 @@ managing them (below).
 
 The parental-rating cap alone does not block missing or unrecognised ratings. Each role
 can additionally manage Jellyfin's **Block items with no or unrecognized rating information**
-policy by enabling **Manage unrated-content blocks from this role** and selecting content
+policy by enabling **Apply this role's unrated-content rules at SSO login** and selecting content
 types. This is applied through the same policy update as the other role permissions during
 SSO login, including a new account's first login.
 
